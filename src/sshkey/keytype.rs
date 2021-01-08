@@ -59,6 +59,13 @@ impl KeyType {
                 is_cert: false,
                 kind: KeyTypeKind::Rsa,
             },
+            "rsa-sha2-512" => KeyType {
+                name: "rsa-sha2-512",
+                plain: "rsa-sha2-512",
+                short_name: "RSA",
+                is_cert: false,
+                kind: KeyTypeKind::Rsa,
+            },
             "ssh-rsa-cert-v01@openssh.com" => KeyType {
                 name: "ssh-rsa-cert-v01@openssh.com",
                 plain: "ssh-rsa",

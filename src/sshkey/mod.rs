@@ -46,16 +46,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //! The following OpenSSH certificate types are supported as well.
 //!
 //! - ssh-rsa-cert-v01@openssh.com
-//! - ssh-dss-cert-v01@openssh.com
 //! - ecdsa-sha2-nistp256-cert-v01@openssh.com
-//! - ecdsa-sha2-nistp384-cert-v01@openssh.com
-//! - ecdsa-sha2-nistp512-cert-v01@openssh.com
-//! - ssh-ed25519-cert-v01@openssh.com
+//! - ecdsa-sha2-nistp384-cert-v01@openssh.com  (Not yet)
+//! - ecdsa-sha2-nistp512-cert-v01@openssh.com  (Not yet)
+//! - ssh-ed25519-cert-v01@openssh.com          (Not yet)
 //!
-//! # Examples
-//!
-//! In order to view examples of this crate in use, please refer to the
-//! `examples` directory.
 
 mod cert;
 mod error;

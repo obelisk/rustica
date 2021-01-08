@@ -4,7 +4,13 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use ring::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
+use ring::signature::{
+    ECDSA_P256_SHA256_FIXED,
+    ECDSA_P256_SHA384_ASN1,
+    RSA_PKCS1_2048_8192_SHA256,
+    RSA_PKCS1_2048_8192_SHA512,
+    UnparsedPublicKey,
+    RsaPublicKeyComponents};
 
 use super::error::{Error, ErrorKind, Result};
 use super::keytype::KeyType;
@@ -256,35 +262,67 @@ fn read_principals(buf: &[u8]) -> Result<Vec<String>> {
     Ok(items)
 }
 
+// Verifies the certificate's signature is valid.
+// Appended to the end of every SSH Cert is a signature for the preceding data,
+// depending on the key, the signature could be any of the following:
+//
+// ECDSA
+//  ecdsa-sha2-nistp256
+//  ecdsa-sha2-nistp384 (@obelisk TODO: Ring doesn't support this with fixed but does with ASN1)
+//  ecdsa-sha2-nistp521 (but this is unsupported in Ring so not supported)
+//
+// RSA
+//  rsa-sha2-256
+//  rsa-sha2-512
+//
+// Ed25519
+//  Incomplete
+//
+// We then take the public key of the CA (immiediately preceeding the signature and part of the signed data)
+// and verify the signature accordingly. If the signature is not valid, this function errors.
 fn verify_signature(signature_buf: &[u8], signed_bytes: &[u8], public_key: &PublicKey) -> Result<Vec<u8>> {
     let mut reader = Reader::new(&signature_buf);
 
     let sig_type = reader.read_string().and_then(|v| KeyType::from_name(&v))?;
-    if sig_type.name != public_key.key_type.name {
-        return Err(Error::with_kind(ErrorKind::KeyTypeMismatch));
-    }
 
     match &public_key.kind {
          PublicKeyKind::Ecdsa(key) => {
-            let sig_reader = reader.read_bytes().unwrap();
+            let sig_reader = reader.read_bytes()?;
             let mut reader = Reader::new(&sig_reader);
 
             // Read the R value
-            let mut sig = reader.read_mpint().unwrap();
+            let mut sig = reader.read_mpint()?;
             // Read the S value
-            sig.extend(reader.read_mpint().unwrap());
+            sig.extend(reader.read_mpint()?);
 
-            let result = UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, &key.key).verify(&signed_bytes, &sig);
+            let alg = match sig_type.name {
+                "ecdsa-sha2-nistp256" => &ECDSA_P256_SHA256_FIXED,
+                //"ecdsa-sha2-nistp384" => &ECDSA_P256_SHA384_ASN1,
+                _ => return Err(Error::with_kind(ErrorKind::KeyTypeMismatch)), 
+            };
+
+            let result = UnparsedPublicKey::new(alg, &key.key).verify(&signed_bytes, &sig);
             match result {
                 Ok(()) => return Ok(signature_buf.to_vec()),
-                Err(_) => {
-                    println!("Signature Verification Failed");
-                    return Err(Error::with_kind(ErrorKind::CertificateInvalidSignature))
-                },
+                Err(_) => return Err(Error::with_kind(ErrorKind::CertificateInvalidSignature)),
             }
         },
         PublicKeyKind::Rsa(key) => {
-            return Err(Error::with_kind(ErrorKind::CertificateInvalidSignature))
+            let alg = match sig_type.name {
+                "rsa-sha2-256" => &RSA_PKCS1_2048_8192_SHA256,
+                "rsa-sha2-512" => &RSA_PKCS1_2048_8192_SHA512,
+                _ => return Err(Error::with_kind(ErrorKind::KeyTypeMismatch)), 
+            };
+            let signature = reader.read_bytes()?;
+            let public_key = RsaPublicKeyComponents { n: &key.n, e: &key.e };
+            let result = public_key.verify(alg, &signed_bytes, &signature);
+            match result {
+                Ok(()) => Ok(signature_buf.to_vec()),
+                Err(e) => {
+                    println!("Error: {}", e);
+                    Err(Error::with_kind(ErrorKind::CertificateInvalidSignature))
+                }
+            }
         },
         PublicKeyKind::Ed25519(key) => {
             return Err(Error::with_kind(ErrorKind::CertificateInvalidSignature))
