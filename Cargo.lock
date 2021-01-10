@@ -627,7 +627,6 @@ dependencies = [
  "hex",
  "ring",
  "rustica-sshkey",
- "serde_test",
  "sha2",
  "yubikey-piv",
 ]
@@ -678,15 +677,6 @@ name = "serde"
 version = "1.0.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06c64263859d87aa2eb554587e2d23183398d617427327cf2b3d0ed8c69e4800"
-
-[[package]]
-name = "serde_test"
-version = "1.0.118"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7f3f8714511d29f60be0ea965bc784df1b6903da5bbac801df36b1bbc7b4880"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "sha-1"
