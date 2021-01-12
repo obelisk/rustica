@@ -1,0 +1,42 @@
+syntax = "proto3";
+package rustica;
+
+message ChallengeRequest {
+    string pubkey = 1;
+}
+
+message ChallengeResponse {
+    string time = 1;
+    string challenge = 2;
+}
+
+message CertificateRequest {
+    string pubkey = 1;
+    enum CertType {
+        UNSPECIFIED = 0;
+        USER = 1;
+        HOST = 2;
+    }
+    CertType cert_type = 2;
+    repeated string users = 3;
+    repeated string servers = 4;
+    map<string, string> extensions = 5;
+    map<string, string> critical_options = 6;
+    uint64 valid_after = 7;
+    uint64 valid_before = 8;
+    string challenge = 9;
+    string challenge_signature = 10;
+    string challenge_time = 11;
+}
+
+
+message CertificateResponse {
+    string certificate = 1;
+    string error = 2;
+    int64 error_code = 3;
+}
+
+service Rustica {
+    rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
+    rpc Certificate(CertificateRequest) returns (CertificateResponse);
+}

@@ -67,7 +67,7 @@ pub fn _provision(yk: &mut YubiKey, pin: &[u8]) -> Result<PublicKeyInfo, Error> 
         slot,
         [0u8; 20],
         None,
-        "testSubject".to_owned(),
+        "/CN=RusticaProvisioned/".to_owned(),
         key_info,
     ) {
         return Err(Error::InternalYubiKeyError(e));
@@ -123,7 +123,20 @@ pub fn ssh_cert_fetch_pubkey(slot: SlotId) -> Option<rustica_sshkey::PublicKey> 
                 comment: None,
             })
         },
-        //Ok(hsm::PublicKeyInfo::EcP384(pubkey)) => pubkey.as_bytes().to_vec(),
+        Ok(PublicKeyInfo::EcP384(pubkey)) => {
+            let key_type = rustica_sshkey::KeyType::from_name("ecdsa-sha2-nistp384").unwrap();
+            let curve = rustica_sshkey::Curve::from_identifier("nistp384").unwrap();
+            let kind = rustica_sshkey::EcdsaPublicKey {
+                curve,
+                key: pubkey.as_bytes().to_vec(),
+            };
+
+            Some(rustica_sshkey::PublicKey {
+                key_type,
+                kind: rustica_sshkey::PublicKeyKind::Ecdsa(kind),
+                comment: None,
+            })
+        }
         _ => None,
     }
 }
@@ -151,6 +164,18 @@ pub fn ssh_cert_signer(buf: &[u8]) -> Option<Vec<u8>> {
 
             Some(encoded)
         },
+        Err(e) => {
+            println!("Error: {:?}", e);
+            None
+        },
+    }
+}
+
+/// Sign the provided buffer of data and return it in an SSH Certificiate
+/// signature formatted byte vector
+pub fn asn_cert_signer(buf: &[u8]) -> Option<Vec<u8>> {
+    match sign_data(&buf, AlgorithmId::EccP256, SlotId::Retired(RetiredSlotId::R11)) {
+        Ok(signature) => Some(signature),
         Err(e) => {
             println!("Error: {:?}", e);
             None
