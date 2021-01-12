@@ -23,11 +23,3 @@ yubikey-piv = {version = "0.1.0", features = ["untested"]}
 
 [build-dependencies]
 tonic-build = "0.3"
-
-[[bin]]
-name = "rustica"
-path = "src/main.rs"
-
-[[bin]]
-name = "rustica-client"
-path = "src/rustica-client.rs"
