@@ -239,6 +239,7 @@ impl RusticaServer {
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     println!("Starting Rustica");
 
     // These can be two different slots if you want hosts to be based on a separate

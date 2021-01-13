@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 base64 = "0.12.1"
+env_logger = "0.8.2"
 futures-core = "0.3"
 futures-util = "0.3"
 hex = "*"
