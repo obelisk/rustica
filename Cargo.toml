@@ -15,7 +15,7 @@ hex = "*"
 log = "*"
 prost = "0.6"
 ring = "0.16.9"
-rustica-sshkey = {path = "../rustica-sshkey"}
+rustica-keys = {path = "../rustica-keys"}
 sha2 = "0.9.2"
 tokio = { version = "0.2", features = ["full"] }
 tonic = "0.3"

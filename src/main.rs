@@ -4,10 +4,10 @@ extern crate log;
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
 
-use rustica_sshkey::ssh::{
+use rustica_keys::ssh::{
     CertType, Certificate, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind,
 };
-use rustica_sshkey::yubikey::{ssh_cert_fetch_pubkey, ssh_cert_signer};
+use rustica_keys::yubikey::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1};
 use ring::{hmac, rand};
