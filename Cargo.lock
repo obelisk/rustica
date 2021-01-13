@@ -1157,10 +1157,10 @@ name = "rustica"
 version = "0.1.0"
 dependencies = [
  "base64 0.12.3",
- "byteorder",
  "futures-core",
  "futures-util",
  "hex",
+ "log",
  "prost",
  "ring",
  "rustica-sshkey",

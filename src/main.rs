@@ -1,17 +1,16 @@
-use rustica::rustica_server::{Rustica, RusticaServer};
-use rustica::{  CertificateRequest,
-                CertificateResponse,
-                ChallengeRequest,
-                ChallengeResponse
-            };
+#[macro_use]
+extern crate log;
 
+use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
+use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
 
+use rustica_sshkey::ssh::{
+    CertType, Certificate, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind,
+};
 use rustica_sshkey::yubikey::{ssh_cert_fetch_pubkey, ssh_cert_signer};
-use rustica_sshkey::ssh::{CertType, Certificate, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind};
 
+use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1};
 use ring::{hmac, rand};
-use ring::signature::{ECDSA_P256_SHA256_ASN1, UnparsedPublicKey};
-use std::collections::HashMap;
 use std::time::SystemTime;
 use tonic::{transport::Server, Request, Response, Status};
 use yubikey_piv::key::{RetiredSlotId, SlotId};
@@ -21,7 +20,7 @@ pub mod rustica {
 }
 
 #[derive(Debug)]
-pub struct MyRusticaServer {
+pub struct RusticaServer {
     hmac_key: hmac::Key,
     user_ca_cert: SSHPublicKey,
     host_ca_cert: SSHPublicKey,
@@ -33,20 +32,20 @@ fn sign_user_key(buf: &[u8]) -> Option<Vec<u8>> {
 }
 
 #[tonic::async_trait]
-impl Rustica for MyRusticaServer {
-    async fn challenge(
-        &self,
-        request: Request<ChallengeRequest>,
-    ) -> Result<Response<ChallengeResponse>, Status> {
+impl Rustica for RusticaServer {
+    async fn challenge(&self, request: Request<ChallengeRequest>) -> Result<Response<ChallengeResponse>, Status> {
         let request = request.into_inner();
-        println!("Someone wants to authenticate: {}", request.pubkey);
+        debug!("Someone wants to authenticate: {}", request.pubkey);
 
-        let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs().to_string();
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string();
         let pubkey = &request.pubkey;
         let challenge = format!("{}-{}", timestamp, pubkey);
-
         let tag = hmac::sign(&self.hmac_key, challenge.as_bytes());
-        
+
         let reply = ChallengeResponse {
             time: timestamp,
             challenge: hex::encode(tag),
@@ -55,16 +54,15 @@ impl Rustica for MyRusticaServer {
         Ok(Response::new(reply))
     }
 
-    async fn certificate(
-        &self,
-        request: Request<CertificateRequest>,
-    ) -> Result<Response<CertificateResponse>, Status> {
-        println!("Received certificate request: {:?}", request);
+    /// This function is responsible for validating the request passes all the
+    /// following checks, and in this order.
+    /// Zeroth Validate Time is not expired  DONE
+    /// First Validate Mac                   DONE
+    /// Second Validate Signature            DONE
+    /// Third Validate PubKey is authorized
+    async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
+        debug!("Received certificate request: {:?}", request);
         let request = request.into_inner();
-        // Zeroth Validate Time is not expired  DONE
-        // First Validate Mac                   DONE
-        // Second Validate Signature            DONE
-        // Third Validate PubKey is authorized
         let timestamp = &request.challenge_time.parse::<u64>().unwrap_or(0);
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(ts) => ts.as_secs(),
@@ -88,10 +86,14 @@ impl Rustica for MyRusticaServer {
                     error: String::from("Bad Challenge Encoding"),
                     error_code: -2,
                 }));
-            },
+            }
         };
 
-        match hmac::verify(&self.hmac_key, hmac_verification.as_bytes(), &decoded_challenge) {
+        match hmac::verify(
+            &self.hmac_key,
+            hmac_verification.as_bytes(),
+            &decoded_challenge,
+        ) {
             Ok(_) => (),
             Err(_) => {
                 return Ok(Response::new(CertificateResponse {
@@ -110,22 +112,28 @@ impl Rustica for MyRusticaServer {
                     error: String::from("Invalid Key"),
                     error_code: -4,
                 }));
-            },
+            }
         };
 
         let pubkey = match &ssh_pubkey.kind {
             SSHPublicKeyKind::Ecdsa(key) => key,
-           _ => panic!("Bad Key"),
+            _ => panic!("Bad Key"),
         };
 
-        let result = UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, &pubkey.key).verify(&hex::decode(&request.challenge).unwrap(), &hex::decode(&request.challenge_signature).unwrap());
+        let result = UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, &pubkey.key).verify(
+            &hex::decode(&request.challenge).unwrap(),
+            &hex::decode(&request.challenge_signature).unwrap(),
+        );
+
         match result {
             Ok(()) => (),
-            Err(_) => return Ok(Response::new(CertificateResponse {
-                certificate: String::new(),
-                error: String::from("Bad Challenge"),
-                error_code: -5,
-            })),
+            Err(_) => {
+                return Ok(Response::new(CertificateResponse {
+                    certificate: String::new(),
+                    error: String::from("Bad Challenge"),
+                    error_code: -5,
+                }))
+            }
         }
 
         /*
@@ -151,7 +159,7 @@ impl Rustica for MyRusticaServer {
             self.user_ca_cert.clone(),
             sign_user_key,
         );
-    
+
         let serialized_cert = match user_cert {
             Ok(cert) => {
                 let serialized = format!("{}", cert);
@@ -161,19 +169,18 @@ impl Rustica for MyRusticaServer {
                         certificate: String::new(),
                         error: String::from("Bad Options For Cert Creation"),
                         error_code: -5,
-                    }))
+                    }));
                 }
                 serialized
-            },
+            }
             Err(_) => {
                 return Ok(Response::new(CertificateResponse {
                     certificate: String::new(),
                     error: String::from("Bad Challenge"),
                     error_code: -6,
                 }))
-            },
+            }
         };
-    
 
         let reply = CertificateResponse {
             certificate: serialized_cert,
@@ -185,11 +192,11 @@ impl Rustica for MyRusticaServer {
     }
 }
 
-impl MyRusticaServer {
-    pub fn new(user_ca_cert: SSHPublicKey, host_ca_cert: SSHPublicKey) -> MyRusticaServer {
+impl RusticaServer {
+    pub fn new(user_ca_cert: SSHPublicKey, host_ca_cert: SSHPublicKey) -> RusticaServer {
         let rng = rand::SystemRandom::new();
         let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
-        MyRusticaServer {
+        RusticaServer {
             hmac_key,
             user_ca_cert,
             host_ca_cert,
@@ -199,36 +206,39 @@ impl MyRusticaServer {
 
 #[tokio::main]
 async fn main() {
-    println!("Starting Rustica...");
-    let user_ca_cert = match ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R11)) {
-        Some(ca_cert) => ca_cert,
-        None => {
-            println!("Could not fetch user CA public key from YubiKey. Is it configured?");
+    println!("Starting Rustica");
+
+    // These can be two different slots if you want hosts to be based on a separate
+    // CA
+    let user_ca_cert = ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R11));
+    let host_ca_cert = ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R11));
+
+    let (user_ca_cert, host_ca_cert) = match (user_ca_cert, host_ca_cert) {
+        (Some(ucc), Some(hcc)) => (ucc, hcc),
+        _ => {
+            error!("Could not fetch CA public keys from YubiKey. Is it connected configured?");
             return;
-        },
+        }
     };
 
-    // Eventually this will be stored in another slot but for now, it's fine to keep
-    // the same for each
-    let host_ca_cert = match ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R11)) {
-        Some(ca_cert) => ca_cert,
-        None => {
-            println!("Could not fetch host CA public key from YubiKey. Is it configured?");
-            return;
-        },
-    };
+    info!("User CA Pubkey: {}", user_ca_cert);
+    println!(
+        "User CA Fingerprint (SHA256): {}",
+        user_ca_cert.fingerprint().hash
+    );
 
-    println!("User CA Pubkey: {}", user_ca_cert);
-    println!("User CA Fingerprint (SHA256): {}\n", user_ca_cert.fingerprint().hash);
-
-    println!("Host CA Pubkey: {}", host_ca_cert);
-    println!("Host CA Fingerprint (SHA256): {}\n", host_ca_cert.fingerprint().hash);
+    info!("Host CA Pubkey: {}", host_ca_cert);
+    println!(
+        "Host CA Fingerprint (SHA256): {}",
+        host_ca_cert.fingerprint().hash
+    );
 
     let addr = "[::1]:50051".parse().unwrap();
-    let rs = MyRusticaServer::new(user_ca_cert, host_ca_cert);
+    let rs = RusticaServer::new(user_ca_cert, host_ca_cert);
 
     Server::builder()
-        .add_service(RusticaServer::new(rs))
+        .add_service(GRPCRusticaServer::new(rs))
         .serve(addr)
-        .await.unwrap();
+        .await
+        .unwrap();
 }
