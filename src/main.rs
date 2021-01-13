@@ -1,5 +1,3 @@
-mod hsm;
-
 use rustica::rustica_server::{Rustica, RusticaServer};
 use rustica::{  CertificateRequest,
                 CertificateResponse,
@@ -8,8 +6,8 @@ use rustica::{  CertificateRequest,
             };
 
 
-use hsm::yubikey::{ssh_cert_fetch_pubkey, ssh_cert_signer};
-use rustica_sshkey::{CertType, Certificate, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind};
+use rustica_sshkey::yubikey::{ssh_cert_fetch_pubkey, ssh_cert_signer};
+use rustica_sshkey::ssh::{CertType, Certificate, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind};
 
 use ring::{hmac, rand};
 use ring::signature::{ECDSA_P256_SHA256_ASN1, UnparsedPublicKey};
@@ -27,6 +25,11 @@ pub struct MyRusticaServer {
     hmac_key: hmac::Key,
     user_ca_cert: SSHPublicKey,
     host_ca_cert: SSHPublicKey,
+}
+
+fn sign_user_key(buf: &[u8]) -> Option<Vec<u8>> {
+    let slot = SlotId::Retired(RetiredSlotId::R11);
+    ssh_cert_signer(buf, slot)
 }
 
 #[tonic::async_trait]
@@ -63,10 +66,12 @@ impl Rustica for MyRusticaServer {
         // Second Validate Signature            DONE
         // Third Validate PubKey is authorized
         let timestamp = &request.challenge_time.parse::<u64>().unwrap_or(0);
+        let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(ts) => ts.as_secs(),
+            Err(_e) => 0xFFFFFFFFFFFFFFFF,
+        };
 
-        let current_timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-
-        if (timestamp - current_timestamp) > 15 {
+        if (current_timestamp - timestamp) > 5 {
             return Ok(Response::new(CertificateResponse {
                 certificate: String::new(),
                 error: String::from("Time Expired"),
@@ -133,25 +138,18 @@ impl Rustica for MyRusticaServer {
         }
         */
 
-        let mut extensions = HashMap::new();
-        extensions.insert(String::from("permit-X11-forwarding"), String::from(""));
-        extensions.insert(String::from("permit-agent-forwarding"), String::from(""));
-        extensions.insert(String::from("permit-port-forwarding"), String::from(""));
-        extensions.insert(String::from("permit-pty"), String::from(""));
-        extensions.insert(String::from("permit-user-rc"), String::from(""));
-    
         let user_cert = Certificate::new(
             ssh_pubkey,
             CertType::User,
             0xFEFEFEFEFEFEFEFE,
-            String::from("obelisk@exclave"),
-            vec![String::from("obelisk")],
-            0,
-            0xFFFFFFFFFFFFFFFF,
-            HashMap::new(),
-            extensions,
+            request.key_id,
+            request.principals,
+            current_timestamp,
+            current_timestamp + 10,
+            request.critical_options,
+            request.extensions,
             self.user_ca_cert.clone(),
-            ssh_cert_signer,
+            sign_user_key,
         );
     
         let serialized_cert = match user_cert {
