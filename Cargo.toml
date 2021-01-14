@@ -8,6 +8,8 @@ edition = "2018"
 
 [dependencies]
 base64 = "0.12.1"
+diesel = { version = "1.4.4", features = ["sqlite"] }
+dotenv = "0.15.0"
 env_logger = "0.8.2"
 futures-core = "0.3"
 futures-util = "0.3"
