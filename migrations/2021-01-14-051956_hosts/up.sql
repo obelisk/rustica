@@ -17,4 +17,6 @@ CREATE TABLE fingerprint_permissions (
 
 -- The following line will allow the user with the private key of the fingerprint below
 -- to login to servers as the "obelisk" user
--- INSERT INTO fingerprint_user_authorizations VALUES (0, "jHFJGs/3e5ewMEJTidMEoR23nfxao3Szkpos3eRhQkc", "obelisk");
+INSERT INTO fingerprint_user_authorizations VALUES (0, "jHFJGs/3e5ewMEJTidMEoR23nfxao3Szkpos3eRhQkc", "obelisk");
+-- The following line shows adding multiple principals to a single key
+INSERT INTO fingerprint_user_authorizations VALUES (1, "jHFJGs/3e5ewMEJTidMEoR23nfxao3Szkpos3eRhQkc", "mitchell");
