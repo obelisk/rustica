@@ -12,10 +12,10 @@ fn establish_connection() -> SqliteConnection {
     let database_url = env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set");
         SqliteConnection::establish(&database_url)
-        .expect(&format!("Error connecting to {}", database_url))
+        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
 }
 
-pub fn get_authorized_users(fp: &String) -> Vec<String> {
+pub fn get_authorized_users(fp: &str) -> Vec<String> {
     let conn = establish_connection();
     use schema::fingerprint_user_authorizations::dsl::*;
 

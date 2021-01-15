@@ -13,11 +13,11 @@ use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
 
 use rustica_keys::ssh::{
-    CertType, Certificate, Extensions, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind,
+    CertType, Certificate, CurveKind, Extensions, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind,
 };
-use rustica_keys::yubikey::{ssh_cert_fetch_pubkey, ssh_cert_signer};
+use rustica_keys::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
-use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1};
+use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1};
 use ring::{hmac, rand};
 use std::time::SystemTime;
 use tonic::{transport::Server, Request, Response, Status};
@@ -134,9 +134,21 @@ impl Rustica for RusticaServer {
             }
         };
 
-        // TODO @obelisk Support Ed25519 and Nistp384
-        let pubkey = match &ssh_pubkey.kind {
-            SSHPublicKeyKind::Ecdsa(key) => key,
+        // TODO @obelisk Support Ed25519
+        let (pubkey, alg) = match &ssh_pubkey.kind {
+            SSHPublicKeyKind::Ecdsa(key) => {
+                match key.curve.kind {
+                    CurveKind::Nistp256 => (key, &ECDSA_P256_SHA256_ASN1),
+                    CurveKind::Nistp384 => (key, &ECDSA_P384_SHA384_ASN1),
+                    _ => {
+                        return Ok(Response::new(CertificateResponse {
+                            certificate: String::new(),
+                            error: format!("{:?}", RusticaServerError::UnsupportedKeyType),
+                            error_code: RusticaServerError::UnsupportedKeyType as i64,
+                        }));
+                    },
+                }
+            },
             _ => {
                 return Ok(Response::new(CertificateResponse {
                     certificate: String::new(),
@@ -146,7 +158,7 @@ impl Rustica for RusticaServer {
             }
         };
 
-        let result = UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, &pubkey.key).verify(
+        let result = UnparsedPublicKey::new(alg, &pubkey.key).verify(
             &hex::decode(&request.challenge).unwrap(),
             &hex::decode(&request.challenge_signature).unwrap(),
         );
@@ -245,7 +257,7 @@ async fn main() {
     let (user_ca_cert, host_ca_cert) = match (user_ca_cert, host_ca_cert) {
         (Some(ucc), Some(hcc)) => (ucc, hcc),
         _ => {
-            error!("Could not fetch CA public keys from YubiKey. Is it connected configured?");
+            error!("Could not fetch CA public keys from YubiKey. Is it connected/configured?");
             return;
         }
     };

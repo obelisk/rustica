@@ -20,3 +20,5 @@ CREATE TABLE fingerprint_permissions (
 INSERT INTO fingerprint_user_authorizations VALUES (0, "jHFJGs/3e5ewMEJTidMEoR23nfxao3Szkpos3eRhQkc", "obelisk");
 -- The following line shows adding multiple principals to a single key
 INSERT INTO fingerprint_user_authorizations VALUES (1, "jHFJGs/3e5ewMEJTidMEoR23nfxao3Szkpos3eRhQkc", "mitchell");
+
+INSERT INTO fingerprint_user_authorizations VALUES (2, "0iJ4L6ehoaggjT6criBGTnWvDtWGSjw3Sg33aTpVyCs", "obelisk");

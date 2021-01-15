@@ -1256,10 +1256,11 @@ dependencies = [
 
 [[package]]
 name = "rustica-keys"
-version = "0.1.0"
+version = "0.3.0-alpha"
 dependencies = [
  "base64 0.12.3",
  "byteorder",
+ "log",
  "ring",
  "sha2",
  "yubikey-piv",
