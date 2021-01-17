@@ -7,18 +7,19 @@ extern crate dotenv;
 
 mod database;
 
-use database::get_authorized_users;
+use database::get_fingerprint_authorization;
 
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
 
 use rustica_keys::ssh::{
-    CertType, Certificate, CurveKind, Extensions, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind,
+    CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind,
 };
 use rustica_keys::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1};
 use ring::{hmac, rand};
+use ring::rand::SecureRandom;
 use std::time::SystemTime;
 use tonic::{transport::Server, Request, Response, Status};
 use yubikey_piv::key::{RetiredSlotId, SlotId};
@@ -43,6 +44,7 @@ pub enum RusticaServerError {
     UnsupportedKeyType = 4,
     BadCertOptions = 5,
     NoAuthorizations = 6,
+    Unknown = 9001,
 }
 
 fn sign_user_key(buf: &[u8]) -> Option<Vec<u8>> {
@@ -174,9 +176,9 @@ impl Rustica for RusticaServer {
             }
         }
 
-        let authorized_users = get_authorized_users(&ssh_pubkey.fingerprint().hash);
+        let authorization = get_fingerprint_authorization(&ssh_pubkey.fingerprint().hash);
 
-        if authorized_users.is_empty() {
+        if authorization.users.is_empty() {
             return Ok(Response::new(CertificateResponse {
                 certificate: String::new(),
                 error: format!("{:?}", RusticaServerError::NoAuthorizations),
@@ -184,16 +186,56 @@ impl Rustica for RusticaServer {
             }))
         }
 
+        if authorization.hosts.is_empty() && !authorization.unrestricted {
+            return Ok(Response::new(CertificateResponse {
+                certificate: String::new(),
+                error: format!("{:?}", RusticaServerError::NoAuthorizations),
+                error_code: RusticaServerError::NoAuthorizations as i64,
+            }))
+        }
+
+        // Build our script that will force authorization to the particular servers
+        // we have access to
+        let mut file_rand = [0; 4];
+
+        let rng = rand::SystemRandom::new();
+        if let Err(_) = rng.fill(&mut file_rand) {
+            return Ok(Response::new(CertificateResponse {
+                certificate: String::new(),
+                error: format!("{:?}", RusticaServerError::Unknown),
+                error_code: RusticaServerError::Unknown as i64,
+            }))
+        }
+
+        let critical_options = match authorization.unrestricted {
+            true => authorization.critical_options,
+            false => {
+                let authorized_hosts = authorization.hosts.join(",");
+                let file_rand = u32::from_be_bytes(file_rand);
+                let mut force_command = String::new();
+                force_command.push_str(&format!("export RUSTICA_AUTHORIZED_HOSTS={};", authorized_hosts));
+                force_command.push_str(&format!("export LOGIN_SCRIPT=/tmp/rustica_login_{}.sh;", file_rand));
+                let script = base64::encode(include_str!("../bash/verify.sh"));
+                force_command.push_str(&format!("echo \"{}\" | base64 -d > $LOGIN_SCRIPT && chmod +x $LOGIN_SCRIPT && $LOGIN_SCRIPT", script));
+
+                debug!("Force Command: {}", force_command);
+                let mut co = std::collections::HashMap::new();
+                co.insert(String::from("force-command"), force_command);
+
+                CriticalOptions::Custom(co)
+            }
+        };
+
         let user_cert = Certificate::new(
             ssh_pubkey,
             CertType::User,
             0xFEFEFEFEFEFEFEFE,
             request.key_id,
-            authorized_users,
+            authorization.users,
             current_timestamp,
             current_timestamp + 10,
-            CriticalOptions::None,
-            Extensions::Standard,
+            critical_options,
+            authorization.extensions,
             self.user_ca_cert.clone(),
             sign_user_key,
         );
