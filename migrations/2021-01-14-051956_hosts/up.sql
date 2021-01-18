@@ -17,7 +17,8 @@ CREATE TABLE fingerprint_host_authorizations (
 
 CREATE TABLE fingerprint_permissions (
 	fingerprint TEXT PRIMARY KEY NOT NULL,
-	host_unrestricted BOOLEAN DEFAULT FALSE NOT NULL
+	host_unrestricted BOOLEAN DEFAULT FALSE NOT NULL,
+	can_create_host_certs BOOLEAN DEFAULT FALSE NOT NULL
 );
 
 CREATE TABLE fingerprint_extensions (
@@ -57,4 +58,4 @@ INSERT INTO fingerprint_host_authorizations VALUES (1, "0iJ4L6ehoaggjT6criBGTnWv
 -- ----------------------------------
 -- Example Permissions Authorizations
 -- ----------------------------------
-INSERT INTO fingerprint_permissions VALUES ("CiYONGZzXXeZpQVEg6msi51EmKijhfvhfRFQRIauSQc", TRUE);
+INSERT INTO fingerprint_permissions VALUES ("CiYONGZzXXeZpQVEg6msi51EmKijhfvhfRFQRIauSQc", TRUE, TRUE);

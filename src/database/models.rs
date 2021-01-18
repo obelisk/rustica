@@ -22,4 +22,5 @@ pub struct FingerprintHostAuthorization {
 pub struct FingerprintPermission {
     pub fingerprint: String,
     pub host_unrestricted: bool,
+    pub can_create_host_certs: bool,
 }

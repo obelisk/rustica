@@ -28,6 +28,7 @@ table! {
     fingerprint_permissions (fingerprint) {
         fingerprint -> Text,
         host_unrestricted -> Bool,
+        can_create_host_certs -> Bool,
     }
 }
 

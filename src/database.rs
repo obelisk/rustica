@@ -12,6 +12,7 @@ pub struct Authorization {
     pub users: Vec<String>,
     pub hosts: Vec<String>,
     pub unrestricted: bool,
+    pub can_create_host_certs: bool,
     pub extensions: Extensions,
     pub critical_options: CriticalOptions,
 }
@@ -46,7 +47,7 @@ pub fn get_fingerprint_authorization(fp: &str) -> Authorization {
         results.into_iter().map(|x| x.hostname).collect()
     };
 
-    let unrestricted = {
+    let (unrestricted, can_create_host_certs) = {
         use schema::fingerprint_permissions::dsl::*;
 
         let results = fingerprint_permissions.filter(fingerprint.eq(fp))
@@ -54,9 +55,9 @@ pub fn get_fingerprint_authorization(fp: &str) -> Authorization {
             .expect("Error loading authorized hosts");
         
         if results.is_empty() {
-            false
+            (false, false)
         } else {
-            results[0].host_unrestricted
+            (results[0].host_unrestricted, results[0].can_create_host_certs)
         }
     };
 
@@ -65,6 +66,7 @@ pub fn get_fingerprint_authorization(fp: &str) -> Authorization {
         users,
         hosts,
         unrestricted,
+        can_create_host_certs,
         extensions: Extensions::Standard,
         critical_options: CriticalOptions::None,
     }

@@ -6,8 +6,11 @@ extern crate diesel;
 extern crate dotenv;
 
 mod database;
+mod error;
+mod utils;
 
 use database::get_fingerprint_authorization;
+use error::RusticaServerError;
 
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
@@ -35,17 +38,6 @@ pub struct RusticaServer {
     host_ca_cert: SSHPublicKey,
 }
 
-#[derive(Debug)]
-pub enum RusticaServerError {
-    Success = 0,
-    TimeExpired = 1,
-    BadChallenge = 2,
-    InvalidKey = 3,
-    UnsupportedKeyType = 4,
-    BadCertOptions = 5,
-    NoAuthorizations = 6,
-    Unknown = 9001,
-}
 
 fn sign_user_key(buf: &[u8]) -> Option<Vec<u8>> {
     let slot = SlotId::Retired(RetiredSlotId::R11);
@@ -178,57 +170,57 @@ impl Rustica for RusticaServer {
 
         let authorization = get_fingerprint_authorization(&ssh_pubkey.fingerprint().hash);
 
-        if authorization.users.is_empty() {
-            return Ok(Response::new(CertificateResponse {
-                certificate: String::new(),
-                error: format!("{:?}", RusticaServerError::NoAuthorizations),
-                error_code: RusticaServerError::NoAuthorizations as i64,
-            }))
-        }
-
-        if authorization.hosts.is_empty() && !authorization.unrestricted {
-            return Ok(Response::new(CertificateResponse {
-                certificate: String::new(),
-                error: format!("{:?}", RusticaServerError::NoAuthorizations),
-                error_code: RusticaServerError::NoAuthorizations as i64,
-            }))
-        }
-
-        // Build our script that will force authorization to the particular servers
-        // we have access to
-        let mut file_rand = [0; 4];
-
-        let rng = rand::SystemRandom::new();
-        if let Err(_) = rng.fill(&mut file_rand) {
-            return Ok(Response::new(CertificateResponse {
-                certificate: String::new(),
-                error: format!("{:?}", RusticaServerError::Unknown),
-                error_code: RusticaServerError::Unknown as i64,
-            }))
-        }
-
-        let critical_options = match authorization.unrestricted {
-            true => authorization.critical_options,
-            false => {
-                let authorized_hosts = authorization.hosts.join(",");
-                let file_rand = u32::from_be_bytes(file_rand);
-                let mut force_command = String::new();
-                force_command.push_str(&format!("export RUSTICA_AUTHORIZED_HOSTS={};", authorized_hosts));
-                force_command.push_str(&format!("export LOGIN_SCRIPT=/tmp/rustica_login_{}.sh;", file_rand));
-                let script = base64::encode(include_str!("../bash/verify.sh"));
-                force_command.push_str(&format!("echo \"{}\" | base64 -d > $LOGIN_SCRIPT && chmod +x $LOGIN_SCRIPT && $LOGIN_SCRIPT", script));
-
-                debug!("Force Command: {}", force_command);
-                let mut co = std::collections::HashMap::new();
-                co.insert(String::from("force-command"), force_command);
-
-                CriticalOptions::Custom(co)
+        let req_cert_type = match request.cert_type {
+            1 => CertType::User,
+            2 => CertType::Host,
+            _ => {
+                return Ok(Response::new(CertificateResponse {
+                    certificate: String::new(),
+                    error: format!("{:?}", RusticaServerError::BadCertOptions),
+                    error_code: RusticaServerError::BadCertOptions as i64,
+                }));
             }
         };
 
-        let user_cert = Certificate::new(
+        if req_cert_type == CertType::User {
+            if authorization.users.is_empty() || (authorization.hosts.is_empty() && !authorization.unrestricted){
+                return Ok(Response::new(CertificateResponse {
+                    certificate: String::new(),
+                    error: format!("{:?}", RusticaServerError::NoAuthorizations),
+                    error_code: RusticaServerError::NoAuthorizations as i64,
+                }))
+            }
+        } else if req_cert_type == CertType::Host && !authorization.can_create_host_certs {
+            return Ok(Response::new(CertificateResponse {
+                certificate: String::new(),
+                error: format!("{:?}", RusticaServerError::BadCertOptions),
+                error_code: RusticaServerError::BadCertOptions as i64,
+            }));
+        }
+
+        let critical_options =
+        if authorization.unrestricted || req_cert_type == CertType::Host {
+            authorization.critical_options
+        } else {
+            match utils::build_force_command(&authorization.hosts) {
+                Ok(cmd) => {
+                    let mut co = std::collections::HashMap::new();
+                    co.insert(String::from("force-command"), cmd);
+                    CriticalOptions::Custom(co)
+                },
+                Err(_) => {
+                    return Ok(Response::new(CertificateResponse {
+                        certificate: String::new(),
+                        error: format!("{:?}", RusticaServerError::Unknown),
+                        error_code: RusticaServerError::Unknown as i64,
+                    }));
+                }
+            }
+        };
+
+        let cert = Certificate::new(
             ssh_pubkey,
-            CertType::User,
+            req_cert_type,
             0xFEFEFEFEFEFEFEFE,
             request.key_id,
             authorization.users,
@@ -240,7 +232,7 @@ impl Rustica for RusticaServer {
             sign_user_key,
         );
 
-        let serialized_cert = match user_cert {
+        let serialized_cert = match cert {
             Ok(cert) => {
                 let serialized = format!("{}", cert);
 
@@ -293,8 +285,8 @@ async fn main() {
 
     // These can be two different slots if you want hosts to be based on a separate
     // CA
-    let user_ca_cert = ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R11));
-    let host_ca_cert = ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R11));
+    let user_ca_cert = ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R1));
+    let host_ca_cert = ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R2));
 
     let (user_ca_cert, host_ca_cert) = match (user_ca_cert, host_ca_cert) {
         (Some(ucc), Some(hcc)) => (ucc, hcc),
