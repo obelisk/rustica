@@ -28,15 +28,18 @@ table! {
     fingerprint_permissions (fingerprint) {
         fingerprint -> Text,
         host_unrestricted -> Bool,
+        principal_unrestricted -> Bool,
         can_create_host_certs -> Bool,
+        can_create_user_certs -> Bool,
+        max_creation_time -> Integer,
     }
 }
 
 table! {
-    fingerprint_user_authorizations (id) {
+    fingerprint_principal_authorizations (id) {
         id -> Integer,
         fingerprint -> Text,
-        username -> Text,
+        principal -> Text,
     }
 }
 
@@ -52,6 +55,6 @@ allow_tables_to_appear_in_same_query!(
     fingerprint_extensions,
     fingerprint_host_authorizations,
     fingerprint_permissions,
-    fingerprint_user_authorizations,
+    fingerprint_principal_authorizations,
     hosts,
 );

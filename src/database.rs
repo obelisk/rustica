@@ -8,13 +8,20 @@ use std::env;
 
 use rustica_keys::ssh::{Extensions, CriticalOptions};
 
-pub struct Authorization {
-    pub users: Vec<String>,
-    pub hosts: Vec<String>,
-    pub unrestricted: bool,
+pub struct Permissions {
+    pub host_unrestricted: bool,
+    pub principal_unrestricted: bool,
     pub can_create_host_certs: bool,
+    pub can_create_user_certs: bool,
+    pub max_creation_time: u32,
+}
+
+pub struct Authorization {
+    pub principals: Vec<String>,
+    pub hosts: Vec<String>,
     pub extensions: Extensions,
     pub critical_options: CriticalOptions,
+    pub permissions: Permissions,
 }
 
 fn establish_connection() -> SqliteConnection {
@@ -28,13 +35,13 @@ fn establish_connection() -> SqliteConnection {
 
 pub fn get_fingerprint_authorization(fp: &str) -> Authorization {
     let conn = establish_connection();
-    let users = {
-        use schema::fingerprint_user_authorizations::dsl::*;
-        let results = fingerprint_user_authorizations.filter(fingerprint.eq(fp))
-            .load::<models::FingerprintUserAuthorization>(&conn)
+    let principals = {
+        use schema::fingerprint_principal_authorizations::dsl::*;
+        let results = fingerprint_principal_authorizations.filter(fingerprint.eq(fp))
+            .load::<models::FingerprintPrincipalAuthorization>(&conn)
             .expect("Error loading authorized hosts");
         
-        results.into_iter().map(|x| x.username).collect()
+        results.into_iter().map(|x| x.principal).collect()
     };
 
     let hosts = {
@@ -47,28 +54,39 @@ pub fn get_fingerprint_authorization(fp: &str) -> Authorization {
         results.into_iter().map(|x| x.hostname).collect()
     };
 
-    let (unrestricted, can_create_host_certs) = {
+    let permissions = {
         use schema::fingerprint_permissions::dsl::*;
 
         let results = fingerprint_permissions.filter(fingerprint.eq(fp))
             .load::<models::FingerprintPermission>(&conn)
             .expect("Error loading authorized hosts");
         
-        if results.is_empty() {
-            (false, false)
+        if !results.is_empty() {
+            Permissions {
+                host_unrestricted: results[0].host_unrestricted,
+                principal_unrestricted: results[0].principal_unrestricted,
+                can_create_host_certs: results[0].can_create_host_certs,
+                can_create_user_certs: results[0].can_create_user_certs,
+                max_creation_time: results[0].max_creation_time as u32,
+            }
         } else {
-            (results[0].host_unrestricted, results[0].can_create_host_certs)
+            Permissions {
+                host_unrestricted: false,
+                principal_unrestricted: false,
+                can_create_host_certs: false,
+                can_create_user_certs: false,
+                max_creation_time: 10,
+            }
         }
     };
 
     // TODO @obelisk: Parse extensions and critical options correctly
     Authorization {
-        users,
+        principals,
         hosts,
-        unrestricted,
-        can_create_host_certs,
         extensions: Extensions::Standard,
         critical_options: CriticalOptions::None,
+        permissions,
     }
     
 }

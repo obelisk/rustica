@@ -22,7 +22,6 @@ use rustica_keys::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1};
 use ring::{hmac, rand};
-use ring::rand::SecureRandom;
 use std::time::SystemTime;
 use tonic::{transport::Server, Request, Response, Status};
 use yubikey_piv::key::{RetiredSlotId, SlotId};
@@ -31,17 +30,19 @@ pub mod rustica {
     tonic::include_proto!("rustica");
 }
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct RusticaServer {
     hmac_key: hmac::Key,
     user_ca_cert: SSHPublicKey,
+    user_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
     host_ca_cert: SSHPublicKey,
+    host_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
 }
 
-
-fn sign_user_key(buf: &[u8]) -> Option<Vec<u8>> {
-    let slot = SlotId::Retired(RetiredSlotId::R11);
-    ssh_cert_signer(buf, slot)
+fn create_signer(slot: SlotId) -> Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync> {
+    Box::new(move |buf: &[u8]| {
+        ssh_cert_signer(buf, slot)
+    })
 }
 
 #[tonic::async_trait]
@@ -168,11 +169,23 @@ impl Rustica for RusticaServer {
             }
         }
 
-        let authorization = get_fingerprint_authorization(&ssh_pubkey.fingerprint().hash);
+        let fingerprint = ssh_pubkey.fingerprint().hash;
+        let authorization = get_fingerprint_authorization(&fingerprint);
 
-        let req_cert_type = match request.cert_type {
-            1 => CertType::User,
-            2 => CertType::Host,
+        if (request.valid_before < request.valid_after) || current_timestamp > request.valid_before {
+            // Can't have a cert where the start time (valid_after) is before
+            // the end time (valid_before)
+            // Disallow certificates that are already expired
+            return Ok(Response::new(CertificateResponse {
+                certificate: String::new(),
+                error: format!("{:?}", RusticaServerError::BadCertOptions),
+                error_code: RusticaServerError::BadCertOptions as i64,
+            }));
+        }
+
+        let (req_cert_type, ca_cert, signer) = match request.cert_type {
+            1 => (CertType::User, &self.user_ca_cert, &self.user_ca_signer),
+            2 => (CertType::Host, &self.host_ca_cert, &self.host_ca_signer),
             _ => {
                 return Ok(Response::new(CertificateResponse {
                     certificate: String::new(),
@@ -182,24 +195,18 @@ impl Rustica for RusticaServer {
             }
         };
 
-        if req_cert_type == CertType::User {
-            if authorization.users.is_empty() || (authorization.hosts.is_empty() && !authorization.unrestricted){
-                return Ok(Response::new(CertificateResponse {
-                    certificate: String::new(),
-                    error: format!("{:?}", RusticaServerError::NoAuthorizations),
-                    error_code: RusticaServerError::NoAuthorizations as i64,
-                }))
-            }
-        } else if req_cert_type == CertType::Host && !authorization.can_create_host_certs {
+        // Check they have permission to create this cert type
+        if (req_cert_type == CertType::User && !authorization.permissions.can_create_user_certs) ||
+           (req_cert_type == CertType::Host && !authorization.permissions.can_create_host_certs) {
             return Ok(Response::new(CertificateResponse {
                 certificate: String::new(),
-                error: format!("{:?}", RusticaServerError::BadCertOptions),
-                error_code: RusticaServerError::BadCertOptions as i64,
-            }));
+                error: format!("{:?}", RusticaServerError::NotAuthorized),
+                error_code: RusticaServerError::NotAuthorized as i64,
+            }))
         }
 
         let critical_options =
-        if authorization.unrestricted || req_cert_type == CertType::Host {
+        if authorization.permissions.host_unrestricted || req_cert_type == CertType::Host {
             authorization.critical_options
         } else {
             match utils::build_force_command(&authorization.hosts) {
@@ -218,18 +225,34 @@ impl Rustica for RusticaServer {
             }
         };
 
+        let valid_before = std::cmp::min(
+            current_timestamp + authorization.permissions.max_creation_time as u64,
+            request.valid_before,
+        );
+
+        let valid_after = std::cmp::max(
+            current_timestamp,
+            request.valid_after,
+        );
+
+        let principals = if authorization.permissions.principal_unrestricted {
+            request.principals
+        } else {
+            authorization.principals
+        };
+
         let cert = Certificate::new(
             ssh_pubkey,
             req_cert_type,
             0xFEFEFEFEFEFEFEFE,
-            request.key_id,
-            authorization.users,
-            current_timestamp,
-            current_timestamp + 10,
+            format!("Rustica-JITC-for-{}", &fingerprint),
+            principals,
+            valid_after,
+            valid_before,
             critical_options,
             authorization.extensions,
-            self.user_ca_cert.clone(),
-            sign_user_key,
+            ca_cert.clone(),
+            signer,
         );
 
         let serialized_cert = match cert {
@@ -247,7 +270,8 @@ impl Rustica for RusticaServer {
                 }
                 serialized
             }
-            Err(_) => {
+            Err(e) => {
+                error!("Creating certificate failed: {}", e);
                 return Ok(Response::new(CertificateResponse {
                     certificate: String::new(),
                     error: format!("{:?}", RusticaServerError::BadChallenge),
@@ -266,27 +290,19 @@ impl Rustica for RusticaServer {
     }
 }
 
-impl RusticaServer {
-    pub fn new(user_ca_cert: SSHPublicKey, host_ca_cert: SSHPublicKey) -> RusticaServer {
-        let rng = rand::SystemRandom::new();
-        let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
-        RusticaServer {
-            hmac_key,
-            user_ca_cert,
-            host_ca_cert,
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
     println!("Starting Rustica");
 
+    let user_slot = SlotId::Retired(RetiredSlotId::R1);
+    let host_slot = SlotId::Retired(RetiredSlotId::R2);
+
     // These can be two different slots if you want hosts to be based on a separate
     // CA
-    let user_ca_cert = ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R1));
-    let host_ca_cert = ssh_cert_fetch_pubkey(SlotId::Retired(RetiredSlotId::R2));
+    let user_ca_cert = ssh_cert_fetch_pubkey(user_slot);
+    let host_ca_cert = ssh_cert_fetch_pubkey(host_slot);
 
     let (user_ca_cert, host_ca_cert) = match (user_ca_cert, host_ca_cert) {
         (Some(ucc), Some(hcc)) => (ucc, hcc),
@@ -296,6 +312,9 @@ async fn main() {
         }
     };
 
+    let user_signer = create_signer(user_slot);
+    let host_signer = create_signer(host_slot);
+
     info!("User CA Pubkey: {}", user_ca_cert);
     println!("User CA Fingerprint (SHA256): {}", user_ca_cert.fingerprint().hash);
 
@@ -303,7 +322,17 @@ async fn main() {
     println!("Host CA Fingerprint (SHA256): {}", host_ca_cert.fingerprint().hash);
 
     let addr = "[::1]:50051".parse().unwrap();
-    let rs = RusticaServer::new(user_ca_cert, host_ca_cert);
+
+    let rng = rand::SystemRandom::new();
+    let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
+
+    let rs = RusticaServer {
+        hmac_key,
+        user_ca_cert,
+        host_ca_cert,
+        user_ca_signer: user_signer,
+        host_ca_signer: host_signer,
+    };
 
     Server::builder()
         .add_service(GRPCRusticaServer::new(rs))
