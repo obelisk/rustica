@@ -9,6 +9,8 @@ mod database;
 mod error;
 mod utils;
 
+use clap::{App, Arg};
+
 use database::get_fingerprint_authorization;
 use error::RusticaServerError;
 
@@ -22,15 +24,17 @@ use rustica_keys::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1};
 use ring::{hmac, rand};
+use std::convert::TryFrom;
 use std::time::SystemTime;
-use tonic::{transport::Server, Request, Response, Status};
-use yubikey_piv::key::{RetiredSlotId, SlotId};
+use tonic::{Request, Response, Status};
+use tonic::transport::{Identity, Server, ServerTlsConfig};
+
+use yubikey_piv::key::SlotId;
 
 pub mod rustica {
     tonic::include_proto!("rustica");
 }
 
-//#[derive(Debug)]
 pub struct RusticaServer {
     hmac_key: hmac::Key,
     user_ca_cert: SSHPublicKey,
@@ -290,17 +294,82 @@ impl Rustica for RusticaServer {
     }
 }
 
+fn slot_parser(slot: &str) -> Option<SlotId> {
+    // If first character is R, then we need to parse the nice
+    // notation
+    if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
+        let slot_value = slot[1..].parse::<u8>();
+        match slot_value {
+            Ok(v) if v <= 20 => Some(SlotId::try_from(0x81_u8 + v).unwrap()),
+            _ => None,
+        }
+    } else if let Ok(s) = SlotId::try_from(slot.to_owned()) {
+        Some(s)
+    } else {
+        None
+    }
+}
+
+fn slot_validator(slot: &str) -> Result<(), String> {
+    match slot_parser(slot) {
+        Some(_) => Ok(()),
+        None => Err(String::from("Provided slot was not valid. Should be R1 - R20 or a raw hex identifier")),
+    }
+}
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    println!("Starting Rustica");
+    let matches = App::new("rustica")
+    .version(env!("CARGO_PKG_VERSION"))
+    .author("Mitchell Grenier <mitchell@confurious.io>")
+    .about("Rustica is an Yubikey backed SSHCA")
+    .arg(
+        Arg::new("servercert")
+            .about("Path to PEM that contains server public key")
+            .long("servercert")
+            .short('c')
+            .required(true)
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("serverkey")
+            .about("Path to keu that contains server private key")
+            .long("serverkey")
+            .short('k')
+            .required(true)
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("userslot")
+            .about("Slot to use for user CA")
+            .default_value("R1")
+            .long("userslot")
+            .short('u')
+            .validator(slot_validator)
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("hostslot")
+            .about("Slot to use for host CA")
+            .default_value("R2")
+            .long("hostslot")
+            .short('h')
+            .validator(slot_validator)
+            .takes_value(true),
+    )
+    .get_matches();
 
-    let user_slot = SlotId::Retired(RetiredSlotId::R1);
-    let host_slot = SlotId::Retired(RetiredSlotId::R2);
+    let user_slot = slot_parser(matches.value_of("userslot").unwrap()).unwrap();
+    let host_slot = slot_parser(matches.value_of("hostslot").unwrap()).unwrap();
 
-    // These can be two different slots if you want hosts to be based on a separate
-    // CA
+    let servercert = matches.value_of("servercert").unwrap();
+    let serverkey = matches.value_of("serverkey").unwrap();
+
+    let servercert = tokio::fs::read(servercert).await?;
+    let serverkey = tokio::fs::read(serverkey).await?;
+    let identity = Identity::from_pem(servercert, serverkey);
+
     let user_ca_cert = ssh_cert_fetch_pubkey(user_slot);
     let host_ca_cert = ssh_cert_fetch_pubkey(host_slot);
 
@@ -308,13 +377,14 @@ async fn main() {
         (Some(ucc), Some(hcc)) => (ucc, hcc),
         _ => {
             error!("Could not fetch CA public keys from YubiKey. Is it connected/configured?");
-            return;
+            return Ok(());
         }
     };
 
     let user_signer = create_signer(user_slot);
     let host_signer = create_signer(host_slot);
 
+    println!("Starting Rustica");
     info!("User CA Pubkey: {}", user_ca_cert);
     println!("User CA Fingerprint (SHA256): {}", user_ca_cert.fingerprint().hash);
 
@@ -335,8 +405,10 @@ async fn main() {
     };
 
     Server::builder()
+        .tls_config(ServerTlsConfig::new().identity(identity))?
         .add_service(GRPCRusticaServer::new(rs))
         .serve(addr)
-        .await
-        .unwrap();
+        .await?;
+
+    Ok(())
 }

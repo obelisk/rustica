@@ -6,6 +6,6 @@ pub enum RusticaServerError {
     InvalidKey = 3,
     UnsupportedKeyType = 4,
     BadCertOptions = 5,
-    NotAuthorized= 6,
+    NotAuthorized = 6,
     Unknown = 9001,
 }
