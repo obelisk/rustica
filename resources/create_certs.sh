@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 # Echo out the config which will give us a localhost SAN
-echo "YXV0aG9yaXR5S2V5SWRlbnRpZmllcj1rZXlpZCxpc3N1ZXIKYmFzaWNDb25zdHJhaW50cz1DQTpGQUxTRQprZXlVc2FnZSA9IGRpZ2l0YWxTaWduYXR1cmUsIG5vblJlcHVkaWF0aW9uLCBrZXlFbmNpcGhlcm1lbnQsIGRhdGFFbmNpcGhlcm1lbnQKc3ViamVjdEFsdE5hbWUgPSBAYWx0X25hbWVzCgpbYWx0X25hbWVzXQpETlMuMSA9IGxvY2FsaG9zdAo=" | base64 -d > rustica.ext
+echo "YXV0aG9yaXR5S2V5SWRlbnRpZmllcj1rZXlpZCxpc3N1ZXIKYmFzaWNDb25zdHJhaW50cz1DQTpGQUxTRQprZXlVc2FnZSA9IGRpZ2l0YWxTaWduYXR1cmUsIG5vblJlcHVkaWF0aW9uLCBrZXlFbmNpcGhlcm1lbnQsIGRhdGFFbmNpcGhlcm1lbnQKc3ViamVjdEFsdE5hbWUgPSBAYWx0X25hbWVzCgpbYWx0X25hbWVzXQpETlMuMSA9IGF0aGVyaXMK" | base64 -d > rustica.ext
 
 # Generate CA Key and Cert
 openssl ecparam -genkey -name prime256v1 -noout -out ca.key

@@ -22,7 +22,7 @@ use rustica_keys::ssh::{
 };
 use rustica_keys::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
-use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1};
+use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1, ED25519};
 use ring::{hmac, rand};
 use std::convert::TryFrom;
 use std::time::SystemTime;
@@ -46,6 +46,14 @@ pub struct RusticaServer {
 fn create_signer(slot: SlotId) -> Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync> {
     Box::new(move |buf: &[u8]| {
         ssh_cert_signer(buf, slot)
+    })
+}
+
+fn create_response(e: RusticaServerError) -> Response<CertificateResponse> {
+    Response::new(CertificateResponse {
+        certificate: String::new(),
+        error: format!("{:?}", e),
+        error_code: e as i64,
     })
 }
 
@@ -92,85 +100,54 @@ impl Rustica for RusticaServer {
         };
 
         if (current_timestamp - client_timestamp) > 5 {
-            return Ok(Response::new(CertificateResponse {
-                certificate: String::new(),
-                error: format!("{:?}", RusticaServerError::TimeExpired),
-                error_code: RusticaServerError::TimeExpired as i64,
-            }));
+            return Ok(create_response(RusticaServerError::TimeExpired));
         }
 
         let hmac_verification = format!("{}-{}", client_timestamp, &request.pubkey);
         let decoded_challenge = match hex::decode(&request.challenge) {
             Ok(dc) => dc,
-            Err(_) => {
-                return Ok(Response::new(CertificateResponse {
-                    certificate: String::new(),
-                    error: format!("{:?}", RusticaServerError::BadChallenge),
-                    error_code: RusticaServerError::BadChallenge as i64,
-                }));
-            }
+            Err(_) => return Ok(create_response(RusticaServerError::BadChallenge)),
         };
 
-        match hmac::verify(&self.hmac_key, hmac_verification.as_bytes(), &decoded_challenge) {
-            Ok(_) => (),
-            Err(_) => {
-                return Ok(Response::new(CertificateResponse {
-                    certificate: String::new(),
-                    error: format!("{:?}", RusticaServerError::BadChallenge),
-                    error_code: RusticaServerError::BadChallenge as i64,
-                }));
-            }
-        };
+        if let Err(_) = hmac::verify(&self.hmac_key, hmac_verification.as_bytes(), &decoded_challenge) {
+           return Ok(create_response(RusticaServerError::BadChallenge));
+        }
 
+        // Verification of the integrity of the request is now done, we can
+        // parse the rest of the request knowing it has not been replayed
+        // significantly in time or it's publickey tampered with since its
+        // its initial request.
         let ssh_pubkey = match SSHPublicKey::from_string(&request.pubkey) {
             Ok(sshpk) => sshpk,
-            Err(_) => {
-                return Ok(Response::new(CertificateResponse {
-                    certificate: String::new(),
-                    error: format!("{:?}", RusticaServerError::InvalidKey),
-                    error_code: RusticaServerError::InvalidKey as i64,
-                }));
-            }
+            Err(_) => return Ok(create_response(RusticaServerError::InvalidKey)),
         };
 
-        // TODO @obelisk Support Ed25519
-        let (pubkey, alg) = match &ssh_pubkey.kind {
+        let result = match &ssh_pubkey.kind {
             SSHPublicKeyKind::Ecdsa(key) => {
-                match key.curve.kind {
+                let (pubkey, alg) = match key.curve.kind {
                     CurveKind::Nistp256 => (key, &ECDSA_P256_SHA256_ASN1),
                     CurveKind::Nistp384 => (key, &ECDSA_P384_SHA384_ASN1),
-                    _ => {
-                        return Ok(Response::new(CertificateResponse {
-                            certificate: String::new(),
-                            error: format!("{:?}", RusticaServerError::UnsupportedKeyType),
-                            error_code: RusticaServerError::UnsupportedKeyType as i64,
-                        }));
-                    },
-                }
+                    _ => return Ok(create_response(RusticaServerError::UnsupportedKeyType)),
+                };
+
+                UnparsedPublicKey::new(alg, &pubkey.key).verify(
+                    &hex::decode(&request.challenge).unwrap(),
+                    &hex::decode(&request.challenge_signature).unwrap(),
+                )
             },
-            _ => {
-                return Ok(Response::new(CertificateResponse {
-                    certificate: String::new(),
-                    error: format!("{:?}", RusticaServerError::UnsupportedKeyType),
-                    error_code: RusticaServerError::UnsupportedKeyType as i64,
-                }));
-            }
+            SSHPublicKeyKind::Ed25519(key) => {
+                let alg = &ED25519;
+                let peer_public_key = UnparsedPublicKey::new(alg, &key.key);
+                peer_public_key.verify(
+                    &hex::decode(&request.challenge).unwrap(),
+                    &hex::decode(&request.challenge_signature).unwrap()
+                )
+            },
+            _ => return Ok(create_response(RusticaServerError::UnsupportedKeyType)),
         };
 
-        let result = UnparsedPublicKey::new(alg, &pubkey.key).verify(
-            &hex::decode(&request.challenge).unwrap(),
-            &hex::decode(&request.challenge_signature).unwrap(),
-        );
-
-        match result {
-            Ok(()) => (),
-            Err(_) => {
-                return Ok(Response::new(CertificateResponse {
-                    certificate: String::new(),
-                    error: format!("{:?}", RusticaServerError::BadChallenge),
-                    error_code: RusticaServerError::BadChallenge as i64,
-                }))
-            }
+        if let Err(_) = result {
+            return Ok(create_response(RusticaServerError::BadChallenge))
         }
 
         let fingerprint = ssh_pubkey.fingerprint().hash;
@@ -180,33 +157,19 @@ impl Rustica for RusticaServer {
             // Can't have a cert where the start time (valid_after) is before
             // the end time (valid_before)
             // Disallow certificates that are already expired
-            return Ok(Response::new(CertificateResponse {
-                certificate: String::new(),
-                error: format!("{:?}", RusticaServerError::BadCertOptions),
-                error_code: RusticaServerError::BadCertOptions as i64,
-            }));
+            return Ok(create_response(RusticaServerError::BadCertOptions));
         }
 
         let (req_cert_type, ca_cert, signer) = match request.cert_type {
             1 => (CertType::User, &self.user_ca_cert, &self.user_ca_signer),
             2 => (CertType::Host, &self.host_ca_cert, &self.host_ca_signer),
-            _ => {
-                return Ok(Response::new(CertificateResponse {
-                    certificate: String::new(),
-                    error: format!("{:?}", RusticaServerError::BadCertOptions),
-                    error_code: RusticaServerError::BadCertOptions as i64,
-                }));
-            }
+            _ => return Ok(create_response(RusticaServerError::BadCertOptions)),
         };
 
         // Check they have permission to create this cert type
         if (req_cert_type == CertType::User && !authorization.permissions.can_create_user_certs) ||
            (req_cert_type == CertType::Host && !authorization.permissions.can_create_host_certs) {
-            return Ok(Response::new(CertificateResponse {
-                certificate: String::new(),
-                error: format!("{:?}", RusticaServerError::NotAuthorized),
-                error_code: RusticaServerError::NotAuthorized as i64,
-            }))
+            return Ok(create_response(RusticaServerError::NotAuthorized));
         }
 
         let critical_options =
@@ -219,13 +182,7 @@ impl Rustica for RusticaServer {
                     co.insert(String::from("force-command"), cmd);
                     CriticalOptions::Custom(co)
                 },
-                Err(_) => {
-                    return Ok(Response::new(CertificateResponse {
-                        certificate: String::new(),
-                        error: format!("{:?}", RusticaServerError::Unknown),
-                        error_code: RusticaServerError::Unknown as i64,
-                    }));
-                }
+                Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
             }
         };
 
@@ -266,21 +223,13 @@ impl Rustica for RusticaServer {
                 // Sanity check that we can parse the cert we just generated
                 if let Err(e) = Certificate::from_string(&serialized) {
                     error!("Couldn't deserialize certificate: {}", e);
-                    return Ok(Response::new(CertificateResponse {
-                        certificate: String::new(),
-                        error: format!("{:?}", RusticaServerError::BadCertOptions),
-                        error_code: RusticaServerError::BadCertOptions as i64,
-                    }));
+                    return Ok(create_response(RusticaServerError::BadCertOptions));
                 }
                 serialized
             }
             Err(e) => {
                 error!("Creating certificate failed: {}", e);
-                return Ok(Response::new(CertificateResponse {
-                    certificate: String::new(),
-                    error: format!("{:?}", RusticaServerError::BadChallenge),
-                    error_code: RusticaServerError::BadChallenge as i64,
-                }))
+                return Ok(create_response(RusticaServerError::BadChallenge));
             }
         };
 
@@ -334,7 +283,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .arg(
         Arg::new("serverkey")
-            .about("Path to keu that contains server private key")
+            .about("Path to key that contains server private key")
             .long("serverkey")
             .short('k')
             .required(true)
@@ -358,6 +307,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .validator(slot_validator)
             .takes_value(true),
     )
+    .arg(
+        Arg::new("listenaddress")
+            .about("URI to listen on")
+            .long("listen")
+            .short('l')
+            .takes_value(true),
+    )
     .get_matches();
 
     let user_slot = slot_parser(matches.value_of("userslot").unwrap()).unwrap();
@@ -365,6 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let servercert = matches.value_of("servercert").unwrap();
     let serverkey = matches.value_of("serverkey").unwrap();
+    let addr = matches.value_of("listenaddress").unwrap_or("[::1]:50051").parse().unwrap();
 
     let servercert = tokio::fs::read(servercert).await?;
     let serverkey = tokio::fs::read(serverkey).await?;
@@ -390,8 +347,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Host CA Pubkey: {}", host_ca_cert);
     println!("Host CA Fingerprint (SHA256): {}", host_ca_cert.fingerprint().hash);
-
-    let addr = "[::1]:50051".parse().unwrap();
 
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
