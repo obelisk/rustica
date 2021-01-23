@@ -25,7 +25,6 @@ message CertificateRequest {
     string challenge_time = 12;
 }
 
-
 message CertificateResponse {
     string certificate = 1;
     string error = 2;

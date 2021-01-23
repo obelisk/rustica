@@ -14,6 +14,10 @@ use clap::{App, Arg};
 use database::get_fingerprint_authorization;
 use error::RusticaServerError;
 
+use influxdb::{Client, Query, Timestamp};
+use influxdb::InfluxDbWriteable;
+//use chrono::{DateTime, Utc};
+
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
 
@@ -36,6 +40,7 @@ pub mod rustica {
 }
 
 pub struct RusticaServer {
+    influx_client: Option<Client>,
     hmac_key: hmac::Key,
     user_ca_cert: SSHPublicKey,
     user_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
@@ -239,6 +244,17 @@ impl Rustica for RusticaServer {
             error_code: RusticaServerError::Success as i64,
         };
 
+        if let Some(influx_client) = &self.influx_client {
+            let write_query = Timestamp::Seconds(current_timestamp.into())
+                .into_query("rustica_logs")
+                .add_tag("fingerprint", fingerprint)
+                .add_field("host_unrestricted", authorization.permissions.host_unrestricted)
+                .add_field("principal_unrestricted", authorization.permissions.principal_unrestricted);
+            if let Err(e) = influx_client.query(&write_query).await {
+                error!("Could not log to influx DB: {}", e);
+            }
+        }
+
         Ok(Response::new(reply))
     }
 }
@@ -314,6 +330,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .short('l')
             .takes_value(true),
     )
+    .arg(
+        Arg::new("influxdbaddress")
+            .about("URI of InfluxDB server")
+            .long("influxdbaddress")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("influxdbdatabase")
+            .about("InfluxDB database")
+            .long("influxdbdatabase")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("influxdbuser")
+            .about("InfluxDB user")
+            .long("influxdbuser")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("influxdbpassword")
+            .about("InfluxDB password")
+            .long("influxdbpassword")
+            .takes_value(true),
+    )
     .get_matches();
 
     let user_slot = slot_parser(matches.value_of("userslot").unwrap()).unwrap();
@@ -338,6 +378,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let address = matches.value_of("influxdbaddress");
+    let user = matches.value_of("influxdbuser");
+    let password = matches.value_of("influxdbpassword");
+    let db = matches.value_of("influxdbdatabase");
+
+    let influx_client = match (address, user, password, db) {
+        (Some(address), Some(user), Some(password), Some(db)) => Some(Client::new(address, db).with_auth(user, password)),
+        _ => {
+            info!("InfluxDB is not configured");
+            None
+        },
+    };
+
     let user_signer = create_signer(user_slot);
     let host_signer = create_signer(host_slot);
 
@@ -352,6 +405,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
 
     let rs = RusticaServer {
+        influx_client,
         hmac_key,
         user_ca_cert,
         host_ca_cert,

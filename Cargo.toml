@@ -14,8 +14,9 @@ dotenv = "0.15.0"
 env_logger = "0.8.2"
 futures-core = "0.3"
 futures-util = "0.3"
-hex = "*"
-log = "*"
+hex = "0.4.2"
+influxdb = { version = "0.3.0", features = ["derive"] }
+log = "0.4.13"
 prost = "0.6"
 ring = "0.16.9"
 rustica-keys = {path = "../rustica-keys"}
