@@ -43,14 +43,14 @@ CREATE TABLE fingerprint_critical_options (
 -- --------------------------
 -- The following line will allow the user with the private key of the fingerprint below
 -- to login to servers as the "obelisk" user
-INSERT INTO fingerprint_principal_authorizations VALUES (0, "id2n9OXvk0phR9jIvKtfaNkj6E1RnY6TY+xVbcvSAdU", "obelisk");
-INSERT INTO fingerprint_principal_authorizations VALUES (1, "0ZUOTCC6OQ7kwHJ8lXx16pICBFErB48I4rGe4wVXfW8", "test");
+-- INSERT INTO fingerprint_principal_authorizations VALUES (0, "id2n9OXvk0phR9jIvKtfaNkj6E1RnY6TY+xVbcvSAdU", "obelisk");
+-- INSERT INTO fingerprint_principal_authorizations VALUES (1, "0ZUOTCC6OQ7kwHJ8lXx16pICBFErB48I4rGe4wVXfW8", "test");
 
 -- Set of host fingerprints to request new host certs
-INSERT INTO fingerprint_principal_authorizations VALUES (10000, "tSjINWcJyEdaJ/h6pk2E50WPTWcKqcZq9VtVSorbnQs", "atheris");
-INSERT INTO fingerprint_principal_authorizations VALUES (10002, "UdHSTiz4PuRtMlvfqE0s5FXcRxZQSxYF0LxgADTtyq0", "elderfuthark");
-INSERT INTO fingerprint_principal_authorizations VALUES (10003, "reSociydTR9Hia97c+jWzv+qd4hGHXIyQwQP2m+OoMI", "chaos");
-INSERT INTO fingerprint_principal_authorizations VALUES (10004, "mqouqeykZRMvHYCKjmBISMNiu8zcZP6BftYYR4swjG8", "tigstack");
+-- INSERT INTO fingerprint_principal_authorizations VALUES (10000, "tSjINWcJyEdaJ/h6pk2E50WPTWcKqcZq9VtVSorbnQs", "atheris");
+-- INSERT INTO fingerprint_principal_authorizations VALUES (10002, "UdHSTiz4PuRtMlvfqE0s5FXcRxZQSxYF0LxgADTtyq0", "elderfuthark");
+-- INSERT INTO fingerprint_principal_authorizations VALUES (10003, "reSociydTR9Hia97c+jWzv+qd4hGHXIyQwQP2m+OoMI", "chaos");
+-- INSERT INTO fingerprint_principal_authorizations VALUES (10004, "mqouqeykZRMvHYCKjmBISMNiu8zcZP6BftYYR4swjG8", "tigstack");
 
 -- ---------------------------
 -- Example Host Authorizations
@@ -66,11 +66,11 @@ INSERT INTO fingerprint_principal_authorizations VALUES (10004, "mqouqeykZRMvHYC
 -- Seconds in 100 years: 3153600000
 
 -- Host Fingerprint Permissions 
-INSERT INTO fingerprint_permissions VALUES ("tSjINWcJyEdaJ/h6pk2E50WPTWcKqcZq9VtVSorbnQs", FALSE, FALSE, TRUE, FALSE, 3153600000);
-INSERT INTO fingerprint_permissions VALUES ("UdHSTiz4PuRtMlvfqE0s5FXcRxZQSxYF0LxgADTtyq0", FALSE, FALSE, TRUE, FALSE, 3153600000);
-INSERT INTO fingerprint_permissions VALUES ("reSociydTR9Hia97c+jWzv+qd4hGHXIyQwQP2m+OoMI", FALSE, FALSE, TRUE, FALSE, 3153600000);
-INSERT INTO fingerprint_permissions VALUES ("mqouqeykZRMvHYCKjmBISMNiu8zcZP6BftYYR4swjG8", FALSE, FALSE, TRUE, FALSE, 3153600000);
+-- INSERT INTO fingerprint_permissions VALUES ("tSjINWcJyEdaJ/h6pk2E50WPTWcKqcZq9VtVSorbnQs", FALSE, FALSE, TRUE, FALSE, 3153600000);
+-- INSERT INTO fingerprint_permissions VALUES ("UdHSTiz4PuRtMlvfqE0s5FXcRxZQSxYF0LxgADTtyq0", FALSE, FALSE, TRUE, FALSE, 3153600000);
+-- INSERT INTO fingerprint_permissions VALUES ("reSociydTR9Hia97c+jWzv+qd4hGHXIyQwQP2m+OoMI", FALSE, FALSE, TRUE, FALSE, 3153600000);
+-- INSERT INTO fingerprint_permissions VALUES ("mqouqeykZRMvHYCKjmBISMNiu8zcZP6BftYYR4swjG8", FALSE, FALSE, TRUE, FALSE, 3153600000);
 
 -- User Fingerprint Permissions
-INSERT INTO fingerprint_permissions VALUES ("id2n9OXvk0phR9jIvKtfaNkj6E1RnY6TY+xVbcvSAdU", TRUE, FALSE, FALSE, TRUE, 10);
-INSERT INTO fingerprint_permissions VALUES ("0ZUOTCC6OQ7kwHJ8lXx16pICBFErB48I4rGe4wVXfW8", TRUE, FALSE, FALSE, TRUE, 10);
+-- INSERT INTO fingerprint_permissions VALUES ("id2n9OXvk0phR9jIvKtfaNkj6E1RnY6TY+xVbcvSAdU", TRUE, FALSE, FALSE, TRUE, 10);
+-- INSERT INTO fingerprint_permissions VALUES ("0ZUOTCC6OQ7kwHJ8lXx16pICBFErB48I4rGe4wVXfW8", TRUE, FALSE, FALSE, TRUE, 10);
