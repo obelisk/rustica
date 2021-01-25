@@ -14,9 +14,8 @@ use clap::{App, Arg};
 use database::get_fingerprint_authorization;
 use error::RusticaServerError;
 
-use influxdb::{Client, Query, Timestamp};
+use influxdb::{Client, Timestamp};
 use influxdb::InfluxDbWriteable;
-//use chrono::{DateTime, Utc};
 
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
