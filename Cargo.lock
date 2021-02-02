@@ -2088,7 +2088,9 @@ dependencies = [
 
 [[package]]
 name = "rustica-keys"
-version = "0.3.3"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a5f960ade076f9b8891f48d78e4fba596e90da826edb6f29e88d85073d0f6c1"
 dependencies = [
  "base64 0.12.3",
  "byteorder",
