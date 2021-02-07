@@ -6,6 +6,7 @@ extern crate diesel;
 extern crate dotenv;
 
 mod database;
+mod govna;
 mod error;
 mod utils;
 
@@ -92,6 +93,7 @@ impl Rustica for RusticaServer {
     /// Third Validate PubKey is authorized
     async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
         debug!("Received certificate request: {:?}", request);
+        let remote_addr = request.remote_addr();
         let request = request.into_inner();
 
         // If something happens with the timestamp, we go with worst case scenario:
@@ -154,9 +156,6 @@ impl Rustica for RusticaServer {
             return Ok(create_response(RusticaServerError::BadChallenge))
         }
 
-        let fingerprint = ssh_pubkey.fingerprint().hash;
-        let authorization = get_fingerprint_authorization(&fingerprint);
-
         if (request.valid_before < request.valid_after) || current_timestamp > request.valid_before {
             // Can't have a cert where the start time (valid_after) is before
             // the end time (valid_before)
@@ -170,52 +169,53 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadCertOptions)),
         };
 
-        // Check they have permission to create this cert type
-        if (req_cert_type == CertType::User && !authorization.permissions.can_create_user_certs) ||
-           (req_cert_type == CertType::Host && !authorization.permissions.can_create_host_certs) {
-            return Ok(create_response(RusticaServerError::NotAuthorized));
-        }
+        let fingerprint = ssh_pubkey.fingerprint().hash;
 
-        let critical_options =
-        if authorization.permissions.host_unrestricted || req_cert_type == CertType::Host {
-            authorization.critical_options
-        } else {
-            match utils::build_force_command(&authorization.hosts) {
-                Ok(cmd) => {
-                    let mut co = std::collections::HashMap::new();
-                    co.insert(String::from("force-command"), cmd);
-                    CriticalOptions::Custom(co)
-                },
-                Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
-            }
+        let govna_server = govna::GovnaServer {
+            server: String::from("http://[::1]:50051"),
         };
 
-        let valid_before = std::cmp::min(
-            current_timestamp + authorization.permissions.max_creation_time as u64,
-            request.valid_before,
-        );
+        let auth_props = govna::AuthorizationProperties {
+            fingerprint: fingerprint.clone(),
+            requester_ip: remote_addr.unwrap().to_string(),
+            principals: request.principals.clone(),
+            servers: request.servers.clone(),
+            cert_type: req_cert_type,
+            valid_after: request.valid_after,
+            valid_before: request.valid_before,
+        };
 
-        let valid_after = std::cmp::max(
-            current_timestamp,
-            request.valid_after,
-        );
+        let govna_authorization = match govna::authorize(&govna_server, &auth_props).await {
+            Ok(ga) => ga,
+            Err(_) => return Ok(create_response(RusticaServerError::NotAuthorized)),
+        };
 
-        let principals = if authorization.permissions.principal_unrestricted {
-            request.principals
-        } else {
-            authorization.principals
+        debug!("Govna Authorization: {:?}", govna_authorization);
+
+        let critical_options = match utils::build_force_command(&govna_authorization.servers, govna_authorization.force_command) {
+            Ok(cmd) => {
+                let mut co = std::collections::HashMap::new();
+                co.insert(String::from("force-command"), cmd);
+
+                if !govna_authorization.source_address.is_none() {
+                    co.insert(String::from("source-address"), govna_authorization.source_address.unwrap());
+                }
+
+                CriticalOptions::Custom(co)
+            },
+            Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
         };
 
         let cert = Certificate::new(
             ssh_pubkey,
             req_cert_type,
-            0xFEFEFEFEFEFEFEFE,
+            govna_authorization.serial,
             format!("Rustica-JITC-for-{}", &fingerprint),
-            principals,
-            valid_after,
-            valid_before,
+            govna_authorization.principals,
+            govna_authorization.valid_after,
+            govna_authorization.valid_before,
             critical_options,
-            authorization.extensions,
+            govna_authorization.extensions,
             ca_cert.clone(),
             signer,
         );
@@ -246,9 +246,7 @@ impl Rustica for RusticaServer {
         if let Some(influx_client) = &self.influx_client {
             let write_query = Timestamp::Seconds(current_timestamp.into())
                 .into_query("rustica_logs")
-                .add_tag("fingerprint", fingerprint)
-                .add_field("host_unrestricted", authorization.permissions.host_unrestricted)
-                .add_field("principal_unrestricted", authorization.permissions.principal_unrestricted);
+                .add_tag("fingerprint", fingerprint);
             if let Err(e) = influx_client.query(&write_query).await {
                 error!("Could not log to influx DB: {}", e);
             }
@@ -413,7 +411,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     Server::builder()
-        .tls_config(ServerTlsConfig::new().identity(identity))?
+        //.tls_config(ServerTlsConfig::new().identity(identity))?
         .add_service(GRPCRusticaServer::new(rs))
         .serve(addr)
         .await?;
