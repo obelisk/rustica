@@ -1,0 +1,3 @@
+# Rustica
+
+The server portion of the Rustica project. It is designed to be used with rustica-agent for certificate handling but speaks generic gRPC so other integrations are possible. Rustica requires at least 1 + N standard (not HSM) Yubikey 4/5s: one for the server, and one for every client (though rustica-agent is capable of using a key file instead). You may also wish to generate keys directly on yubikeys (see the provision command in rustica-agent) so they never exist off the key.

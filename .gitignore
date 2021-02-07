@@ -1,5 +1,5 @@
 /target
 .DS_Store
-rustica.db
+rustica/rustica.db
 *.pem
 *.key

@@ -20,10 +20,10 @@ use influxdb::InfluxDbWriteable;
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
 
-use rustica_keys::ssh::{
+use sshcerts::ssh::{
     CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind,
 };
-use rustica_keys::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
+use sshcerts::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1, ED25519};
 use ring::{hmac, rand};

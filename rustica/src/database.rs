@@ -6,7 +6,7 @@ use diesel::sqlite::SqliteConnection;
 use dotenv::dotenv;
 use std::env;
 
-use rustica_keys::ssh::{Extensions, CriticalOptions};
+use sshcerts::ssh::{Extensions, CriticalOptions};
 
 pub struct Permissions {
     pub host_unrestricted: bool,
