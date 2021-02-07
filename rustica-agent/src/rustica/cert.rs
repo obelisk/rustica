@@ -109,7 +109,19 @@ pub async fn refresh_certificate_async(server: &RusticaServer, signatory: &Signa
 
                     hex::encode(key_pair.sign(&rng, &decoded_challenge).unwrap())
                 },
-                PrivateKeyKind::Ed25519(_) => return Err(RefreshError::UnsupportedMode),
+                PrivateKeyKind::Ed25519(key) => {
+                    let public_key = match &privkey.pubkey.kind {
+                        PublicKeyKind::Ed25519(key) => &key.key,
+                        _ => return Err(RefreshError::UnsupportedMode),
+                    };
+
+                    let key_pair = match signature::Ed25519KeyPair::from_seed_and_public_key(&key.key[..32], public_key) {
+                        Ok(kp) => kp,
+                        Err(_) => return Err(RefreshError::SigningError),
+                    };
+
+                    hex::encode(key_pair.sign(&decoded_challenge))
+                },
             }
         },
     };

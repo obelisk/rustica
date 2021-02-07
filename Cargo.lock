@@ -2376,9 +2376,9 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "sshcerts"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ab9d9e0d4621e221647e8235902baf9522be10d7a209965f81206427d2baaeb"
+checksum = "23492ff7971e5abe14d3707f91c6e685a93941fd7eab2af7a546689e90bee79a"
 dependencies = [
  "base64 0.12.3",
  "log",
