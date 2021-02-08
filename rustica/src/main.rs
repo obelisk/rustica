@@ -376,9 +376,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .takes_value(true),
     )
     .arg(
-        Arg::new("authserverpem")
-            .about("If using external auth: The certificate of the auth server")
-            .long("authserverpem")
+        Arg::new("authserverca")
+            .about("If using external auth: The certificate of the auth server's CA")
+            .long("authserverca")
             .takes_value(true),
     )
     .arg(
@@ -433,7 +433,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let authorizer = match matches.value_of("authtype") {
         Some("local") => AuthMechanism::Local(LocalDatabase{}),
         Some("external") => AuthMechanism::External(AuthServer {
-            server:  matches.value_of("authserver").unwrap().to_string()
+            server: matches.value_of("authserver").unwrap().to_string(),
+            ca: tokio::fs::read(matches.value_of("authserverca").unwrap().to_string()).await?,
+            mtls_cert: tokio::fs::read(matches.value_of("authservermtlspem").unwrap().to_string()).await?,
+            mtls_key: tokio::fs::read(matches.value_of("authservermtlskey").unwrap().to_string()).await?,
         }),
         _ => unreachable!("Clap should ensure it must be one of the two values above"),
     };

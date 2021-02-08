@@ -1,18 +1,21 @@
-use govna::govna_client::{GovnaClient};
-use govna::{AuthorizeRequest};
+use author::author_client::{AuthorClient};
+use author::{AuthorizeRequest};
 
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 use sshcerts::ssh::Extensions;
 use super::{Authorization, AuthorizationError, AuthorizationRequestProperties};
 use std::collections::HashMap;
 
-pub mod govna {
-    tonic::include_proto!("govna");
+pub mod author {
+    tonic::include_proto!("author");
 }
 
 pub struct AuthServer {
-    pub server: String
+    pub server: String,
+    pub ca: Vec<u8>,
+    pub mtls_cert: Vec<u8>,
+    pub mtls_key: Vec<u8>,
 }
 
 impl AuthServer {
@@ -34,16 +37,22 @@ impl AuthServer {
             authorization_request,
         });
 
+        let client_identity = Identity::from_pem(&self.mtls_cert, &self.mtls_cert);
+        let tls = ClientTlsConfig::new()
+            .domain_name(&self.server)
+            .ca_certificate(Certificate::from_pem(&self.ca))
+            .identity(client_identity);
+
+        // TODO: @obelisk handle these TLS unwraps
         let channel = match Channel::from_shared(self.server.clone()) {
             Ok(c) => c,
             Err(e) => {
                 error!("Could not open a channel to the authorization server: {}", e);
                 return Err(AuthorizationError::AuthorizerError);
             },
-        };
-        let channel = channel.connect().await.unwrap();
+        }.tls_config(tls).unwrap().connect().await.unwrap();
 
-        let mut client = GovnaClient::new(channel);
+        let mut client = AuthorClient::new(channel);
         let response = client.authorize(request).await;
 
         if let Err(e) = response {
