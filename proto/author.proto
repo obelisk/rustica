@@ -1,0 +1,26 @@
+syntax = "proto3";
+package author;
+
+message ChallengeRequest {
+    string pubkey = 1;
+}
+
+message ChallengeResponse {
+    string time = 1;
+    string challenge = 2;
+}
+
+message AuthorizeRequest {
+    map<string, string> identities = 1;
+    map<string, string> authorization_request = 2;
+}
+
+message AuthorizeResponse {
+    map<string, string> approval_response = 1;
+}
+
+service Author {
+    //rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
+    //rpc Certificate(CertificateRequest) returns (CertificateResponse);
+    rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
+}

@@ -2,6 +2,11 @@
 rm $LOGIN_SCRIPT
 
 function start_user_shell() {
+	if [ "$FORCE_COMMAND" != "" ]; then
+		eval $FORCE_COMMAND
+		exit 0;
+	fi
+
 	USER_INFO=$(cat /etc/passwd | grep \^`whoami`\:)
 	SHELL=$(echo $USER_INFO | awk '{split($0,p,":"); print p[7]}')
     if [ "$SHELL" = "" ]; then

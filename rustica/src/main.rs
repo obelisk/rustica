@@ -5,13 +5,14 @@ extern crate log;
 extern crate diesel;
 extern crate dotenv;
 
-mod database;
+mod auth;
 mod error;
 mod utils;
 
+use auth::{AuthMechanism, AuthorizationRequestProperties, AuthServer, LocalDatabase};
+
 use clap::{App, Arg};
 
-use database::get_fingerprint_authorization;
 use error::RusticaServerError;
 
 use influxdb::{Client, Timestamp};
@@ -41,6 +42,7 @@ pub mod rustica {
 pub struct RusticaServer {
     influx_client: Option<Client>,
     hmac_key: hmac::Key,
+    authorizer: auth::AuthMechanism,
     user_ca_cert: SSHPublicKey,
     user_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
     host_ca_cert: SSHPublicKey,
@@ -53,7 +55,9 @@ fn create_signer(slot: SlotId) -> Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + 
     })
 }
 
-fn create_response(e: RusticaServerError) -> Response<CertificateResponse> {
+fn create_response<T>(e: T) -> Response<CertificateResponse> where 
+T : Into::<RusticaServerError> {
+    let e = e.into();
     Response::new(CertificateResponse {
         certificate: String::new(),
         error: format!("{:?}", e),
@@ -92,6 +96,7 @@ impl Rustica for RusticaServer {
     /// Third Validate PubKey is authorized
     async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
         debug!("Received certificate request: {:?}", request);
+        let remote_addr = request.remote_addr();
         let request = request.into_inner();
 
         // If something happens with the timestamp, we go with worst case scenario:
@@ -154,9 +159,6 @@ impl Rustica for RusticaServer {
             return Ok(create_response(RusticaServerError::BadChallenge))
         }
 
-        let fingerprint = ssh_pubkey.fingerprint().hash;
-        let authorization = get_fingerprint_authorization(&fingerprint);
-
         if (request.valid_before < request.valid_after) || current_timestamp > request.valid_before {
             // Can't have a cert where the start time (valid_after) is before
             // the end time (valid_before)
@@ -170,50 +172,57 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadCertOptions)),
         };
 
-        // Check they have permission to create this cert type
-        if (req_cert_type == CertType::User && !authorization.permissions.can_create_user_certs) ||
-           (req_cert_type == CertType::Host && !authorization.permissions.can_create_host_certs) {
-            return Ok(create_response(RusticaServerError::NotAuthorized));
-        }
+        let fingerprint = ssh_pubkey.fingerprint().hash;
 
-        let critical_options =
-        if authorization.permissions.host_unrestricted || req_cert_type == CertType::Host {
-            authorization.critical_options
-        } else {
-            match utils::build_force_command(&authorization.hosts) {
-                Ok(cmd) => {
-                    let mut co = std::collections::HashMap::new();
-                    co.insert(String::from("force-command"), cmd);
-                    CriticalOptions::Custom(co)
-                },
-                Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
-            }
+        let auth_props = AuthorizationRequestProperties {
+            fingerprint: fingerprint.clone(),
+            requester_ip: remote_addr.unwrap().to_string(),
+            principals: request.principals.clone(),
+            servers: request.servers.clone(),
+            cert_type: req_cert_type,
+            valid_after: request.valid_after,
+            valid_before: request.valid_before,
         };
 
-        let valid_before = std::cmp::min(
-            current_timestamp + authorization.permissions.max_creation_time as u64,
-            request.valid_before,
-        );
+        let authorization = match &self.authorizer {
+            AuthMechanism::Local(local) => local.authorize(&auth_props),
+            AuthMechanism::External(external) => external.authorize(&auth_props).await,
+        };
 
-        let valid_after = std::cmp::max(
-            current_timestamp,
-            request.valid_after,
-        );
+        let authorization = match authorization {
+            Err(e) => return Ok(create_response(e)),
+            Ok(auth) => auth,
+        };
 
-        let principals = if authorization.permissions.principal_unrestricted {
-            request.principals
-        } else {
-            authorization.principals
+        debug!("Authorization: {:?}", authorization);
+
+        let critical_options = match utils::build_login_script(&authorization.hosts, &authorization.force_command) {
+            Ok(cmd) => {
+                let mut co = std::collections::HashMap::new();
+                // If our authorization contains no hosts and no command,
+                // this becomes an unrestricted cert good for all commands on all
+                // hosts
+                if let Some(cmd) = cmd {
+                    co.insert(String::from("force-command"), cmd);
+                }
+
+                if !authorization.source_address.is_none() {
+                    co.insert(String::from("source-address"), authorization.source_address.unwrap());
+                }
+
+                CriticalOptions::Custom(co)
+            },
+            Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
         };
 
         let cert = Certificate::new(
             ssh_pubkey,
             req_cert_type,
-            0xFEFEFEFEFEFEFEFE,
+            authorization.serial,
             format!("Rustica-JITC-for-{}", &fingerprint),
-            principals,
-            valid_after,
-            valid_before,
+            authorization.principals,
+            authorization.valid_after,
+            authorization.valid_before,
             critical_options,
             authorization.extensions,
             ca_cert.clone(),
@@ -246,9 +255,7 @@ impl Rustica for RusticaServer {
         if let Some(influx_client) = &self.influx_client {
             let write_query = Timestamp::Seconds(current_timestamp.into())
                 .into_query("rustica_logs")
-                .add_tag("fingerprint", fingerprint)
-                .add_field("host_unrestricted", authorization.permissions.host_unrestricted)
-                .add_field("principal_unrestricted", authorization.permissions.principal_unrestricted);
+                .add_tag("fingerprint", fingerprint);
             if let Err(e) = influx_client.query(&write_query).await {
                 error!("Could not log to influx DB: {}", e);
             }
@@ -287,7 +294,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("rustica")
     .version(env!("CARGO_PKG_VERSION"))
     .author("Mitchell Grenier <mitchell@confurious.io>")
-    .about("Rustica is an Yubikey backed SSHCA")
+    .about("Rustica is a Yubikey backed SSHCA")
     .arg(
         Arg::new("servercert")
             .about("Path to PEM that contains server public key")
@@ -353,6 +360,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .long("influxdbpassword")
             .takes_value(true),
     )
+    .arg(
+        Arg::new("authtype")
+            .about("What source of truth should be used for requests")
+            .default_value("local")
+            .possible_value("local")
+            .possible_value("external")
+            .long("authtype")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("authserver")
+            .about("If using external auth: the address of the auth server")
+            .long("authserver")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("authserverca")
+            .about("If using external auth: The certificate of the auth server's CA")
+            .long("authserverca")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("authservermtlspem")
+            .about("If using external auth: The certificate to present to the remote server for mTLS")
+            .long("authservermtlspem")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("authservermtlskey")
+            .about("If using external auth: The key for authenticating to the remote server via mTLS")
+            .long("authservermtlskey")
+            .takes_value(true),
+    )
     .get_matches();
 
     let user_slot = slot_parser(matches.value_of("userslot").unwrap()).unwrap();
@@ -390,6 +430,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
+    let authorizer = match matches.value_of("authtype") {
+        Some("local") => AuthMechanism::Local(LocalDatabase{}),
+        Some("external") => AuthMechanism::External(AuthServer {
+            server: matches.value_of("authserver").unwrap().to_string(),
+            ca: tokio::fs::read(matches.value_of("authserverca").unwrap().to_string()).await?,
+            mtls_cert: tokio::fs::read(matches.value_of("authservermtlspem").unwrap().to_string()).await?,
+            mtls_key: tokio::fs::read(matches.value_of("authservermtlskey").unwrap().to_string()).await?,
+        }),
+        _ => unreachable!("Clap should ensure it must be one of the two values above"),
+    };
+
+
     let user_signer = create_signer(user_slot);
     let host_signer = create_signer(host_slot);
 
@@ -400,12 +452,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Host CA Pubkey: {}", host_ca_cert);
     println!("Host CA Fingerprint (SHA256): {}", host_ca_cert.fingerprint().hash);
 
+    match &authorizer {
+        AuthMechanism::Local(_) => println!("Authorization handled by local database"),
+        AuthMechanism::External(_) => println!("Authorization handled by remote service"),
+    }
+
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
 
     let rs = RusticaServer {
         influx_client,
         hmac_key,
+        authorizer,
         user_ca_cert,
         host_ca_cert,
         user_ca_signer: user_signer,
