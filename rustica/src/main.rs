@@ -390,7 +390,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .arg(
         Arg::new("authservermtlskey")
             .about("If using external auth: The key for authenticating to the remote server via mTLS")
-            .long("authservermtlspem")
+            .long("authservermtlskey")
             .takes_value(true),
     )
     .get_matches();
@@ -448,6 +448,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Host CA Pubkey: {}", host_ca_cert);
     println!("Host CA Fingerprint (SHA256): {}", host_ca_cert.fingerprint().hash);
+
+    match &authorizer {
+        AuthMechanism::Local(_) => println!("Authorization handled by local database"),
+        AuthMechanism::External(_) => println!("Authorization handled by remote service"),
+    }
 
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();

@@ -3,3 +3,4 @@
 rustica/rustica.db
 *.pem
 *.key
+*.env
