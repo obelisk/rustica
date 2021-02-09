@@ -90,10 +90,11 @@ impl Rustica for RusticaServer {
 
     /// This function is responsible for validating the request passes all the
     /// following checks, and in this order.
-    /// Zeroth Validate Time is not expired
-    /// First Validate Mac
-    /// Second Validate Signature
-    /// Third Validate PubKey is authorized
+    /// Validate the peer certs are the way we expect
+    /// Validate Time is not expired
+    /// Validate Mac
+    /// Validate Signature
+    /// Validate PubKey is authorized
     async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
         debug!("Received certificate request: {:?}", request);
         let remote_addr = request.remote_addr();

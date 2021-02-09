@@ -43,6 +43,8 @@ struct Options {
 struct Config {
     server: Option<String>,
     server_pem: Option<String>,
+    mtls_cert: Option<String>,
+    mtls_key: Option<String>,
     slot: Option<String>,
     options: Option<Options>,
 }
@@ -237,15 +239,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .takes_value(true),
         )
         .arg(
-            Arg::new("clientcert")
+            Arg::new("mtlscert")
                 .about("Path to PEM that contains client cert")
-                .long("clientcert")
+                .long("mtlscert")
                 .takes_value(true),
         )
         .arg(
-            Arg::new("clientkey")
+            Arg::new("mtlskey")
                 .about("Path to PEM that contains client key")
-                .long("clientkey")
+                .long("mtlskey")
                 .takes_value(true),
         )
         .arg(
@@ -352,14 +354,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Config {
                 server: None,
                 server_pem: None,
+                mtls_cert: None,
+                mtls_key: None,
                 slot: None,
                 options: None,
             }
         }
     };
 
-    let mtls_cert = fs::read_to_string(matches.value_of("clientcert").unwrap()).unwrap();
-    let mtls_key = fs::read_to_string(matches.value_of("clientkey").unwrap()).unwrap();
+    let mtls_cert = match (matches.value_of("mtlscert"), &config.mtls_cert) {
+        (Some(mtls_cert), _) => fs::read_to_string(mtls_cert)?,
+        (_, Some(mtls_cert)) => mtls_cert.to_owned(),
+        (None, None) => {
+            error!("You must provide an mTLS cert to present to Rustica server");
+            return Ok(())
+        }
+    };
+
+    let mtls_key = match (matches.value_of("mtlskey"), &config.mtls_key) {
+        (Some(mtls_key), _) => fs::read_to_string(mtls_key)?,
+        (_, Some(mtls_key)) => mtls_key.to_owned(),
+        (None, None) => {
+            error!("You must provide an mTLS key to present to Rustica server");
+            return Ok(())
+        }
+    };
 
     let mut certificate_options = rustica::CertificateConfig::from(config.options);
     
