@@ -10,10 +10,8 @@ use std::env;
 use std::os::unix::net::{UnixListener};
 use std::process;
 
-use ring::signature;
 use rustica::{cert, RusticaServer, Signatory};
-use sshcerts::ssh::{Certificate, CertType, CurveKind, PublicKeyKind, PrivateKey, PrivateKeyKind};
-use sshcerts::utils::signature_convert_asn1_ecdsa_to_ssh;
+use sshcerts::ssh::{Certificate, CertType, PrivateKey};
 use sshcerts::yubikey::{
     provision,
     ssh::{
@@ -125,48 +123,17 @@ impl SSHAgentHandler for Handler {
                 })
             },
             Signatory::Direct(privkey) => {
-                let rng = ring::rand::SystemRandom::new();
+                let signer:sshcerts::ssh::SigningFunction = privkey.clone().into();
+                let sig = match signer(&data) {
+                    None => return Err(AgentError::from("Signing Error")),
+                    Some(signature) => signature.to_vec(),
+                };
 
-                match &privkey.kind {
-                    PrivateKeyKind::Rsa(_) => Err(AgentError::from("unimplemented")),
-                    PrivateKeyKind::Ecdsa(key) => {
-                        let (alg, name) = match key.curve.kind {
-                            CurveKind::Nistp256 => (&signature::ECDSA_P256_SHA256_ASN1_SIGNING, "ecdsa-sha2-nistp256"),
-                            CurveKind::Nistp384 => (&signature::ECDSA_P384_SHA384_ASN1_SIGNING, "ecdsa-sha2-nistp384"),
-                            CurveKind::Nistp521 => return Err(AgentError::from("unimplemented")),
-                        };
-
-                        let pubkey = match &privkey.pubkey.kind {
-                            PublicKeyKind::Ecdsa(key) => &key.key,
-                            _ => return Err(AgentError::from("unimplemented")),
-                        };
-
-                        let key = if key.key[0] == 0x0_u8 {&key.key[1..]} else {&key.key};
-                        let key_pair = signature::EcdsaKeyPair::from_private_key_and_public_key(alg, &key, &pubkey).unwrap();
-
-                        let signature = signature_convert_asn1_ecdsa_to_ssh(key_pair.sign(&rng, &data).unwrap().as_ref()).unwrap();
-                        let signature = (&signature[4..]).to_vec();
-                        Ok(Response::SignResponse {
-                            algo_name: name.to_string(),
-                            signature,
-                        })
-                    },
-                    PrivateKeyKind::Ed25519(key) => {
-                        let public_key = match &privkey.pubkey.kind {
-                            PublicKeyKind::Ed25519(key) => &key.key,
-                            _ => return Err(AgentError::from("Key Error")),
-                        };
-    
-                        let key_pair = match signature::Ed25519KeyPair::from_seed_and_public_key(&key.key[..32], public_key) {
-                            Ok(kp) => kp,
-                            Err(_) => return Err(AgentError::from("Key Error")),
-                        };
-                        Ok(Response::SignResponse {
-                            algo_name: String::from("ssh-ed25519"),
-                            signature: key_pair.sign(&data).as_ref().to_vec(),
-                        })
-                    },
-                }
+                let mut reader = sshcerts::ssh::Reader::new(&sig);
+                Ok(Response::SignResponse {
+                    algo_name: reader.read_string().unwrap(),
+                    signature: reader.read_bytes().unwrap(),
+                })
             }
         }
     }

@@ -22,8 +22,9 @@ use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
 
 use sshcerts::ssh::{
-    CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind,
+    CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind
 };
+
 use sshcerts::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1, ED25519};
@@ -287,26 +288,19 @@ impl Rustica for RusticaServer {
     }
 }
 
-fn slot_parser(slot: &str) -> Option<SlotId> {
+fn slot_parser(slot: &str) -> Result<SlotId, String> {
     // If first character is R, then we need to parse the nice
     // notation
     if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
         let slot_value = slot[1..].parse::<u8>();
         match slot_value {
-            Ok(v) if v <= 20 => Some(SlotId::try_from(0x81_u8 + v).unwrap()),
-            _ => None,
+            Ok(v) if v <= 20 => Ok(SlotId::try_from(0x81_u8 + v).unwrap()),
+            _ => Err(String::from("Invalid slot provided")),
         }
     } else if let Ok(s) = SlotId::try_from(slot.to_owned()) {
-        Some(s)
+        Ok(s)
     } else {
-        None
-    }
-}
-
-fn slot_validator(slot: &str) -> Result<(), String> {
-    match slot_parser(slot) {
-        Some(_) => Ok(()),
-        None => Err(String::from("Provided slot was not valid. Should be R1 - R20 or a raw hex identifier")),
+        Err(String::from("Could not interpret input as slot. Must be in format R1-R20. E.g: R1, R5, R17, R20"))
     }
 }
 
@@ -339,21 +333,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .takes_value(true),
     )
     .arg(
-        Arg::new("userslot")
-            .about("Slot to use for user CA")
-            .default_value("R1")
-            .long("userslot")
-            .short('u')
-            .validator(slot_validator)
+        Arg::new("keytype")
+            .about("The type of key you want to use for your keys. Slot expects a Yubikey slot R1-R20. File expects a file path.")
+            .default_value("slot")
+            .possible_value("slot")
+            .possible_value("file")
+            .long("keytype")
             .takes_value(true),
     )
     .arg(
-        Arg::new("hostslot")
+        Arg::new("userkey")
+            .about("Slot to use for user CA")
+            .default_value("R1")
+            .long("userkey")
+            .short('u')
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("hostkey")
             .about("Slot to use for host CA")
             .default_value("R2")
-            .long("hostslot")
+            .long("hostkey")
             .short('h')
-            .validator(slot_validator)
             .takes_value(true),
     )
     .arg(
@@ -428,8 +429,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .get_matches();
 
-    let user_slot = slot_parser(matches.value_of("userslot").unwrap()).unwrap();
-    let host_slot = slot_parser(matches.value_of("hostslot").unwrap()).unwrap();
+    let (user_ca_cert, user_signer, host_ca_cert, host_signer) = match (matches.value_of("keytype"), matches.value_of("userkey"), matches.value_of("hostkey")) {
+        (Some("slot"), Some(uk), Some(hk)) => {
+            let us = slot_parser(uk)?;
+            let hs = slot_parser(hk)?;
+            let user_ca_cert = ssh_cert_fetch_pubkey(us);
+            let host_ca_cert = ssh_cert_fetch_pubkey(hs);
+
+            match (user_ca_cert, host_ca_cert) {
+                (Some(ucc), Some(hcc)) => (ucc, create_signer(us), hcc, create_signer(hs)),
+                _ => {
+                    error!("Could not fetch CA public keys from YubiKey. Is it connected/configured?");
+                    return Ok(());
+                }
+            }
+        },
+        (Some("file"), Some(uk), Some(hk)) => {
+            let userkey = sshcerts::ssh::PrivateKey::from_path(uk)?;
+            let hostkey = sshcerts::ssh::PrivateKey::from_path(hk)?;
+            (userkey.pubkey.clone(), userkey.into(), hostkey.pubkey.clone(), hostkey.into())
+        },
+        _ => {
+            println!("The key type must be one of: slot, file and both a user and host key must be provided");
+            return Ok(());
+        },
+    };
 
     let servercert = matches.value_of("servercert").unwrap();
     let serverkey = matches.value_of("serverkey").unwrap();
@@ -440,17 +464,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = Identity::from_pem(servercert, serverkey);
     let client_ca_cert = tokio::fs::read(matches.value_of("clientcacert").unwrap()).await?;
     let client_ca_cert = TonicCertificate::from_pem(client_ca_cert);
-
-    let user_ca_cert = ssh_cert_fetch_pubkey(user_slot);
-    let host_ca_cert = ssh_cert_fetch_pubkey(host_slot);
-
-    let (user_ca_cert, host_ca_cert) = match (user_ca_cert, host_ca_cert) {
-        (Some(ucc), Some(hcc)) => (ucc, hcc),
-        _ => {
-            error!("Could not fetch CA public keys from YubiKey. Is it connected/configured?");
-            return Ok(());
-        }
-    };
 
     let address = matches.value_of("influxdbaddress");
     let user = matches.value_of("influxdbuser");
@@ -476,10 +489,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         _ => unreachable!("Clap should ensure it must be one of the two values above"),
     };
-
-
-    let user_signer = create_signer(user_slot);
-    let host_signer = create_signer(host_slot);
 
     println!("Starting Rustica");
     info!("User CA Pubkey: {}", user_ca_cert);

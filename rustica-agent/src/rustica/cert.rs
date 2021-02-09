@@ -87,6 +87,7 @@ pub async fn refresh_certificate_async(server: &RusticaServer, signatory: &Signa
                 }
             }
         },
+        // TODO: @obelisk Find a way to replace this with sshcerts::ssh::signer code
         Signatory::Direct(privkey) => {
             let rng = rand::SystemRandom::new();
 
