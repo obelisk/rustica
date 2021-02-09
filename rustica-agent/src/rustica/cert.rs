@@ -10,7 +10,7 @@ use ring::{rand, signature};
 use std::collections::HashMap;
 use std::time::SystemTime;
 use tokio::runtime::Runtime;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use yubikey_piv::key::SlotId;
 
 pub mod rustica {
@@ -32,6 +32,8 @@ pub enum Signatory {
 pub struct RusticaServer {
     pub address: String,
     pub ca: String,
+    pub mtls_cert: String,
+    pub mtls_key: String,
 }
 
 #[derive(Debug)]
@@ -54,18 +56,16 @@ pub async fn refresh_certificate_async(server: &RusticaServer, signatory: &Signa
         pubkey: encoded_key.to_string(),
     });
 
+    let client_identity = Identity::from_pem(&server.mtls_cert, &server.mtls_key);
+
     let channel = match Channel::from_shared(server.address.clone()) {
         Ok(c) => c,
         Err(_) => return Err(RefreshError::InvalidURI),
     };
 
-    let channel = if server.address.starts_with("https") {
-        let ca = Certificate::from_pem(&server.ca);
-        let tls = ClientTlsConfig::new().ca_certificate(ca);
-        channel.tls_config(tls)?.connect().await?
-    } else {
-        channel.connect().await?
-    };
+    let ca = Certificate::from_pem(&server.ca);
+    let tls = ClientTlsConfig::new().ca_certificate(ca).identity(client_identity);
+    let channel = channel.tls_config(tls)?.connect().await?;
 
     let mut client = RusticaClient::new(channel);
     let response = client.challenge(request).await?;

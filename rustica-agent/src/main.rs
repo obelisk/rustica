@@ -237,6 +237,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .takes_value(true),
         )
         .arg(
+            Arg::new("clientcert")
+                .about("Path to PEM that contains client cert")
+                .long("clientcert")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::new("clientkey")
+                .about("Path to PEM that contains client key")
+                .long("clientkey")
+                .takes_value(true),
+        )
+        .arg(
             Arg::new("slot")
                 .about("Numerical value for the slot on the yubikey to use for your private key")
                 .long("slot")
@@ -346,6 +358,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let mtls_cert = fs::read_to_string(matches.value_of("clientcert").unwrap()).unwrap();
+    let mtls_key = fs::read_to_string(matches.value_of("clientkey").unwrap()).unwrap();
+
     let mut certificate_options = rustica::CertificateConfig::from(config.options);
     
     let address = match (matches.value_of("server"), &config.server) {
@@ -357,26 +372,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let ca = if address.starts_with("https") {
-        match (matches.value_of("serverpem"), &config.server_pem) {
-            (Some(v), _) => {
-                let mut contents = String::new();
-                File::open(v)?.read_to_string(&mut contents)?;
-                contents
-            },
-            (_, Some(v)) => v.to_owned(),
-            (None, None) => {
-                error!("You requested an HTTPS server address but no server pem for identification.");
-                return Ok(());
-            }
+    let ca = match (matches.value_of("serverpem"), &config.server_pem) {
+        (Some(v), _) => {
+            let mut contents = String::new();
+            File::open(v)?.read_to_string(&mut contents)?;
+            contents
+        },
+        (_, Some(v)) => v.to_owned(),
+        (None, None) => {
+            error!("You must provide a pem for server authentication");
+            return Ok(());
         }
-    } else {
-        String::new()
     };
 
     let server = RusticaServer {
         address,
         ca,
+        mtls_cert,
+        mtls_key,
     };
 
     let cmd_slot = match matches.value_of("slot") {

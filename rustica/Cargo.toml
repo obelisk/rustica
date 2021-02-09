@@ -23,6 +23,7 @@ sha2 = "0.9.2"
 sshcerts = {version = "0.3.7", features = ["yubikey"]}
 tokio = { version = "1.0.0", features = ["full"] }
 tonic = {version = "0.4", features = ["tls"] }
+x509-parser = {version = "0.9"}
 yubikey-piv = {version = "0.1.0", features = ["untested"]}
 
 [build-dependencies]

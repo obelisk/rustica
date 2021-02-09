@@ -31,7 +31,7 @@ use ring::{hmac, rand};
 use std::convert::TryFrom;
 use std::time::SystemTime;
 use tonic::{Request, Response, Status};
-use tonic::transport::{Identity, Server, ServerTlsConfig};
+use tonic::transport::{Certificate as TonicCertificate, Identity, Server, ServerTlsConfig};
 
 use yubikey_piv::key::SlotId;
 
@@ -97,7 +97,27 @@ impl Rustica for RusticaServer {
     async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
         debug!("Received certificate request: {:?}", request);
         let remote_addr = request.remote_addr();
+        let peer = request.peer_certs();
         let request = request.into_inner();
+
+        let peer_certs = match peer {
+            None => return Ok(create_response(RusticaServerError::NotAuthorized)),
+            Some(p) => p,
+        };
+
+        if peer_certs.is_empty() {
+            return Ok(create_response(RusticaServerError::NotAuthorized));
+        }
+
+        let mut mtls_identities = vec![];
+        for peer in peer_certs.iter() {
+            match x509_parser::parse_x509_certificate(&peer.as_ref()) {
+                Err(_) => return Ok(create_response(RusticaServerError::NotAuthorized)),
+                Ok((_, cert)) => {
+                    mtls_identities.push(cert.tbs_certificate.subject.to_string())
+                },
+            };
+        }
 
         // If something happens with the timestamp, we go with worst case scenario:
         // Client timestamp issues - Assume it was sent at time 0
@@ -176,6 +196,7 @@ impl Rustica for RusticaServer {
 
         let auth_props = AuthorizationRequestProperties {
             fingerprint: fingerprint.clone(),
+            mtls_identities,
             requester_ip: remote_addr.unwrap().to_string(),
             principals: request.principals.clone(),
             servers: request.servers.clone(),
@@ -299,15 +320,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arg::new("servercert")
             .about("Path to PEM that contains server public key")
             .long("servercert")
-            .short('c')
             .required(true)
             .takes_value(true),
     )
     .arg(
         Arg::new("serverkey")
-            .about("Path to key that contains server private key")
+            .about("Path to pem that contains server private key")
             .long("serverkey")
-            .short('k')
+            .required(true)
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("clientcacert")
+            .about("Path to pem that contains client ca public key")
+            .long("clientcacert")
             .required(true)
             .takes_value(true),
     )
@@ -331,7 +357,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .arg(
         Arg::new("listenaddress")
-            .about("URI to listen on")
+            .about("Address and port to listen on")
             .long("listen")
             .short('l')
             .takes_value(true),
@@ -371,8 +397,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .arg(
         Arg::new("authserver")
-            .about("If using external auth: the address of the auth server")
+            .about("If using external auth: the hostname of the auth server")
             .long("authserver")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("authserverport")
+            .about("If using external auth: the port of the auth server")
+            .long("authserverport")
             .takes_value(true),
     )
     .arg(
@@ -405,6 +437,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let servercert = tokio::fs::read(servercert).await?;
     let serverkey = tokio::fs::read(serverkey).await?;
     let identity = Identity::from_pem(servercert, serverkey);
+    let client_ca_cert = tokio::fs::read(matches.value_of("clientcacert").unwrap()).await?;
+    let client_ca_cert = TonicCertificate::from_pem(client_ca_cert);
 
     let user_ca_cert = ssh_cert_fetch_pubkey(user_slot);
     let host_ca_cert = ssh_cert_fetch_pubkey(host_slot);
@@ -434,6 +468,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("local") => AuthMechanism::Local(LocalDatabase{}),
         Some("external") => AuthMechanism::External(AuthServer {
             server: matches.value_of("authserver").unwrap().to_string(),
+            port: matches.value_of("authserverport").unwrap().to_string(),
             ca: tokio::fs::read(matches.value_of("authserverca").unwrap().to_string()).await?,
             mtls_cert: tokio::fs::read(matches.value_of("authservermtlspem").unwrap().to_string()).await?,
             mtls_key: tokio::fs::read(matches.value_of("authservermtlskey").unwrap().to_string()).await?,
@@ -471,7 +506,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     Server::builder()
-        .tls_config(ServerTlsConfig::new().identity(identity))?
+        .tls_config(ServerTlsConfig::new().identity(identity).client_ca_root(client_ca_cert))?
         .add_service(GRPCRusticaServer::new(rs))
         .serve(addr)
         .await?;

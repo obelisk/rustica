@@ -28,6 +28,7 @@ pub struct Authorization {
 #[derive(Debug)]
 pub struct AuthorizationRequestProperties {
     pub fingerprint: String,
+    pub mtls_identities: Vec<String>,
     pub requester_ip: String,
     pub principals: Vec<String>,
     pub servers: Vec<String>,

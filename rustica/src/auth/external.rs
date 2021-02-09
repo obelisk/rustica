@@ -13,6 +13,7 @@ pub mod author {
 
 pub struct AuthServer {
     pub server: String,
+    pub port: String,
     pub ca: Vec<u8>,
     pub mtls_cert: Vec<u8>,
     pub mtls_key: Vec<u8>,
@@ -23,6 +24,7 @@ impl AuthServer {
         let mut identities = HashMap::new();
         identities.insert(String::from("requester_ip"), auth_props.requester_ip.clone());
         identities.insert(String::from("key_fingerprint"), auth_props.fingerprint.clone());
+        identities.insert(String::from("mtls_identities"), auth_props.mtls_identities.join(","));
 
         let mut authorization_request = HashMap::new();
         authorization_request.insert(String::from("type"), String::from("ssh"));
@@ -37,19 +39,19 @@ impl AuthServer {
             authorization_request,
         });
 
-        let client_identity = Identity::from_pem(&self.mtls_cert, &self.mtls_cert);
+        let client_identity = Identity::from_pem(&self.mtls_cert, &self.mtls_key);
         let tls = ClientTlsConfig::new()
             .domain_name(&self.server)
             .ca_certificate(Certificate::from_pem(&self.ca))
             .identity(client_identity);
 
-        // TODO: @obelisk handle these TLS unwraps
-        let channel = match Channel::from_shared(self.server.clone()) {
+        let channel = match Channel::from_shared(format!("https://{}:{}", &self.server, &self.port)) {
             Ok(c) => c,
             Err(e) => {
                 error!("Could not open a channel to the authorization server: {}", e);
                 return Err(AuthorizationError::AuthorizerError);
             },
+        // TODO: @obelisk handle these TLS unwraps
         }.tls_config(tls).unwrap().connect().await.unwrap();
 
         let mut client = AuthorClient::new(channel);
