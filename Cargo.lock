@@ -2132,7 +2132,7 @@ dependencies = [
  "pem",
  "rand 0.7.3",
  "sha2",
- "simple_asn1",
+ "simple_asn1 0.4.1",
  "subtle",
  "thiserror",
  "zeroize",
@@ -2421,6 +2421,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "simple_asn1"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db8d597fce66eb0f19dd129b9956e4054cba21aeaf97d4116595027b670fac50"
+dependencies = [
+ "chrono",
+ "num-bigint 0.3.1",
+ "num-traits",
+ "thiserror",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2451,13 +2463,15 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "sshcerts"
-version = "0.3.9"
+version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a89687903632da819a0a0538659b9a6e0760db628fc21c80cd5debc71e36863"
+checksum = "3c9db61f8d6a27aeea6967e200e4fa2527c31c1dbbd63620219762c7e067993a"
 dependencies = [
  "base64 0.13.0",
  "log",
+ "num-bigint 0.3.1",
  "ring",
+ "simple_asn1 0.5.1",
  "yubikey-piv",
 ]
 

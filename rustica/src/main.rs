@@ -450,7 +450,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (userkey.pubkey.clone(), userkey.into(), hostkey.pubkey.clone(), hostkey.into())
         },
         _ => {
-            println!("The key type must be one of: slot, file and both a user and host key must be provided");
+            println!("The key type must be one of: [slot, file]. Both a user and host key must be provided");
             return Ok(());
         },
     };
