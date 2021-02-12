@@ -1,5 +1,14 @@
 #!/bin/zsh
-CONFIG="""
+if [ "$1" = "clean" ]; then
+    rm *.key
+    rm *.pem
+    rm user_ssh_ca*
+    rm host_ssh_ca*
+    rm example_user_key*
+    exit
+fi
+
+AUTHOR_CONFIG="""
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
 keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
@@ -8,10 +17,16 @@ subjectAltName = @alt_names
 [alt_names]
 DNS.1 = localhost"""
 
-# Echo out the config which will give us a localhost SAN
-echo $CONFIG > rustica.ext
+RUSTICA_CONFIG="""
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+subjectAltName = @alt_names
 
-CONFIG="""
+[alt_names]
+DNS.1 = localhost"""
+
+CLIENT_CONFIG="""
 authorityKeyIdentifier=keyid,issuer
 basicConstraints=CA:FALSE
 keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
@@ -20,8 +35,11 @@ subjectAltName = @alt_names
 [alt_names]
 DNS.1 = TestHost"""
 
-# Echo out the config which will give us a localhost SAN
-echo $CONFIG > client.ext
+# Create the certificate configurations. These ext files are needed otherwise
+# Rustica will not accept them.
+echo $AUTHOR_CONFIG > author.ext
+echo $RUSTICA_CONFIG > rustica.ext
+echo $CLIENT_CONFIG > client.ext
 
 # Generate CA key and cert
 openssl ecparam -genkey -name prime256v1 -noout -out ca.key
@@ -52,7 +70,7 @@ openssl req -new -key authorserver.key -out authorserver.csr -subj '/CN=Author/O
 # Use the CA to generate the cert for Rustica sever
 openssl x509 -req -in rusticaserver.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out rusticaserver.pem -days 825 -sha256 -extfile rustica.ext
 # Use the CA to generate the cert for Author sever
-openssl x509 -req -in authorserver.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out authorserver.pem -days 825 -sha256 -extfile rustica.ext
+openssl x509 -req -in authorserver.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out authorserver.pem -days 825 -sha256 -extfile author.ext
 
 # ------------ Generate Signed Certificates For Test Clients ------------ #
 # Generate TestHost key
@@ -65,6 +83,13 @@ openssl req -new -key testhost.key -out testhost.csr -subj '/CN=TestHost/O=Rusti
 
 # Generate TestHost Certificate
 openssl x509 -req -in testhost.csr -CA client_ca.pem -CAkey client_ca.key -CAcreateserial -out testhost.pem -days 825 -sha256 -extfile client.ext
+
+# ------------ Generate User and Host CA Keys ------------ #
+ssh-keygen -t ed25519 -f user_ssh_ca -q -N ""
+ssh-keygen -t ed25519 -f host_ssh_ca -q -N ""
+
+# ------------ Generate Example User Key ------------ #
+ssh-keygen -t ed25519 -f example_user_key -q -N ""
 
 # Clean up
 rm *.ext

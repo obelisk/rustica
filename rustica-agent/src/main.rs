@@ -40,7 +40,7 @@ struct Options {
 #[derive(Debug, Deserialize)]
 struct Config {
     server: Option<String>,
-    server_pem: Option<String>,
+    ca_pem: Option<String>,
     mtls_cert: Option<String>,
     mtls_key: Option<String>,
     slot: Option<String>,
@@ -199,9 +199,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .takes_value(true),
         )
         .arg(
-            Arg::new("serverpem")
-                .about("Path to PEM that contains server public key")
-                .long("serverpem")
+            Arg::new("capem")
+                .about("Path to PEM that contains CA of the server's certificate")
+                .long("capem")
                 .short('c')
                 .takes_value(true),
         )
@@ -320,7 +320,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => {
             Config {
                 server: None,
-                server_pem: None,
+                ca_pem: None,
                 mtls_cert: None,
                 mtls_key: None,
                 slot: None,
@@ -358,7 +358,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let ca = match (matches.value_of("serverpem"), &config.server_pem) {
+    let ca = match (matches.value_of("capem"), &config.ca_pem) {
         (Some(v), _) => {
             let mut contents = String::new();
             File::open(v)?.read_to_string(&mut contents)?;

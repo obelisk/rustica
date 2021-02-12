@@ -335,10 +335,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .arg(
         Arg::new("keytype")
             .about("The type of key you want to use for your keys. Slot expects a Yubikey slot R1-R20. File expects a file path.")
-            .default_value("slot")
             .possible_value("slot")
             .possible_value("file")
             .long("keytype")
+            .required(true)
             .takes_value(true),
     )
     .arg(
@@ -346,7 +346,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .about("Slot to use for user CA")
             .default_value("R1")
             .long("userkey")
-            .short('u')
             .takes_value(true),
     )
     .arg(
@@ -354,14 +353,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .about("Slot to use for host CA")
             .default_value("R2")
             .long("hostkey")
-            .short('h')
             .takes_value(true),
     )
     .arg(
         Arg::new("listenaddress")
             .about("Address and port to listen on")
             .long("listen")
-            .short('l')
             .takes_value(true),
     )
     .arg(
