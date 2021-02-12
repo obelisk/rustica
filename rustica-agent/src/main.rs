@@ -262,8 +262,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .arg(
             Arg::new("immediate")
-                .about("Immiediately request a certificate. Useful for testing.")
+                .about("Immiediately request a certificate. Useful for testing and verifying access.")
                 .short('i')
+        )
+        .arg(
+            Arg::new("out")
+                .about("Output the certificate to a file and exit. Useful for refreshing host certificates.")
+                .short('o')
+                .takes_value(true)
+                .requires("immediate")
         )
         .subcommand(
             App::new("provision")
@@ -463,6 +470,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 stale_at = cert.valid_before;
                 debug!("Raw Certificate: ");
                 debug!("{}", &cert);
+
+                if let Some(out_file) = matches.value_of("out") {
+                    use std::io::Write;
+                    let mut out = File::create(out_file)?;
+                    out.write_all(cert.to_string().as_bytes())?;
+                    return Ok(())
+                }
 
                 let cert: Vec<&str> = x.cert.split(' ').collect();
                 let raw_cert = base64::decode(cert[1]).unwrap_or_default();

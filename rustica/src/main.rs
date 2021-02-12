@@ -344,15 +344,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .arg(
         Arg::new("userkey")
             .about("Slot to use for user CA")
-            .default_value("R1")
             .long("userkey")
+            .required(true)
             .takes_value(true),
     )
     .arg(
         Arg::new("hostkey")
             .about("Slot to use for host CA")
-            .default_value("R2")
             .long("hostkey")
+            .required(true)
             .takes_value(true),
     )
     .arg(
