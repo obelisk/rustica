@@ -2,9 +2,6 @@
 
 Rustica is a Yubikey backed SSHCA written in Rust. It is designed to be used with the accompanying `rustica-agent` tool for certificate handling but speaks gRPC so other integrations are possible. Rustica may use a Yubikey to store its private keys but also supports unencrypted OpenSSH format private key files.
 
-
-[//]: # (Rustica requires at least 1 + N standard (not HSM) Yubikey 4/5s: one for the server, and one for every client. You may also wish to generate keys on the yubikeys (see `yk-provisioner` in sshcerts or the provision command in `rustica-agent`) so they are never exported.)
-
 ## Features
 - Yubikey backed private keys
 - Just In Time Certificate Generation
