@@ -15,8 +15,9 @@ use clap::{App, Arg};
 
 use error::RusticaServerError;
 
-use influxdb::{Client, Timestamp};
-use influxdb::InfluxDbWriteable;
+use influx_db_client::{
+    Client, Point, Points, Value, Precision, point, points
+};
 
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
 use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
@@ -198,7 +199,7 @@ impl Rustica for RusticaServer {
 
         let auth_props = AuthorizationRequestProperties {
             fingerprint: fingerprint.clone(),
-            mtls_identities,
+            mtls_identities: mtls_identities.clone(),
             requester_ip: remote_addr.unwrap().to_string(),
             principals: request.principals.clone(),
             servers: request.servers.clone(),
@@ -243,7 +244,7 @@ impl Rustica for RusticaServer {
             req_cert_type,
             authorization.serial,
             format!("Rustica-JITC-for-{}", &fingerprint),
-            authorization.principals,
+            authorization.principals.clone(),
             authorization.valid_after,
             authorization.valid_before,
             critical_options,
@@ -276,10 +277,13 @@ impl Rustica for RusticaServer {
         };
 
         if let Some(influx_client) = &self.influx_client {
-            let write_query = Timestamp::Seconds(current_timestamp.into())
-                .into_query("rustica_logs")
-                .add_tag("fingerprint", fingerprint);
-            if let Err(e) = influx_client.query(&write_query).await {
+            let point = Point::new("rustica_logs")
+                .add_tag("fingerprint", fingerprint)
+                .add_tag("mtls_identities", mtls_identities.join(","))
+                .add_field("principals", authorization.principals.join(","))
+                .add_field("hosts", authorization.hosts.unwrap_or_default().join(","));
+
+            if let Err(e) = influx_client.write_points(points!(point), Some(Precision::Seconds), None).await {
                 error!("Could not log to influx DB: {}", e);
             }
         }
@@ -468,7 +472,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = matches.value_of("influxdbdatabase");
 
     let influx_client = match (address, user, password, db) {
-        (Some(address), Some(user), Some(password), Some(db)) => Some(Client::new(address, db).with_auth(user, password)),
+        (Some(address), Some(user), Some(password), Some(db)) => Some(
+            Client::new(address.parse().unwrap(), "network").set_authentication(user, password)
+        ),
         _ => {
             info!("InfluxDB is not configured");
             None
