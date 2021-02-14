@@ -4,13 +4,13 @@ CREATE TABLE hosts (
 );
 
 CREATE TABLE fingerprint_principal_authorizations (
-	id INTEGER PRIMARY KEY NOT NULL,
+	id BIGINT PRIMARY KEY NOT NULL,
 	fingerprint TEXT NOT NULL,
 	principal TEXT NOT NULL
 );
 
 CREATE TABLE fingerprint_host_authorizations (
-	id INTEGER PRIMARY KEY NOT NULL,
+	id BIGINT PRIMARY KEY NOT NULL,
 	fingerprint TEXT NOT NULL,
 	hostname TEXT NOT NULL
 );
@@ -21,18 +21,18 @@ CREATE TABLE fingerprint_permissions (
 	principal_unrestricted BOOLEAN DEFAULT FALSE NOT NULL,
 	can_create_host_certs BOOLEAN DEFAULT FALSE NOT NULL,
 	can_create_user_certs BOOLEAN DEFAULT FALSE NOT NULL,
-	max_creation_time INT DEFAULT 10 NOT NULL
+	max_creation_time BIGINT DEFAULT 10 NOT NULL
 );
 
 CREATE TABLE fingerprint_extensions (
-	id INTEGER PRIMARY KEY NOT NULL,
+	id BIGINT PRIMARY KEY NOT NULL,
 	fingerprint TEXT NOT NULL,
 	extension_name TEXT NOT NULL,
 	extension_value TEXT NULL
 );
 
 CREATE TABLE fingerprint_critical_options (
-	id INTEGER PRIMARY KEY NOT NULL,
+	id BIGINT PRIMARY KEY NOT NULL,
 	fingerprint TEXT NOT NULL,
 	critical_option_name TEXT NOT NULL,
 	critical_option_value TEXT NULL

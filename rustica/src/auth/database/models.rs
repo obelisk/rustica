@@ -6,14 +6,14 @@ pub struct Host {
 
 #[derive(Queryable)]
 pub struct FingerprintPrincipalAuthorization {
-    pub id: i32,
+    pub id: i64,
     pub fingerprint: String,
     pub principal: String,
 }
 
 #[derive(Queryable)]
 pub struct FingerprintHostAuthorization {
-    pub id: i32,
+    pub id: i64,
     pub fingerprint: String,
     pub hostname: String,
 }
@@ -25,5 +25,5 @@ pub struct FingerprintPermission {
     pub principal_unrestricted: bool,
     pub can_create_host_certs: bool,
     pub can_create_user_certs: bool,
-    pub max_creation_time: i32,
+    pub max_creation_time: i64,
 }

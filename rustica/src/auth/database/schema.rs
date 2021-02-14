@@ -1,6 +1,6 @@
 table! {
     fingerprint_critical_options (id) {
-        id -> Integer,
+        id -> BigInt,
         fingerprint -> Text,
         critical_option_name -> Text,
         critical_option_value -> Nullable<Text>,
@@ -9,7 +9,7 @@ table! {
 
 table! {
     fingerprint_extensions (id) {
-        id -> Integer,
+        id -> BigInt,
         fingerprint -> Text,
         extension_name -> Text,
         extension_value -> Nullable<Text>,
@@ -18,7 +18,7 @@ table! {
 
 table! {
     fingerprint_host_authorizations (id) {
-        id -> Integer,
+        id -> BigInt,
         fingerprint -> Text,
         hostname -> Text,
     }
@@ -31,13 +31,13 @@ table! {
         principal_unrestricted -> Bool,
         can_create_host_certs -> Bool,
         can_create_user_certs -> Bool,
-        max_creation_time -> Integer,
+        max_creation_time -> BigInt,
     }
 }
 
 table! {
     fingerprint_principal_authorizations (id) {
-        id -> Integer,
+        id -> BigInt,
         fingerprint -> Text,
         principal -> Text,
     }
