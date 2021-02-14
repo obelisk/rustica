@@ -16,7 +16,7 @@ use clap::{App, Arg};
 use error::RusticaServerError;
 
 use influx_db_client::{
-    Client, Point, Points, Value, Precision, point, points
+    Client, Point, Points, Precision, points
 };
 
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
@@ -473,7 +473,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let influx_client = match (address, user, password, db) {
         (Some(address), Some(user), Some(password), Some(db)) => Some(
-            Client::new(address.parse().unwrap(), "network").set_authentication(user, password)
+            Client::new(address.parse().unwrap(), db).set_authentication(user, password)
         ),
         _ => {
             info!("InfluxDB is not configured");
