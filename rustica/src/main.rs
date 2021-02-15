@@ -31,6 +31,10 @@ use sshcerts::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1, ED25519};
 use ring::{hmac, rand};
 use std::convert::TryFrom;
+// It is my understanding that it is fine to use a standard Mutex here
+// instead of a tokio Mutex because we are not holding the lock across an
+// await boundary.
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tonic::{Request, Response, Status};
 use tonic::transport::{Certificate as TonicCertificate, Identity, Server, ServerTlsConfig};
@@ -51,9 +55,15 @@ pub struct RusticaServer {
     host_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
 }
 
-fn create_signer(slot: SlotId) -> Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync> {
+fn create_signer(slot: SlotId, mutex: Arc<Mutex<u32>>) -> Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync> {
     Box::new(move |buf: &[u8]| {
-        ssh_cert_signer(buf, slot)
+        match mutex.lock() {
+            Ok(_) => ssh_cert_signer(buf, slot),
+            Err(e) => {
+                println!("Error in acquiring mutex for yubikey signing: {}", e);
+                None
+            }
+        }
     })
 }
 
@@ -436,9 +446,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let hs = slot_parser(hk)?;
             let user_ca_cert = ssh_cert_fetch_pubkey(us);
             let host_ca_cert = ssh_cert_fetch_pubkey(hs);
+            let yubikey_mutex = Arc::new(Mutex::new(0));
 
             match (user_ca_cert, host_ca_cert) {
-                (Some(ucc), Some(hcc)) => (ucc, create_signer(us), hcc, create_signer(hs)),
+                (Some(ucc), Some(hcc)) => (
+                    ucc,
+                    create_signer(us, yubikey_mutex.clone()),
+                    hcc,
+                    create_signer(hs, yubikey_mutex.clone())
+                ),
                 _ => {
                     error!("Could not fetch CA public keys from YubiKey. Is it connected/configured?");
                     return Ok(());
