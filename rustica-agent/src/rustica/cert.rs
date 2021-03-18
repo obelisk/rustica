@@ -1,7 +1,7 @@
 use super::error::{RefreshError, ServerError};
 
 use rustica::rustica_client::{RusticaClient};
-use rustica::{CertificateRequest, ChallengeRequest};
+use rustica::{CertificateRequest, Challenge, ChallengeRequest};
 
 use sshcerts::ssh::{CertType, CriticalOptions, CurveKind, Extensions, PrivateKey, PublicKeyKind, PrivateKeyKind};
 use sshcerts::yubikey::{sign_data, ssh::{ssh_cert_fetch_pubkey, get_ssh_key_type}};
@@ -131,19 +131,23 @@ pub async fn refresh_certificate_async(server: &RusticaServer, signatory: &Signa
         Err(_e) => 0xFFFFFFFFFFFFFFFF,
     };
 
-    let request = tonic::Request::new(CertificateRequest {
+    let challenge = Challenge {
         pubkey: encoded_key.to_string(),
+        challenge_time: response.time,
+        challenge: response.challenge,
+        challenge_signature,
+    };
+
+    let request = tonic::Request::new(CertificateRequest {
         cert_type: options.cert_type as u32,
         key_id: String::from(""),           // Rustica Server ignores this field
-        challenge_time: response.time,
         critical_options: HashMap::from(CriticalOptions::None),
         extensions: HashMap::from(Extensions::Standard),
         servers: options.hosts.clone(),
         principals: options.principals.clone(),
         valid_before: current_timestamp + options.duration,
         valid_after: 0x0,
-        challenge: response.challenge,
-        challenge_signature,
+        challenge: Some(challenge),
     });
 
     let response = client.certificate(request).await?;

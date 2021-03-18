@@ -20,7 +20,15 @@ use influx_db_client::{
 };
 
 use rustica::rustica_server::{Rustica, RusticaServer as GRPCRusticaServer};
-use rustica::{CertificateRequest, CertificateResponse, ChallengeRequest, ChallengeResponse};
+use rustica::{
+    CertificateRequest,
+    CertificateResponse,
+    Challenge,
+    ChallengeRequest,
+    ChallengeResponse,
+    RegisterKeyRequest,
+    RegisterKeyResponse,
+};
 
 use sshcerts::ssh::{
     CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind
@@ -77,8 +85,93 @@ T : Into::<RusticaServerError> {
     })
 }
 
+/// Validates a request passes all the following checks in this order:
+/// Validate the peer certs are the way we expect
+/// Validate Time is not expired
+/// Validate Mac
+/// Validate Signature
+fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertificate>>, challenge: &Challenge) -> Result<(SSHPublicKey, Vec<String>), RusticaServerError> {
+    if peer_certs.is_empty() {
+        return Err(RusticaServerError::NotAuthorized);
+    }
+
+    let mut mtls_identities = vec![];
+    for peer in peer_certs.iter() {
+        match x509_parser::parse_x509_certificate(peer.as_ref()) {
+            Err(_) => return Err(RusticaServerError::NotAuthorized),
+            Ok((_, cert)) => {
+                mtls_identities.push(cert.tbs_certificate.subject.to_string())
+            },
+        };
+    }
+
+    // If something happens with the timestamp, we go with worst case scenario:
+    // Client timestamp issues - Assume it was sent at time 0
+    // Host timestamp issues   - Assume it's about 292 billion years from now
+    let client_timestamp = &challenge.challenge_time.parse::<u64>().unwrap_or(0);
+    let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(ts) => ts.as_secs(),
+        Err(_e) => 0xFFFFFFFFFFFFFFFF,
+    };
+
+    if (current_timestamp - client_timestamp) > 5 {
+        return Err(RusticaServerError::TimeExpired);
+    }
+
+    let hmac_verification = format!("{}-{}", client_timestamp, challenge.pubkey);
+    let decoded_challenge = match hex::decode(&challenge.challenge) {
+        Ok(dc) => dc,
+        Err(_) => return Err(RusticaServerError::BadChallenge),
+    };
+
+    if let Err(_) = hmac::verify(hmac_key, hmac_verification.as_bytes(), &decoded_challenge) {
+       return Err(RusticaServerError::BadChallenge);
+    }
+
+    // Verification of the integrity of the request is now done, we can
+    // parse the rest of the request knowing it has not been replayed
+    // significantly in time or it's publickey tampered with since its
+    // its initial request.
+    let ssh_pubkey = match SSHPublicKey::from_string(&challenge.pubkey) {
+        Ok(sshpk) => sshpk,
+        Err(_) => return Err(RusticaServerError::InvalidKey),
+    };
+
+    let result = match &ssh_pubkey.kind {
+        SSHPublicKeyKind::Ecdsa(key) => {
+            let (pubkey, alg) = match key.curve.kind {
+                CurveKind::Nistp256 => (key, &ECDSA_P256_SHA256_ASN1),
+                CurveKind::Nistp384 => (key, &ECDSA_P384_SHA384_ASN1),
+                _ => return Err(RusticaServerError::UnsupportedKeyType),
+            };
+
+            UnparsedPublicKey::new(alg, &pubkey.key).verify(
+                &hex::decode(&challenge.challenge).unwrap(),
+                &hex::decode(&challenge.challenge_signature).unwrap(),
+            )
+        },
+        SSHPublicKeyKind::Ed25519(key) => {
+            let alg = &ED25519;
+            let peer_public_key = UnparsedPublicKey::new(alg, &key.key);
+            peer_public_key.verify(
+                &hex::decode(&challenge.challenge).unwrap(),
+                &hex::decode(&challenge.challenge_signature).unwrap()
+            )
+        },
+        _ => return Err(RusticaServerError::UnsupportedKeyType),
+    };
+
+    if let Err(_) = result {
+        return Err(RusticaServerError::BadChallenge)
+    }
+
+
+    Ok((ssh_pubkey, vec![]))
+}
+
 #[tonic::async_trait]
 impl Rustica for RusticaServer {
+    /// Handler when a host is going to make a further request to Rustica
     async fn challenge(&self, request: Request<ChallengeRequest>) -> Result<Response<ChallengeResponse>, Status> {
         let request = request.into_inner();
         debug!("Someone wants to authenticate: {}", request.pubkey);
@@ -100,97 +193,27 @@ impl Rustica for RusticaServer {
         Ok(Response::new(reply))
     }
 
-    /// This function is responsible for validating the request passes all the
-    /// following checks, and in this order.
-    /// Validate the peer certs are the way we expect
-    /// Validate Time is not expired
-    /// Validate Mac
-    /// Validate Signature
-    /// Validate PubKey is authorized
+    /// Handler used when a host requests a new certificate from Rustica
     async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
         debug!("Received certificate request: {:?}", request);
         let remote_addr = request.remote_addr();
         let peer = request.peer_certs();
         let request = request.into_inner();
 
-        let peer_certs = match peer {
-            None => return Ok(create_response(RusticaServerError::NotAuthorized)),
-            Some(p) => p,
+        let (challenge, peer) = match (&request.challenge, peer) {
+            (Some(challenge), Some(peer)) => (challenge, peer),
+            _ => return Ok(create_response(RusticaServerError::BadRequest)),
         };
 
-        if peer_certs.is_empty() {
-            return Ok(create_response(RusticaServerError::NotAuthorized));
-        }
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, &challenge) {
+            Ok((ssh_pk, idents)) => (ssh_pk, idents),
+            Err(e) => return Ok(create_response(e)),
+        };
 
-        let mut mtls_identities = vec![];
-        for peer in peer_certs.iter() {
-            match x509_parser::parse_x509_certificate(&peer.as_ref()) {
-                Err(_) => return Ok(create_response(RusticaServerError::NotAuthorized)),
-                Ok((_, cert)) => {
-                    mtls_identities.push(cert.tbs_certificate.subject.to_string())
-                },
-            };
-        }
-
-        // If something happens with the timestamp, we go with worst case scenario:
-        // Client timestamp issues - Assume it was sent at time 0
-        // Host timestamp issues   - Assume it's about 292 billion years from now
-        let client_timestamp = &request.challenge_time.parse::<u64>().unwrap_or(0);
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(ts) => ts.as_secs(),
             Err(_e) => 0xFFFFFFFFFFFFFFFF,
         };
-
-        if (current_timestamp - client_timestamp) > 5 {
-            return Ok(create_response(RusticaServerError::TimeExpired));
-        }
-
-        let hmac_verification = format!("{}-{}", client_timestamp, &request.pubkey);
-        let decoded_challenge = match hex::decode(&request.challenge) {
-            Ok(dc) => dc,
-            Err(_) => return Ok(create_response(RusticaServerError::BadChallenge)),
-        };
-
-        if let Err(_) = hmac::verify(&self.hmac_key, hmac_verification.as_bytes(), &decoded_challenge) {
-           return Ok(create_response(RusticaServerError::BadChallenge));
-        }
-
-        // Verification of the integrity of the request is now done, we can
-        // parse the rest of the request knowing it has not been replayed
-        // significantly in time or it's publickey tampered with since its
-        // its initial request.
-        let ssh_pubkey = match SSHPublicKey::from_string(&request.pubkey) {
-            Ok(sshpk) => sshpk,
-            Err(_) => return Ok(create_response(RusticaServerError::InvalidKey)),
-        };
-
-        let result = match &ssh_pubkey.kind {
-            SSHPublicKeyKind::Ecdsa(key) => {
-                let (pubkey, alg) = match key.curve.kind {
-                    CurveKind::Nistp256 => (key, &ECDSA_P256_SHA256_ASN1),
-                    CurveKind::Nistp384 => (key, &ECDSA_P384_SHA384_ASN1),
-                    _ => return Ok(create_response(RusticaServerError::UnsupportedKeyType)),
-                };
-
-                UnparsedPublicKey::new(alg, &pubkey.key).verify(
-                    &hex::decode(&request.challenge).unwrap(),
-                    &hex::decode(&request.challenge_signature).unwrap(),
-                )
-            },
-            SSHPublicKeyKind::Ed25519(key) => {
-                let alg = &ED25519;
-                let peer_public_key = UnparsedPublicKey::new(alg, &key.key);
-                peer_public_key.verify(
-                    &hex::decode(&request.challenge).unwrap(),
-                    &hex::decode(&request.challenge_signature).unwrap()
-                )
-            },
-            _ => return Ok(create_response(RusticaServerError::UnsupportedKeyType)),
-        };
-
-        if let Err(_) = result {
-            return Ok(create_response(RusticaServerError::BadChallenge))
-        }
 
         if (request.valid_before < request.valid_after) || current_timestamp > request.valid_before {
             // Can't have a cert where the start time (valid_after) is before
@@ -299,6 +322,10 @@ impl Rustica for RusticaServer {
         }
 
         Ok(Response::new(reply))
+    }
+
+    async fn register_key(&self, request: Request<RegisterKeyRequest>) -> Result<Response<RegisterKeyResponse>, Status> {
+        Err(Status::cancelled("Unimplemented"))
     }
 }
 

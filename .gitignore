@@ -1,6 +1,8 @@
 /target
 .DS_Store
-rustica/rustica.db
+/rustica/rustica.db
 *.pem
 *.key
 *.env
+/resources/
+!/resources/create_certs.sh

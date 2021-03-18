@@ -10,19 +10,23 @@ message ChallengeResponse {
     string challenge = 2;
 }
 
-message CertificateRequest {
+message Challenge {
     string pubkey = 1;
-    uint32 cert_type = 2;
-    string key_id = 3;
-    repeated string principals = 4;
-    repeated string servers = 5;
-    map<string, string> extensions = 6;
-    map<string, string> critical_options = 7;
-    uint64 valid_after = 8;
-    uint64 valid_before = 9;
-    string challenge = 10;
-    string challenge_signature = 11;
-    string challenge_time = 12;
+    string challenge = 2;
+    string challenge_signature = 3;
+    string challenge_time = 4;
+}
+
+message CertificateRequest {
+    uint32 cert_type = 1;
+    string key_id = 2;
+    repeated string principals = 3;
+    repeated string servers = 4;
+    map<string, string> extensions = 5;
+    map<string, string> critical_options = 6;
+    uint64 valid_after = 7;
+    uint64 valid_before = 8;
+    Challenge challenge = 9;
 }
 
 message CertificateResponse {
@@ -31,7 +35,16 @@ message CertificateResponse {
     int64 error_code = 3;
 }
 
+message RegisterKeyRequest {
+    string certificate = 1;
+    string intermediate = 2;
+    Challenge challenge = 3;
+}
+
+message RegisterKeyResponse {}
+
 service Rustica {
     rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
     rpc Certificate(CertificateRequest) returns (CertificateResponse);
+    rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
 }
