@@ -4,7 +4,12 @@ use author::{AuthorizeRequest};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 use sshcerts::ssh::Extensions;
-use super::{Authorization, AuthorizationError, AuthorizationRequestProperties};
+use super::{
+    Authorization,
+    AuthorizationError,
+    AuthorizationRequestProperties,
+    RegisterKeyRequestProperties,
+};
 use std::collections::HashMap;
 
 pub mod author {
@@ -93,5 +98,9 @@ impl AuthServer {
             force_command: force_command,
             source_address: source_address,
         })
+    }
+
+    pub async fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<bool, ()> {
+        Ok(false)
     }
 }

@@ -10,12 +10,13 @@ use std::env;
 use std::os::unix::net::{UnixListener};
 use std::process;
 
-use rustica::{cert, RusticaServer, Signatory};
+use rustica::{cert::*, key::KeyConfig, RusticaServer, Signatory};
 use sshcerts::ssh::{Certificate, CertType, PrivateKey};
 use sshcerts::yubikey::{
     provision,
+    fetch_attestation,
+    fetch_certificate,
     ssh::{
-        convert_to_ssh_pubkey,
         ssh_cert_signer,
         ssh_cert_fetch_pubkey,
     }
@@ -53,14 +54,14 @@ struct Handler {
     cert: Option<Identity>,
     signatory: Signatory,
     stale_at: u64,
-    certificate_options: rustica::CertificateConfig,
+    certificate_options: CertificateConfig,
 }
 
-impl From<Option<Options>> for rustica::CertificateConfig {
-    fn from(co: Option<Options>) -> rustica::CertificateConfig {
+impl From<Option<Options>> for CertificateConfig {
+    fn from(co: Option<Options>) -> CertificateConfig {
         match co {
             None => {
-                rustica::CertificateConfig {
+                CertificateConfig {
                     cert_type: CertType::User,
                     duration: 10,
                     hosts: vec![],
@@ -68,7 +69,7 @@ impl From<Option<Options>> for rustica::CertificateConfig {
                 }
             },
             Some(co) => {
-                rustica::CertificateConfig {
+                CertificateConfig {
                     cert_type: CertType::try_from(co.kind.unwrap_or_else(|| String::from("user")).as_str()).unwrap_or(CertType::User),
                     duration: co.duration.unwrap_or(10),
                     hosts: co.hosts.unwrap_or_default(),
@@ -88,7 +89,7 @@ impl SSHAgentHandler for Handler {
                 return Ok(Response::Identities(vec![cert.clone()]));
             }
         }
-        match cert::get_custom_certificate(&self.server, &self.signatory, &self.certificate_options) {
+        match get_custom_certificate(&self.server, &self.signatory, &self.certificate_options) {
             Ok(response) => {
                 info!("{:#}", Certificate::from_string(&response.cert).unwrap());
                 let cert: Vec<&str> = response.cert.split(' ').collect();
@@ -139,7 +140,7 @@ impl SSHAgentHandler for Handler {
     }
 }
 
-fn provision_new_key(slot: SlotId, pin: &str, subj: &str, mgm_key: &[u8], alg: &str, secure: bool) {
+fn provision_new_key(slot: SlotId, pin: &str, subj: &str, mgm_key: &[u8], alg: &str, secure: bool) -> Option<KeyConfig> {
     let alg = match alg {
         "eccp256" => AlgorithmId::EccP256,
         _ => AlgorithmId::EccP384,
@@ -156,7 +157,14 @@ fn provision_new_key(slot: SlotId, pin: &str, subj: &str, mgm_key: &[u8], alg: &
 
     match provision(pin.as_bytes(), mgm_key, slot, subj, alg, policy) {
         Ok(pk) => {
-            convert_to_ssh_pubkey(&pk).unwrap();
+            //convert_to_ssh_pubkey(&pk).unwrap();
+            let certificate = fetch_attestation(slot);
+            let intermediate = fetch_certificate(SlotId::Attestation);
+
+            match (certificate, intermediate) {
+                (Some(certificate), Ok(intermediate)) => Some(KeyConfig { certificate, intermediate}),
+                _ => None,
+            }
         },
         Err(_) => panic!("Could not provision device with new key"),
     }
@@ -316,6 +324,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .long("subj")
                         .short('j')
                 )
+                .arg(
+                    Arg::new("register")
+                        .about("Register this key with a Rustica server")
+                        .long("register")
+                )
         )
         .get_matches();
 
@@ -354,7 +367,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let mut certificate_options = rustica::CertificateConfig::from(config.options);
+    let mut certificate_options = CertificateConfig::from(config.options);
     
     let address = match (matches.value_of("server"), &config.server) {
         (Some(server), _) => server.to_owned(),
@@ -407,17 +420,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let pubkey = match signatory {
-        Signatory::Yubikey(slot) => match ssh_cert_fetch_pubkey(slot) {
-            Some(cert) => cert,
-            None => {
-                println!("There was no keypair found in slot {:?}. Provision one or use another slot.", slot);
-                return Ok(())
-            }
-        },
-        Signatory::Direct(ref privkey) => privkey.pubkey.clone()
-    };
-
     if let Some(ref matches) = matches.subcommand_matches("provision") {
         let slot = match signatory {
             Signatory::Yubikey(slot) => slot,
@@ -438,9 +440,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let pin = matches.value_of("pin").unwrap_or("123456");
-        provision_new_key(slot, pin, &subj, &mgm_key, matches.value_of("type").unwrap_or("eccp384"), secure);
+        let key_config = provision_new_key(slot, pin, &subj, &mgm_key, matches.value_of("type").unwrap_or("eccp384"), secure);
+        if matches.is_present("register") {
+            let registration = match key_config {
+                None => {
+                    error!("Your key could not be registered because an attestation could not be generated");
+                    return Ok(());
+                },
+                Some(key_config) => {
+                    println!("Registering key with Rustica server");
+                    rustica::key::register_key(&server, &signatory, &key_config)
+                }
+            };
+
+            match registration {
+                Ok(_) => println!("Key registered with Rustica server"),
+                Err(_) => error!("Server rejected your key"),
+            }
+        }
         return Ok(());
     }
+
+    let pubkey = match signatory {
+        Signatory::Yubikey(slot) => match ssh_cert_fetch_pubkey(slot) {
+            Some(cert) => cert,
+            None => {
+                println!("There was no keypair found in slot {:?}. Provision one or use another slot.", slot);
+                return Ok(())
+            }
+        },
+        Signatory::Direct(ref privkey) => privkey.pubkey.clone()
+    };
 
     let mut cert = None;
     let mut stale_at = 0;
@@ -462,7 +492,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if matches.is_present("immediate") {
-        cert = match cert::get_custom_certificate(&server, &signatory, &certificate_options) {
+        cert = match get_custom_certificate(&server, &signatory, &certificate_options) {
             Ok(x) => {
                 let cert = Certificate::from_string(&x.cert).unwrap();
                 println!("Issued Certificate Details:");

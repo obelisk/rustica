@@ -3,6 +3,7 @@ pub mod external;
 
 pub use database::LocalDatabase;
 pub use external::AuthServer;
+pub use super::key::KeyAttestation;
 
 use sshcerts::ssh::{CertType, Extensions};
 
@@ -35,6 +36,14 @@ pub struct AuthorizationRequestProperties {
     pub valid_before: u64,
     pub valid_after: u64,
     pub cert_type: CertType,
+}
+
+#[derive(Debug)]
+pub struct RegisterKeyRequestProperties {
+    pub fingerprint: String,
+    pub mtls_identities: Vec<String>,
+    pub requester_ip: String,
+    pub attestation: Option<KeyAttestation>,
 }
 
 pub enum AuthMechanism {

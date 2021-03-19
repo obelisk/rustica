@@ -6,7 +6,12 @@ use diesel::sqlite::SqliteConnection;
 use dotenv::dotenv;
 use std::env;
 use std::time::SystemTime;
-use super::{Authorization, AuthorizationError, AuthorizationRequestProperties};
+use super::{
+    Authorization,
+    AuthorizationError,
+    AuthorizationRequestProperties,
+    RegisterKeyRequestProperties,
+};
 
 use sshcerts::ssh::{CertType, Extensions};
 
@@ -85,6 +90,37 @@ impl LocalDatabase {
             } else {
                 Err(AuthorizationError::NotAuthorized)
             }
+        }
+    }
+    
+    pub fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<bool, ()> {
+        let connection = establish_connection();
+        let mut registered_key = models::RegisteredKey {
+            fingerprint: req.fingerprint.clone(),
+            user: req.mtls_identities.join(","),
+            firmware: None,
+            hsm_serial: None,
+            touch_policy: None,
+            pin_policy: None,
+        };
+
+        if let Some(attestation) = &req.attestation {
+            registered_key.firmware = Some(attestation.firmware.clone());
+            registered_key.hsm_serial = Some(attestation.serial.to_string());
+            registered_key.touch_policy = Some(attestation.touch_policy.to_string());
+            registered_key.pin_policy = Some(attestation.pin_policy.to_string());
+        }
+
+        let result = {
+            use schema::registered_keys::dsl::*;
+            diesel::insert_into(registered_keys)
+                .values(&registered_key)
+                .execute(&connection)
+        };
+
+        match result {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
         }
     }
 }

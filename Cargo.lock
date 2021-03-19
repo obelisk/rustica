@@ -1873,9 +1873,9 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "sshcerts"
-version = "0.3.12"
+version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5da2b3c5c401a6c006e42f6f09fdde73732d0a507f8f902130ea37832a522995"
+checksum = "5e8e637407d63c5a7a722ff36f2a1bce8c910413603967640ddc0d4ca1e3a3c5"
 dependencies = [
  "base64 0.13.0",
  "log",
@@ -2523,6 +2523,7 @@ dependencies = [
  "nom 6.1.0",
  "num-bigint 0.3.1",
  "oid-registry",
+ "ring",
  "rusticata-macros 3.0.1",
  "rustversion",
  "thiserror",

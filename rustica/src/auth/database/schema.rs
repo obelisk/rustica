@@ -50,6 +50,17 @@ table! {
     }
 }
 
+table! {
+    registered_keys (fingerprint) {
+        fingerprint -> Text,
+        user -> Text,
+        pin_policy -> Nullable<Text>,
+        touch_policy -> Nullable<Text>,
+        hsm_serial -> Nullable<Text>,
+        firmware -> Nullable<Text>,
+    }
+}
+
 allow_tables_to_appear_in_same_query!(
     fingerprint_critical_options,
     fingerprint_extensions,
@@ -57,4 +68,5 @@ allow_tables_to_appear_in_same_query!(
     fingerprint_permissions,
     fingerprint_principal_authorizations,
     hosts,
+    registered_keys,
 );

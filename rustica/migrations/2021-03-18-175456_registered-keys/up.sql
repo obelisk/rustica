@@ -1,7 +1,8 @@
 CREATE TABLE registered_keys (
-	id BIGINT PRIMARY KEY NOT NULL,
-	fingerprint TEXT NOT NULL,
+	fingerprint TEXT PRIMARY KEY NOT NULL,
     user TEXT NOT NULL,
-	attestation_data TEXT NOT NULL,
-    UNIQUE(fingerprint)
+	pin_policy TEXT NULL,
+	touch_policy TEXT NULL,
+	hsm_serial TEXT NULL,
+	firmware TEXT NULL
 );

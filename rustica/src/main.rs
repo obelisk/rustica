@@ -7,9 +7,11 @@ extern crate dotenv;
 
 mod auth;
 mod error;
+mod key;
 mod utils;
+mod yubikey;
 
-use auth::{AuthMechanism, AuthorizationRequestProperties, AuthServer, LocalDatabase};
+use auth::{AuthMechanism, AuthorizationRequestProperties, AuthServer, LocalDatabase, RegisterKeyRequestProperties};
 
 use clap::{App, Arg};
 
@@ -165,8 +167,7 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
         return Err(RusticaServerError::BadChallenge)
     }
 
-
-    Ok((ssh_pubkey, vec![]))
+    Ok((ssh_pubkey, mtls_identities))
 }
 
 #[tonic::async_trait]
@@ -325,7 +326,46 @@ impl Rustica for RusticaServer {
     }
 
     async fn register_key(&self, request: Request<RegisterKeyRequest>) -> Result<Response<RegisterKeyResponse>, Status> {
-        Err(Status::cancelled("Unimplemented"))
+        debug!("Received register key request: {:?}", request);
+        let requester_ip = match request.remote_addr() {
+            Some(x) => x.to_string(),
+            None => String::new(),
+        };
+
+        let peer = request.peer_certs();
+        let request = request.into_inner();
+
+        let (challenge, peer) = match (&request.challenge, peer) {
+            (Some(challenge), Some(peer)) => (challenge, peer),
+            _ => return Err(Status::permission_denied("")),
+        };
+
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, &challenge) {
+            Ok((ssh_pk, idents)) => (ssh_pk, idents),
+            Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
+        };
+
+        let attestation = match yubikey::verify_certificate_chain(&request.certificate, &request.intermediate) {
+            Ok(key) => key.attestation,
+            _ => None,
+        };
+
+        let register_properties = RegisterKeyRequestProperties {
+            fingerprint: ssh_pubkey.fingerprint().hash,
+            mtls_identities,
+            requester_ip,
+            attestation,
+        };
+
+        let response = match &self.authorizer {
+            AuthMechanism::Local(local) => local.register_key(&register_properties),
+            AuthMechanism::External(external) => external.register_key(&register_properties).await,
+        };
+
+        match response {
+            Ok(true) => return Ok(Response::new(RegisterKeyResponse{})),
+            _ => return Err(Status::unavailable("Could not register new key")),
+        }
     }
 }
 
@@ -480,7 +520,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ucc,
                     create_signer(us, yubikey_mutex.clone()),
                     hcc,
-                    create_signer(hs, yubikey_mutex.clone())
+                    create_signer(hs, yubikey_mutex)
                 ),
                 _ => {
                     error!("Could not fetch CA public keys from YubiKey. Is it connected/configured?");

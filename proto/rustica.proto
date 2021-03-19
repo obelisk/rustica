@@ -36,8 +36,8 @@ message CertificateResponse {
 }
 
 message RegisterKeyRequest {
-    string certificate = 1;
-    string intermediate = 2;
+    bytes certificate = 1;
+    bytes intermediate = 2;
     Challenge challenge = 3;
 }
 
