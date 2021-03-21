@@ -345,13 +345,13 @@ impl Rustica for RusticaServer {
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };
 
-        let attestation = match yubikey::verify_certificate_chain(&request.certificate, &request.intermediate) {
-            Ok(key) => key.attestation,
-            _ => None,
+        let (fingerprint, attestation) = match yubikey::verify_certificate_chain(&request.certificate, &request.intermediate) {
+            Ok(key) => (key.fingerprint, key.attestation),
+            _ => (ssh_pubkey.fingerprint().hash, None),
         };
 
         let register_properties = RegisterKeyRequestProperties {
-            fingerprint: ssh_pubkey.fingerprint().hash,
+            fingerprint,
             mtls_identities,
             requester_ip,
             attestation,

@@ -4,5 +4,7 @@ CREATE TABLE registered_keys (
 	pin_policy TEXT NULL,
 	touch_policy TEXT NULL,
 	hsm_serial TEXT NULL,
-	firmware TEXT NULL
+	firmware TEXT NULL,
+	attestation_certificate TEXT NULL,
+	attestation_intermediate TEXT NULL
 );

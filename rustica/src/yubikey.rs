@@ -44,7 +44,7 @@ impl From<x509_parser::error::X509Error> for YubikeyValidationError {
     }
 }
 
-fn build_key(ssh_pubkey: PublicKey, certificate: X509Certificate) -> Result<Key, YubikeyValidationError> {
+fn build_key(ssh_pubkey: PublicKey, certificate: X509Certificate, client: &[u8], intermediate: &[u8]) -> Result<Key, YubikeyValidationError> {
     let extensions = certificate.extensions();
 
     // Find the three things we need: Firmware, Yubikey serial, Usage Policies
@@ -54,7 +54,7 @@ fn build_key(ssh_pubkey: PublicKey, certificate: X509Certificate) -> Result<Key,
     if firmware.len() != 3 || serial.len() != 5 || policy.len() != 2 {
         error!("The certificate has an unexpected format");
         Ok(Key {
-            hash: ssh_pubkey.fingerprint().hash,
+            fingerprint: ssh_pubkey.fingerprint().hash,
             attestation: None,
         })
     } else {
@@ -63,12 +63,14 @@ fn build_key(ssh_pubkey: PublicKey, certificate: X509Certificate) -> Result<Key,
         let pin_policy = PinPolicy::try_from(policy[0]).unwrap();
         let touch_policy = TouchPolicy::try_from(policy[1]).unwrap();
         Ok(Key {
-            hash: ssh_pubkey.fingerprint().hash,
+            fingerprint: ssh_pubkey.fingerprint().hash,
             attestation: Some(KeyAttestation {
                 firmware,
                 serial,
                 pin_policy,
                 touch_policy,
+                certificate: client.to_vec(),
+                intermediate: intermediate.to_vec(),
             })
         })
     }
@@ -88,16 +90,16 @@ pub fn verify_certificate_chain(client: &[u8], intermediate: &[u8]) -> Result<Ke
     let root_ca = Pem::parse_x509(&root_ca).unwrap();
 
     // Parse the certificates
-    let (_, intermediate) = parse_x509_certificate(intermediate)?;
-    let (_, client) = parse_x509_certificate(client)?;
+    let (_, parsed_intermediate) = parse_x509_certificate(intermediate)?;
+    let (_, parsed_client) = parse_x509_certificate(client)?;
     debug!("Certificates parsed");
 
     // Validate that the provided intermediate certificate is signed by the Yubico Attestation Root CA
-    intermediate.verify_signature(Some(&root_ca.tbs_certificate.subject_pki))?;
+    parsed_intermediate.verify_signature(Some(&root_ca.tbs_certificate.subject_pki))?;
 
     // Validate that the provided certificate is signed by the intermediate CA
-    client.verify_signature(Some(&intermediate.tbs_certificate.subject_pki))?;
+    parsed_client.verify_signature(Some(&parsed_intermediate.tbs_certificate.subject_pki))?;
     debug!("Certificate providence verified");
 
-    build_key(ssh_pubkey, client)
+    build_key(ssh_pubkey, parsed_client, client, intermediate)
 }

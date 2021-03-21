@@ -1,5 +1,5 @@
 use author::author_client::{AuthorClient};
-use author::{AuthorizeRequest};
+use author::{AuthorizeRequest, AddIdentityDataRequest};
 
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
@@ -101,6 +101,47 @@ impl AuthServer {
     }
 
     pub async fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<bool, ()> {
-        Ok(false)
+        let mut identities = HashMap::new();
+        identities.insert(String::from("requester_ip"), req.requester_ip.clone());
+        identities.insert(String::from("key_fingerprint"), req.fingerprint.clone());
+        identities.insert(String::from("mtls_identities"), req.mtls_identities.join(","));
+
+        let mut identity_data = HashMap::new();
+        identity_data.insert(String::from("type"), String::from("ssh_key"));
+        if let Some(attestation) = &req.attestation {
+            identity_data.insert(String::from("certificate"), hex::encode(&attestation.certificate));
+            identity_data.insert(String::from("intermediate_certificate"), hex::encode(&attestation.intermediate));
+        }
+
+        let request = tonic::Request::new(AddIdentityDataRequest {
+            identities,
+            identity_data,
+        });
+
+        let client_identity = Identity::from_pem(&self.mtls_cert, &self.mtls_key);
+        let tls = ClientTlsConfig::new()
+            .domain_name(&self.server)
+            .ca_certificate(Certificate::from_pem(&self.ca))
+            .identity(client_identity);
+
+        let channel = match Channel::from_shared(format!("https://{}:{}", &self.server, &self.port)) {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Could not open a channel to the authorization server: {}", e);
+                return Err(());
+            },
+        // TODO: @obelisk handle these TLS unwraps
+        }.tls_config(tls).unwrap().connect().await.unwrap();
+
+        let mut client = AuthorClient::new(channel);
+        let response = client.add_identity_data(request).await;
+
+        match response {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                error!("Server returned error: {}", e);
+                Ok(false)
+            },
+        }
     }
 }

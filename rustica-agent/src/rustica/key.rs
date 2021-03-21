@@ -1,10 +1,6 @@
-use super::error::{RefreshError, ServerError};
-use super::{RegisterKeyRequest, RusticaServer, Signatory, RusticaCert};
+use super::error::{RefreshError};
+use super::{RegisterKeyRequest, RusticaServer, Signatory};
 
-use sshcerts::ssh::{CertType, CriticalOptions, Extensions};
-
-use std::collections::HashMap;
-use std::time::SystemTime;
 use tokio::runtime::Runtime;
 
 pub mod rustica {

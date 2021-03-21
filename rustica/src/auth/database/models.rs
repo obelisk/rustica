@@ -39,4 +39,6 @@ pub struct RegisteredKey {
     pub touch_policy: Option<String>,
     pub hsm_serial: Option<String>,
     pub firmware: Option<String>,
+    pub attestation_certificate: Option<String>,
+    pub attestation_intermediate: Option<String>,
 }

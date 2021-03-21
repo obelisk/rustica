@@ -1,14 +1,19 @@
 syntax = "proto3";
 package author;
 
-message ChallengeRequest {
-    string pubkey = 1;
-}
+// Identities are pieces of data that Author can use to determine
+// who is asking for authorization when it is happening through
+// a proxy service. For example, when someone requests access through
+// the editor `Rustica`, identities the following from the requesting client
+// are sent through the `AuthorizeRequest` call:
+//  Source IP
+//  mTLS Identity data
+//  SSH key fingerprint
 
-message ChallengeResponse {
-    string time = 1;
-    string challenge = 2;
-}
+// Important To Note
+// The `identities` is not checked for correctness (though it may have other
+// heurisitics applied to it). It should only contain data that has been
+// verified by the editor.
 
 message AuthorizeRequest {
     map<string, string> identities = 1;
@@ -19,8 +24,17 @@ message AuthorizeResponse {
     map<string, string> approval_response = 1;
 }
 
+// This call adds data into Author for use in further authorization requests.
+// For example, when a user adds a new key via the editor `Rustica`, it feeds
+// into this.
+message AddIdentityDataRequest {
+    map<string, string> identities = 1;
+    map<string, string> identity_data = 2;
+}
+
+message AddIdentityDataResponse {}
+
 service Author {
-    //rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
-    //rpc Certificate(CertificateRequest) returns (CertificateResponse);
     rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
+    rpc AddIdentityData(AddIdentityDataRequest) returns (AddIdentityDataResponse);
 }

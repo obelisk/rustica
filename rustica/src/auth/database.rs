@@ -102,6 +102,8 @@ impl LocalDatabase {
             hsm_serial: None,
             touch_policy: None,
             pin_policy: None,
+            attestation_certificate: None,
+            attestation_intermediate: None,
         };
 
         if let Some(attestation) = &req.attestation {
@@ -109,6 +111,8 @@ impl LocalDatabase {
             registered_key.hsm_serial = Some(attestation.serial.to_string());
             registered_key.touch_policy = Some(attestation.touch_policy.to_string());
             registered_key.pin_policy = Some(attestation.pin_policy.to_string());
+            registered_key.attestation_certificate = Some(hex::encode(&attestation.certificate));
+            registered_key.attestation_intermediate = Some(hex::encode(&attestation.intermediate));
         }
 
         let result = {

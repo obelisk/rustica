@@ -3,7 +3,7 @@ use std::fmt;
 
 #[derive(Debug)]
 pub struct Key {
-    pub hash: String,
+    pub fingerprint: String,
     pub attestation: Option<KeyAttestation>
 }
 
@@ -13,6 +13,8 @@ pub struct KeyAttestation {
     pub touch_policy: TouchPolicy,
     pub serial: u32,
     pub firmware: String,
+    pub certificate: Vec<u8>,
+    pub intermediate: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq)]

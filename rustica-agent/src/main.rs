@@ -156,7 +156,7 @@ fn provision_new_key(slot: SlotId, pin: &str, subj: &str, mgm_key: &[u8], alg: &
     };
 
     match provision(pin.as_bytes(), mgm_key, slot, subj, alg, policy) {
-        Ok(pk) => {
+        Ok(_) => {
             //convert_to_ssh_pubkey(&pk).unwrap();
             let certificate = fetch_attestation(slot);
             let intermediate = fetch_certificate(SlotId::Attestation);
@@ -279,6 +279,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short('o')
                 .takes_value(true)
                 .requires("immediate")
+        )
+        .subcommand(
+            App::new("register")
+                .about("Take your key and register with the backend. If a hardware key, proof of providence will be sent to the backend")
+                .arg(
+                    Arg::new("no-attest")
+                        .about("Don't send an attestation even with a hardware key. Only useful if your attestation chain is broken or for testing.")
+                        .long("no-attest")
+                )
         )
         .subcommand(
             App::new("provision")
@@ -471,6 +480,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Signatory::Direct(ref privkey) => privkey.pubkey.clone()
     };
+
+    if let Some(ref matches) = matches.subcommand_matches("register") {
+        let attest = !matches.is_present("no-attest");
+        let mut key_config = KeyConfig {
+            certificate: vec![],
+            intermediate: vec![],
+        };
+
+        if attest {
+            let slot = match signatory {
+                Signatory::Yubikey(slot) => slot,
+                Signatory::Direct(_) => {
+                    error!("You cannot attest a file based key");
+                    return Ok(());
+                }
+            };
+            key_config.certificate = fetch_attestation(slot).unwrap_or_default();
+            key_config.intermediate = fetch_certificate(SlotId::Attestation).unwrap_or_default();
+
+            if key_config.certificate.len() == 0 || key_config.intermediate.len() == 0 {
+                error!("Part of the attestation could not be generated. Registration may fail");
+            }
+        }
+
+        match rustica::key::register_key(&server, &signatory, &key_config) {
+            Ok(_) => println!("Key was successfully registered"),
+            Err(e) => error!("Key could not be registered. Server said: {:?}", e),
+        }
+        return Ok(());
+    }
 
     let mut cert = None;
     let mut stale_at = 0;
