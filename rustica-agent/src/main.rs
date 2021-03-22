@@ -157,12 +157,11 @@ fn provision_new_key(slot: SlotId, pin: &str, subj: &str, mgm_key: &[u8], alg: &
 
     match provision(pin.as_bytes(), mgm_key, slot, subj, alg, policy) {
         Ok(_) => {
-            //convert_to_ssh_pubkey(&pk).unwrap();
             let certificate = fetch_attestation(slot);
             let intermediate = fetch_certificate(SlotId::Attestation);
 
             match (certificate, intermediate) {
-                (Some(certificate), Ok(intermediate)) => Some(KeyConfig { certificate, intermediate}),
+                (Some(certificate), Ok(intermediate)) => Some(KeyConfig {certificate, intermediate}),
                 _ => None,
             }
         },

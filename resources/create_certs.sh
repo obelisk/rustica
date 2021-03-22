@@ -3,6 +3,7 @@ if [ "$1" = "clean" ]; then
     rm -rf rustica/
     rm -rf author/
     rm -rf clients/
+    rm -rf copyeditor/
     rm *.key
     rm *.pem
     rm *.csr
@@ -47,30 +48,26 @@ if [ "$1" = "client" ]; then
     exit
 fi
 
-AUTHOR_CONFIG="""
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
-subjectAltName = @alt_names
+create_editor_certs () {
+    CONFIG="""
+    authorityKeyIdentifier=keyid,issuer
+    basicConstraints=CA:FALSE
+    keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+    subjectAltName = @alt_names
 
-[alt_names]
-DNS.1 = localhost"""
+    [alt_names]
+    DNS.1 = localhost"""
+    NAME=$1
+    mkdir -p ${NAME}
+    echo $CONFIG > ${NAME}/${NAME}.ext
 
-RUSTICA_CONFIG="""
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
-subjectAltName = @alt_names
+    openssl ecparam -genkey -name prime256v1 -noout -out ${NAME}/${NAME}_private.pem
+    openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in ${NAME}/${NAME}_private.pem -out ${NAME}/${NAME}.key
+    rm ${NAME}/${NAME}_private.pem
 
-[alt_names]
-DNS.1 = localhost"""
-
-# Create the certificate configurations. These ext files are needed otherwise
-# Rustica will not accept them.
-mkdir -p author
-mkdir -p rustica
-echo $AUTHOR_CONFIG > author/author.ext
-echo $RUSTICA_CONFIG > rustica/rustica.ext
+    openssl req -new -key ${NAME}/${NAME}.key -out ${NAME}/${NAME}.csr -subj "/CN=${NAME}/O=Rustica/C=CA"
+    openssl x509 -req -in ${NAME}/${NAME}.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out ${NAME}/${NAME}.pem -days 825 -sha256 -extfile ${NAME}/${NAME}.ext
+}
 
 # Generate CA key and cert
 openssl ecparam -genkey -name prime256v1 -noout -out ca.key
@@ -81,27 +78,12 @@ openssl ecparam -genkey -name prime256v1 -noout -out client_ca.key
 openssl req -new -key client_ca.key -x509 -nodes -days 3650 -out client_ca.pem -subj '/CN=EnterpriseClientRootCA'
 
 # ------------ Generate Private Keys For Test Infra ------------ #
-# Generate Rustica server key
-openssl ecparam -genkey -name prime256v1 -noout -out rustica/rustica_private.pem
-openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in rustica/rustica_private.pem -out rustica/rusticaserver.key
-rm rustica/rustica_private.pem
-
-# Generate Author server key
-openssl ecparam -genkey -name prime256v1 -noout -out author/author_private.pem
-openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in author/author_private.pem -out author/authorserver.key
-rm author/author_private.pem
-
-# ------------ Generate CSRs For Test Infra ------------ #
-# Create certificate signing request for Rustica server
-openssl req -new -key rustica/rusticaserver.key -out rustica/rusticaserver.csr -subj '/CN=RusticaServer/O=Rustica/C=CA'
-# Create certificate signing request for Author server
-openssl req -new -key author/authorserver.key -out author/authorserver.csr -subj '/CN=Author/O=Rustica/C=CA'
-
-# ------------ Generate Signed Certificates For Test Infra ------------ #
-# Use the CA to generate the cert for Rustica sever
-openssl x509 -req -in rustica/rusticaserver.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out rustica/rusticaserver.pem -days 825 -sha256 -extfile rustica/rustica.ext
-# Use the CA to generate the cert for Author sever
-openssl x509 -req -in author/authorserver.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out author/authorserver.pem -days 825 -sha256 -extfile author/author.ext
+# Generate Rustica Certificates
+create_editor_certs "rustica"
+# Generate Author Certificates
+create_editor_certs "author"
+# Generate CopyEditor Certificates
+create_editor_certs "copyeditor"
 
 # ------------ Generate User and Host CA Keys ------------ #
 ssh-keygen -t ed25519 -f rustica/user_ssh_ca -q -N ""
