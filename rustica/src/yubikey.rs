@@ -1,4 +1,4 @@
-use der_parser::oid;
+use x509_parser::der_parser::oid;
 use crate::key::{Key, KeyAttestation, PinPolicy, TouchPolicy};
 
 use sshcerts::PublicKey;

@@ -5,6 +5,7 @@ extern crate log;
 extern crate diesel;
 extern crate dotenv;
 
+
 mod auth;
 mod error;
 mod key;
@@ -14,6 +15,8 @@ mod yubikey;
 use auth::{AuthMechanism, AuthorizationRequestProperties, AuthServer, LocalDatabase, RegisterKeyRequestProperties};
 
 use clap::{App, Arg};
+use x509_parser::prelude::*;
+use x509_parser::der_parser::oid;
 
 use error::RusticaServerError;
 
@@ -102,7 +105,13 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
         match x509_parser::parse_x509_certificate(peer.as_ref()) {
             Err(_) => return Err(RusticaServerError::NotAuthorized),
             Ok((_, cert)) => {
-                mtls_identities.push(cert.tbs_certificate.subject.to_string())
+                for ident in cert.tbs_certificate.subject.rdn_seq {
+                    for attr in ident.set {
+                        if attr.attr_type == oid!(2.5.4.3) {    // CommonName
+                            mtls_identities.push(String::from(attr.attr_value.as_str().unwrap_or_default()))
+                        }
+                    }
+                }
             },
         };
     }
