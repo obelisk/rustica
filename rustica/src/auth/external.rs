@@ -64,7 +64,11 @@ impl AuthServer {
 
         if let Err(e) = response {
             error!("Authorization server returned error: {}", e);
-            return Err(AuthorizationError::AuthorizerError);
+            if e.code() == tonic::Code::PermissionDenied {
+                return Err(AuthorizationError::NotAuthorized);
+            } else {
+                return Err(AuthorizationError::AuthorizerError);
+            }
         }
 
         let approval_response = response.unwrap().into_inner().approval_response;
@@ -82,21 +86,17 @@ impl AuthServer {
             Some(approval_response["force_command"].clone())
         };
 
-        let source_address = if !approval_response.contains_key("source_address") {
-            None
-        } else {
-            Some(approval_response["source_address"].clone())
-        };
+        let force_source_ip = approval_response.contains_key("force_source_ip");
 
         Ok(Authorization {
             serial: approval_response["serial"].parse::<u64>().unwrap(),
             principals: approval_response["principals"].split(",").map(String::from).collect(),
-            hosts: Some(approval_response["servers"].split(",").map(String::from).collect()),
+            hosts: Some(approval_response["authorized_fingerprints"].split(",").map(String::from).collect()),
             valid_before: approval_response["valid_before"].parse::<u64>().unwrap(),
             valid_after: approval_response["valid_after"].parse::<u64>().unwrap(),
             extensions: extensions,
             force_command: force_command,
-            source_address: source_address,
+            force_source_ip,
         })
     }
 

@@ -83,7 +83,7 @@ impl LocalDatabase {
                     hosts: if results[0].host_unrestricted {None} else {hosts},
                     extensions: Extensions::Standard,
                     force_command: None,
-                    source_address: None,
+                    force_source_ip: false,
                     valid_after: req.valid_after,
                     valid_before: current_timestamp + results[0].max_creation_time as u64,
                 })

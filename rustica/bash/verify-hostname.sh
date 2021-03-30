@@ -17,9 +17,8 @@ function start_user_shell() {
 }
 
 IFS=',' read -ra HOSTNAME <<< "$RUSTICA_AUTHORIZED_HOSTS"
-HOSTKEY=$(ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key.pub | cut -d ' ' -f 2 | cut -c 8-)
 for i in "${HOSTNAME[@]}"; do
-	if [ "$i" = "$HOSTKEY" ]; then
+	if [ "$i" = $(hostname) ]; then
         echo "Authentication Successful."
 		start_user_shell
 		exit 0;

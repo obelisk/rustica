@@ -23,7 +23,7 @@ pub struct Authorization {
     pub hosts: Option<Vec<String>>,
     pub extensions: Extensions,
     pub force_command: Option<String>,
-    pub source_address: Option<String>,
+    pub force_source_ip: bool,
 }
 
 #[derive(Debug)]
