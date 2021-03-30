@@ -80,18 +80,24 @@ impl AuthServer {
             Extensions::Custom(requested_extensions)
         };
 
-        let force_command = if !approval_response.contains_key("force_command") {
-            None
-        } else {
+        let force_command = if approval_response.contains_key("force_command") {
             Some(approval_response["force_command"].clone())
+        } else {
+            None
         };
 
         let force_source_ip = approval_response.contains_key("force_source_ip");
 
+        let hosts = if approval_response.contains_key("authorized_fingerprints") {
+            Some(approval_response["authorized_fingerprints"].split(",").map(String::from).collect())
+        } else {
+            None
+        };
+
         Ok(Authorization {
             serial: approval_response["serial"].parse::<u64>().unwrap(),
             principals: approval_response["principals"].split(",").map(String::from).collect(),
-            hosts: Some(approval_response["authorized_fingerprints"].split(",").map(String::from).collect()),
+            hosts,
             valid_before: approval_response["valid_before"].parse::<u64>().unwrap(),
             valid_after: approval_response["valid_after"].parse::<u64>().unwrap(),
             extensions: extensions,
