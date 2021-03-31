@@ -48,7 +48,17 @@ if [ "$1" = "client" ]; then
     exit
 fi
 
+if [ "$1" = "build_local" ]; then
+    export BUILD_LOCAL=true
+fi
+
 create_editor_certs () {
+    if [ "$BUILD_LOCAL" ]; then
+        DNSNAME="localhost"    
+    else
+        DNSNAME=$1
+    fi
+
     CONFIG="""
     authorityKeyIdentifier=keyid,issuer
     basicConstraints=CA:FALSE
@@ -56,7 +66,7 @@ create_editor_certs () {
     subjectAltName = @alt_names
 
     [alt_names]
-    DNS.1 = localhost"""
+    DNS.1 = ${DNSNAME}"""
     NAME=$1
     mkdir -p ${NAME}
     echo $CONFIG > ${NAME}/${NAME}.ext
