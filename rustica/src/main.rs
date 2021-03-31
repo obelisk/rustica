@@ -206,7 +206,7 @@ impl Rustica for RusticaServer {
     /// Handler used when a host requests a new certificate from Rustica
     async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
         debug!("Received certificate request: {:?}", request);
-        let remote_addr = request.remote_addr().unwrap().to_string();
+        let remote_addr = request.remote_addr().unwrap();
         let peer = request.peer_certs();
         let request = request.into_inner();
 
@@ -243,7 +243,7 @@ impl Rustica for RusticaServer {
         let auth_props = AuthorizationRequestProperties {
             fingerprint: fingerprint.clone(),
             mtls_identities: mtls_identities.clone(),
-            requester_ip: remote_addr.clone(),
+            requester_ip: remote_addr.to_string(),
             principals: request.principals.clone(),
             servers: request.servers.clone(),
             cert_type: req_cert_type,
@@ -274,7 +274,7 @@ impl Rustica for RusticaServer {
                 }
 
                 if authorization.force_source_ip {
-                    co.insert(String::from("source-address"), remote_addr.clone());
+                    co.insert(String::from("source-address"), remote_addr.ip().to_string());
                 }
 
                 CriticalOptions::Custom(co)
