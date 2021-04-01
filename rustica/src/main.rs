@@ -35,11 +35,13 @@ use rustica::{
     RegisterKeyResponse,
 };
 
+use sshcerts::yubikey::Yubikey;
+
 use sshcerts::ssh::{
     CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind
 };
 
-use sshcerts::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
+//use sshcerts::yubikey::ssh::{ssh_cert_fetch_pubkey, ssh_cert_signer};
 
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1, ED25519};
 use ring::{hmac, rand};
@@ -71,7 +73,10 @@ pub struct RusticaServer {
 fn create_signer(slot: SlotId, mutex: Arc<Mutex<u32>>) -> Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync> {
     Box::new(move |buf: &[u8]| {
         match mutex.lock() {
-            Ok(_) => ssh_cert_signer(buf, slot),
+            Ok(_) => {
+                let mut yk = Yubikey::new().unwrap();
+                yk.ssh_cert_signer(buf, &slot)
+            },
             Err(e) => {
                 println!("Error in acquiring mutex for yubikey signing: {}", e);
                 None
@@ -520,8 +525,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some("slot"), Some(uk), Some(hk)) => {
             let us = slot_parser(uk)?;
             let hs = slot_parser(hk)?;
-            let user_ca_cert = ssh_cert_fetch_pubkey(us);
-            let host_ca_cert = ssh_cert_fetch_pubkey(hs);
+            let mut yk = Yubikey::new().unwrap();
+            
+            let user_ca_cert = yk.ssh_cert_fetch_pubkey(&us);
+            let host_ca_cert = yk.ssh_cert_fetch_pubkey(&hs);
             let yubikey_mutex = Arc::new(Mutex::new(0));
 
             match (user_ca_cert, host_ca_cert) {

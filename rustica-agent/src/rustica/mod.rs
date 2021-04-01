@@ -14,7 +14,6 @@ pub use rustica::{
 };
 
 use sshcerts::ssh::{CurveKind, PrivateKey, PublicKeyKind, PrivateKeyKind};
-use sshcerts::yubikey::{sign_data, ssh::{ssh_cert_fetch_pubkey, get_ssh_key_type}};
 
 use ring::{rand, signature};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
@@ -31,8 +30,14 @@ pub struct RusticaCert {
 }
 
 #[derive(Debug)]
+pub struct YubikeySigner {
+    pub slot: SlotId,
+    pub yk: sshcerts::yubikey::Yubikey,
+}
+
+#[derive(Debug)]
 pub enum Signatory {
-    Yubikey(SlotId),
+    Yubikey(YubikeySigner),
     Direct(PrivateKey),
 }
 
@@ -44,9 +49,9 @@ pub struct RusticaServer {
     pub mtls_key: String,
 }
 
-pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &Signatory) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
+pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut Signatory) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
     let ssh_pubkey = match signatory {
-        Signatory::Yubikey(user_key_slot) => ssh_cert_fetch_pubkey(*user_key_slot).unwrap(),
+        Signatory::Yubikey(signer) => signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap(),
         Signatory::Direct(ref privkey) => privkey.pubkey.clone(),
     };
     
@@ -74,13 +79,13 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &Sign
     let decoded_challenge = hex::decode(&response.challenge)?;
 
     let challenge_signature = match signatory {
-        Signatory::Yubikey(user_key_slot) => {
-            let alg = match get_ssh_key_type(*user_key_slot){
+        Signatory::Yubikey(signer) => {
+            let alg = match signer.yk.get_ssh_key_type(&signer.slot){
                 Some(alg) => alg,
                 None => return Err(RefreshError::SigningError),
             };
 
-            match sign_data(&decoded_challenge, alg, *user_key_slot) {
+            match signer.yk.sign_data(&decoded_challenge, alg, &signer.slot) {
                 Ok(v) => hex::encode(v),
                 Err(_) => {
                     return Err(RefreshError::SigningError);

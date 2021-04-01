@@ -1592,7 +1592,7 @@ dependencies = [
 
 [[package]]
 name = "rustica"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.12.3",
  "clap",
@@ -1617,7 +1617,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.12.3",
  "byteorder",
@@ -1873,9 +1873,7 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "sshcerts"
-version = "0.3.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e8e637407d63c5a7a722ff36f2a1bce8c910413603967640ddc0d4ca1e3a3c5"
+version = "0.4.0"
 dependencies = [
  "base64 0.13.0",
  "log",

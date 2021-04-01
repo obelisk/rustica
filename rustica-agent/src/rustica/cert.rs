@@ -16,8 +16,8 @@ pub struct CertificateConfig {
     pub duration: u64,
 }
 
-pub async fn refresh_certificate_async(server: &RusticaServer, signatory: &Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
-    let (mut client, challenge) = super::complete_rustica_challenge(&server, &signatory).await.unwrap();
+pub async fn refresh_certificate_async(server: &RusticaServer, mut signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
+    let (mut client, challenge) = super::complete_rustica_challenge(&server, &mut signatory).await.unwrap();
 
     let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
         Ok(ts) => ts.as_secs(),
@@ -53,7 +53,7 @@ pub async fn refresh_certificate_async(server: &RusticaServer, signatory: &Signa
     })
 }
 
-pub fn get_custom_certificate(server: &RusticaServer, signatory: &Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
+pub fn get_custom_certificate(server: &RusticaServer, signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
     Runtime::new().unwrap().block_on(async {
         refresh_certificate_async(server, signatory, options).await
     })

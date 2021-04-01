@@ -10,17 +10,8 @@ use std::env;
 use std::os::unix::net::{UnixListener};
 use std::process;
 
-use rustica::{cert::*, key::KeyConfig, RusticaServer, Signatory};
+use rustica::{cert::*, key::KeyConfig, RusticaServer, Signatory, YubikeySigner};
 use sshcerts::ssh::{Certificate, CertType, PrivateKey};
-use sshcerts::yubikey::{
-    provision,
-    fetch_attestation,
-    fetch_certificate,
-    ssh::{
-        ssh_cert_signer,
-        ssh_cert_fetch_pubkey,
-    }
-};
 
 use serde_derive::Deserialize;
 use std::convert::TryFrom;
@@ -28,7 +19,7 @@ use std::fs::{self, File};
 use std::io::{Read};
 use std::time::SystemTime;
 use yubikey_piv::key::{AlgorithmId, SlotId};
-use yubikey_piv::policy::TouchPolicy;
+use yubikey_piv::policy::{TouchPolicy, PinPolicy};
 
 #[derive(Debug, Deserialize)]
 struct Options {
@@ -89,7 +80,7 @@ impl SSHAgentHandler for Handler {
                 return Ok(Response::Identities(vec![cert.clone()]));
             }
         }
-        match get_custom_certificate(&self.server, &self.signatory, &self.certificate_options) {
+        match get_custom_certificate(&self.server, &mut self.signatory, &self.certificate_options) {
             Ok(response) => {
                 info!("{:#}", Certificate::from_string(&response.cert).unwrap());
                 let cert: Vec<&str> = response.cert.split(' ').collect();
@@ -111,12 +102,12 @@ impl SSHAgentHandler for Handler {
     /// Pubkey is currently unused because the idea is to only ever have a single cert which itself is only
     /// active for a very small window of time
     fn sign_request(&mut self, _pubkey: Vec<u8>, data: Vec<u8>, _flags: u32) -> Result<Response, AgentError> {
-        match &self.signatory {
-            Signatory::Yubikey(slot) => {
-                let signature = ssh_cert_signer(&data, *slot).unwrap();
+        match &mut self.signatory {
+            Signatory::Yubikey(signer) => {
+                let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).unwrap();
                 let signature = (&signature[27..]).to_vec();
 
-                let pubkey = ssh_cert_fetch_pubkey(*slot).unwrap();
+                let pubkey = signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap();
 
                 Ok(Response::SignResponse {
                     algo_name: String::from(pubkey.key_type.name),
@@ -140,13 +131,13 @@ impl SSHAgentHandler for Handler {
     }
 }
 
-fn provision_new_key(slot: SlotId, pin: &str, subj: &str, mgm_key: &[u8], alg: &str, secure: bool) -> Option<KeyConfig> {
+fn provision_new_key(mut signatory: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], alg: &str, secure: bool) -> Option<KeyConfig> {
     let alg = match alg {
         "eccp256" => AlgorithmId::EccP256,
         _ => AlgorithmId::EccP384,
     };
 
-    println!("Provisioning new {:?} key in slot: {:?}", alg, slot);
+    println!("Provisioning new {:?} key in slot: {:?}", alg, &signatory.slot);
 
     let policy = if secure {
         println!("You're creating a secure key that will require touch to use.");
@@ -155,13 +146,18 @@ fn provision_new_key(slot: SlotId, pin: &str, subj: &str, mgm_key: &[u8], alg: &
         TouchPolicy::Never
     };
 
-    match provision(pin.as_bytes(), mgm_key, slot, subj, alg, policy) {
+    if let Err(_) = signatory.yk.unlock(pin.as_bytes(), &mgm_key) {
+        println!("Could not unlock key");
+        return None
+    }
+
+    match signatory.yk.provision(&signatory.slot, subj, alg, policy, PinPolicy::Never) {
         Ok(_) => {
-            let certificate = fetch_attestation(slot);
-            let intermediate = fetch_certificate(SlotId::Attestation);
+            let certificate = signatory.yk.fetch_attestation(&signatory.slot);
+            let intermediate = signatory.yk.fetch_certificate(&SlotId::Attestation);
 
             match (certificate, intermediate) {
-                (Some(certificate), Ok(intermediate)) => Some(KeyConfig {certificate, intermediate}),
+                (Ok(certificate), Ok(intermediate)) => Some(KeyConfig {certificate, intermediate}),
                 _ => None,
             }
         },
@@ -332,11 +328,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .long("subj")
                         .short('j')
                 )
-                .arg(
-                    Arg::new("register")
-                        .about("Register this key with a Rustica server")
-                        .long("register")
-                )
         )
         .get_matches();
 
@@ -411,11 +402,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-    let signatory = match (&cmd_slot, &config.slot, matches.value_of("file")) {
+    let mut signatory = match (&cmd_slot, &config.slot, matches.value_of("file")) {
         (_, _, Some(file)) => Signatory::Direct(PrivateKey::from_path(file)?),
         (Some(slot), _, _) | (_, Some(slot), _) => {
             match slot_parser(slot) {
-                Some(s) => Signatory::Yubikey(s),
+                Some(s) => Signatory::Yubikey(YubikeySigner{
+                    yk: sshcerts::yubikey::Yubikey::new().unwrap(),
+                    slot: s,
+                }),
                 None => {
                     error!("Chosen slot was invalid. Slot should be of the the form of: R# where # is between 1 and 20 inclusive");
                     return Ok(());
@@ -429,8 +423,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if let Some(ref matches) = matches.subcommand_matches("provision") {
-        let slot = match signatory {
-            Signatory::Yubikey(slot) => slot,
+        let signatory = match signatory {
+            Signatory::Yubikey(yk_sig) => yk_sig,
             Signatory::Direct(_) => {
                 println!("Cannot provision a file, requires a Yubikey slot");
                 return Ok(());
@@ -448,32 +442,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let pin = matches.value_of("pin").unwrap_or("123456");
-        let key_config = provision_new_key(slot, pin, &subj, &mgm_key, matches.value_of("type").unwrap_or("eccp384"), secure);
-        if matches.is_present("register") {
-            let registration = match key_config {
-                None => {
-                    error!("Your key could not be registered because an attestation could not be generated");
-                    return Ok(());
-                },
-                Some(key_config) => {
-                    println!("Registering key with Rustica server");
-                    rustica::key::register_key(&server, &signatory, &key_config)
-                }
-            };
-
-            match registration {
-                Ok(_) => println!("Key registered with Rustica server"),
-                Err(_) => error!("Server rejected your key"),
-            }
+        return match provision_new_key(signatory, pin, &subj, &mgm_key, matches.value_of("type").unwrap_or("eccp384"), secure) {
+            Some(_) => Ok(()),
+            None => {
+                // TODO @obelisk Fix this
+                println!("Provisioning Error");
+                Ok(())
+            },
         }
-        return Ok(());
     }
 
-    let pubkey = match signatory {
-        Signatory::Yubikey(slot) => match ssh_cert_fetch_pubkey(slot) {
+    let pubkey = match &mut signatory {
+        Signatory::Yubikey(signer) => match signer.yk.ssh_cert_fetch_pubkey(&signer.slot) {
             Some(cert) => cert,
             None => {
-                println!("There was no keypair found in slot {:?}. Provision one or use another slot.", slot);
+                println!("There was no keypair found in slot {:?}. Provision one or use another slot.", &signer.slot);
                 return Ok(())
             }
         },
@@ -488,22 +471,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         if attest {
-            let slot = match signatory {
-                Signatory::Yubikey(slot) => slot,
+            let signer = match &mut signatory {
+                Signatory::Yubikey(s) => s,
                 Signatory::Direct(_) => {
                     error!("You cannot attest a file based key");
                     return Ok(());
                 }
             };
-            key_config.certificate = fetch_attestation(slot).unwrap_or_default();
-            key_config.intermediate = fetch_certificate(SlotId::Attestation).unwrap_or_default();
+            key_config.certificate = signer.yk.fetch_attestation(&signer.slot).unwrap_or_default();
+            key_config.intermediate = signer.yk.fetch_certificate(&SlotId::Attestation).unwrap_or_default();
 
             if key_config.certificate.len() == 0 || key_config.intermediate.len() == 0 {
                 error!("Part of the attestation could not be generated. Registration may fail");
             }
         }
 
-        match rustica::key::register_key(&server, &signatory, &key_config) {
+        match rustica::key::register_key(&server, &mut signatory, &key_config) {
             Ok(_) => println!("Key was successfully registered"),
             Err(e) => error!("Key could not be registered. Server said: {:?}", e),
         }
@@ -530,7 +513,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if matches.is_present("immediate") {
-        cert = match get_custom_certificate(&server, &signatory, &certificate_options) {
+        cert = match get_custom_certificate(&server, &mut signatory, &certificate_options) {
             Ok(x) => {
                 let cert = Certificate::from_string(&x.cert).unwrap();
                 println!("Issued Certificate Details:");
