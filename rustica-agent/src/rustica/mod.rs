@@ -51,7 +51,12 @@ pub struct RusticaServer {
 
 pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut Signatory) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
     let ssh_pubkey = match signatory {
-        Signatory::Yubikey(signer) => signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap(),
+        Signatory::Yubikey(signer) => {
+            match signer.yk.ssh_cert_fetch_pubkey(&signer.slot) {
+                Some(pkey) => pkey,
+                None => return Err(RefreshError::SigningError),
+            }
+        },
         Signatory::Direct(ref privkey) => privkey.pubkey.clone(),
     };
     
