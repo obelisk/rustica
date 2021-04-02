@@ -17,7 +17,7 @@ pub struct CertificateConfig {
 }
 
 pub async fn refresh_certificate_async(server: &RusticaServer, mut signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
-    let (mut client, challenge) = super::complete_rustica_challenge(&server, &mut signatory).await.unwrap();
+    let (mut client, challenge) = super::complete_rustica_challenge(&server, &mut signatory).await?;
 
     let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
         Ok(ts) => ts.as_secs(),
