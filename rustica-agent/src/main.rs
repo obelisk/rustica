@@ -11,6 +11,7 @@ use std::os::unix::net::{UnixListener};
 use std::process;
 
 use rustica::{cert::*, key::KeyConfig, RusticaServer, Signatory, YubikeySigner};
+use rustica::RefreshError::{ConfigurationError, SigningError};
 use sshcerts::ssh::{Certificate, CertType, PrivateKey};
 
 use serde_derive::Deserialize;
@@ -347,13 +348,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
+    let mut certificate_options = CertificateConfig::from(config.options);
 
     let mtls_cert = match (matches.value_of("mtlscert"), &config.mtls_cert) {
         (Some(mtls_cert), _) => fs::read_to_string(mtls_cert)?,
         (_, Some(mtls_cert)) => mtls_cert.to_owned(),
         (None, None) => {
             error!("You must provide an mTLS cert to present to Rustica server");
-            return Ok(())
+            return Err(Box::new(ConfigurationError(String::from("Missing mTLS certificate"))))
         }
     };
 
@@ -362,18 +364,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (_, Some(mtls_key)) => mtls_key.to_owned(),
         (None, None) => {
             error!("You must provide an mTLS key to present to Rustica server");
-            return Ok(())
+            return Err(Box::new(ConfigurationError(String::from("Missing mTLS key"))))
         }
     };
-
-    let mut certificate_options = CertificateConfig::from(config.options);
     
     let address = match (matches.value_of("server"), &config.server) {
         (Some(server), _) => server.to_owned(),
         (_, Some(server)) => server.to_owned(),
         (None, None) => {
             error!("A server must be specified either in the config file or on the commandline");
-            return Ok(());
+            return Err(Box::new(ConfigurationError(String::from("Missing server address"))))
         }
     };
 
@@ -385,8 +385,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         (_, Some(v)) => v.to_owned(),
         (None, None) => {
-            error!("You must provide a pem for server authentication");
-            return Ok(());
+            error!("You must provide the server certificate's issuing authority");
+            return Err(Box::new(ConfigurationError(String::from("Missing server authority certificate"))))
         }
     };
 
@@ -412,13 +412,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
                 None => {
                     error!("Chosen slot was invalid. Slot should be of the the form of: R# where # is between 1 and 20 inclusive");
-                    return Ok(());
+                    return Err(Box::new(ConfigurationError(String::from("Bad slot"))))
                 }
             }
         },
         (None, None, None) => {
             error!("A slot or file must be specified to use as identification");
-            return Ok(());
+            return Err(Box::new(ConfigurationError(String::from("No identity provided"))))
         }
     };
 
@@ -427,7 +427,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Signatory::Yubikey(yk_sig) => yk_sig,
             Signatory::Direct(_) => {
                 println!("Cannot provision a file, requires a Yubikey slot");
-                return Ok(());
+                return Err(Box::new(ConfigurationError(String::from("Cannot provision file"))))
             }
         };
 
@@ -447,7 +447,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None => {
                 // TODO @obelisk Fix this
                 println!("Provisioning Error");
-                Ok(())
+                return Err(Box::new(SigningError))
             },
         }
     }
@@ -457,7 +457,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(cert) => cert,
             None => {
                 println!("There was no keypair found in slot {:?}. Provision one or use another slot.", &signer.slot);
-                return Ok(())
+                return Err(Box::new(ConfigurationError(String::from("No key in slot"))))
             }
         },
         Signatory::Direct(ref privkey) => privkey.pubkey.clone()
@@ -486,11 +486,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        match rustica::key::register_key(&server, &mut signatory, &key_config) {
-            Ok(_) => println!("Key was successfully registered"),
-            Err(e) => error!("Key could not be registered. Server said: {:?}", e),
+        return match rustica::key::register_key(&server, &mut signatory, &key_config) {
+            Ok(_) => {
+                println!("Key was successfully registered");
+                Ok(())
+            },
+            Err(e) => {
+                error!("Key could not be registered. Server said: {}", e);
+                Err(Box::new(e))
+            },
         }
-        return Ok(());
     }
 
     let mut cert = None;
@@ -519,8 +524,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Issued Certificate Details:");
                 println!("{:#}\n", &cert);
                 stale_at = cert.valid_before;
-                debug!("Raw Certificate: ");
-                debug!("{}", &cert);
 
                 if let Some(out_file) = matches.value_of("out") {
                     use std::io::Write;
@@ -537,8 +540,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
             }
             Err(e) => {
-                error!("Error: {:?}", e);
-                return Ok(());
+                error!("Error: {}", e);
+                return Err(Box::new(e))
             },
         };
     }

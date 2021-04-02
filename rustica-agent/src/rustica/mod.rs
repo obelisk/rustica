@@ -2,7 +2,7 @@ pub mod cert;
 pub mod error;
 pub mod key;
 
-use error::RefreshError;
+pub use error::RefreshError;
 
 pub use rustica::rustica_client::{RusticaClient};
 pub use rustica::{
