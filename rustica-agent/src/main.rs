@@ -407,7 +407,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(slot), _, _) | (_, Some(slot), _) => {
             match slot_parser(slot) {
                 Some(s) => Signatory::Yubikey(YubikeySigner{
-                    yk: sshcerts::yubikey::Yubikey::new().unwrap(),
+                    yk: sshcerts::yubikey::Yubikey::new()?,
                     slot: s,
                 }),
                 None => {
@@ -434,7 +434,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let secure = matches.is_present("require-touch");
         let subj = matches.value_of("subject").unwrap();
         let mgm_key = match matches.value_of("management-key") {
-            Some(mgm) => hex::decode(mgm).unwrap(),
+            Some(mgm) => hex::decode(mgm)?,
             None => {
                 println!("Management key error");
                 return Ok(());
@@ -520,7 +520,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if matches.is_present("immediate") {
         cert = match get_custom_certificate(&server, &mut signatory, &certificate_options) {
             Ok(x) => {
-                let cert = Certificate::from_string(&x.cert).unwrap();
+                let cert = Certificate::from_string(&x.cert)?;
                 println!("Issued Certificate Details:");
                 println!("{:#}\n", &cert);
                 stale_at = cert.valid_before;

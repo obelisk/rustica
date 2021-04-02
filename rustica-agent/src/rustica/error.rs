@@ -50,7 +50,6 @@ impl From<tonic::Status> for RefreshError {
     }
 }
 
-
 impl From<hex::FromHexError> for RefreshError {
     fn from(e: hex::FromHexError) -> Self {
         RefreshError::BadEncodedData(e)
@@ -62,3 +61,16 @@ impl From<sshcerts::yubikey::Error> for RefreshError {
         RefreshError::SigningError
     }
 }
+
+impl From<ring::error::Unspecified> for RefreshError {
+    fn from(_: ring::error::Unspecified) -> Self {
+        RefreshError::SigningError
+    }
+}
+
+impl From<ring::error::KeyRejected> for RefreshError {
+    fn from(_: ring::error::KeyRejected) -> Self {
+        RefreshError::SigningError
+    }
+}
+
