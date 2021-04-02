@@ -81,8 +81,8 @@ fn build_key(ssh_pubkey: PublicKey, certificate: X509Certificate, client: &[u8],
 pub fn verify_certificate_chain(client: &[u8], intermediate: &[u8]) -> Result<Key, YubikeyValidationError> {
     // Extract the certificate public key and convert to an sshcerts PublicKey
     let ssh_pubkey = match sshcerts::yubikey::ssh::convert_x509_to_ssh_pubkey(client) {
-        Some(ssh) => ssh,
-        None => return Err(YubikeyValidationError::ParseError),
+        Ok(ssh) => ssh,
+        Err(_) => return Err(YubikeyValidationError::ParseError),
     };
 
     // Parse the root ca. This should never fail

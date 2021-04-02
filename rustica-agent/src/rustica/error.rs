@@ -56,3 +56,9 @@ impl From<hex::FromHexError> for RefreshError {
         RefreshError::BadEncodedData(e)
     }
 }
+
+impl From<sshcerts::yubikey::Error> for RefreshError {
+    fn from(_e: sshcerts::yubikey::Error) -> Self {
+        RefreshError::SigningError
+    }
+}

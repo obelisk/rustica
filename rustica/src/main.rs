@@ -75,7 +75,10 @@ fn create_signer(slot: SlotId, mutex: Arc<Mutex<u32>>) -> Box<dyn Fn(&[u8]) -> O
         match mutex.lock() {
             Ok(_) => {
                 let mut yk = Yubikey::new().unwrap();
-                yk.ssh_cert_signer(buf, &slot)
+                match yk.ssh_cert_signer(buf, &slot) {
+                    Ok(sig) => Some(sig),
+                    Err(_) => None,
+                }
             },
             Err(e) => {
                 println!("Error in acquiring mutex for yubikey signing: {}", e);
@@ -532,7 +535,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let yubikey_mutex = Arc::new(Mutex::new(0));
 
             match (user_ca_cert, host_ca_cert) {
-                (Some(ucc), Some(hcc)) => (
+                (Ok(ucc), Ok(hcc)) => (
                     ucc,
                     create_signer(us, yubikey_mutex.clone()),
                     hcc,

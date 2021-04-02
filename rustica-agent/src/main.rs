@@ -454,8 +454,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pubkey = match &mut signatory {
         Signatory::Yubikey(signer) => match signer.yk.ssh_cert_fetch_pubkey(&signer.slot) {
-            Some(cert) => cert,
-            None => {
+            Ok(cert) => cert,
+            Err(_) => {
                 println!("There was no keypair found in slot {:?}. Provision one or use another slot.", &signer.slot);
                 return Err(Box::new(ConfigurationError(String::from("No key in slot"))))
             }

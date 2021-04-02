@@ -53,8 +53,8 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
     let ssh_pubkey = match signatory {
         Signatory::Yubikey(signer) => {
             match signer.yk.ssh_cert_fetch_pubkey(&signer.slot) {
-                Some(pkey) => pkey,
-                None => return Err(RefreshError::SigningError),
+                Ok(pkey) => pkey,
+                Err(_) => return Err(RefreshError::SigningError),
             }
         },
         Signatory::Direct(ref privkey) => privkey.pubkey.clone(),
@@ -86,16 +86,11 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
     let challenge_signature = match signatory {
         Signatory::Yubikey(signer) => {
             let alg = match signer.yk.get_ssh_key_type(&signer.slot){
-                Some(alg) => alg,
-                None => return Err(RefreshError::SigningError),
+                Ok(alg) => alg,
+                Err(_) => return Err(RefreshError::SigningError),
             };
 
-            match signer.yk.sign_data(&decoded_challenge, alg, &signer.slot) {
-                Ok(v) => hex::encode(v),
-                Err(_) => {
-                    return Err(RefreshError::SigningError);
-                }
-            }
+            hex::encode(signer.yk.sign_data(&decoded_challenge, alg, &signer.slot)?)
         },
         // TODO: @obelisk Find a way to replace this with sshcerts::ssh::signer code
         Signatory::Direct(privkey) => {
