@@ -290,19 +290,15 @@ impl Rustica for RusticaServer {
             Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
         };
 
-        let cert = Certificate::new(
-            ssh_pubkey,
-            req_cert_type,
-            authorization.serial,
-            format!("Rustica-JITC-for-{}", &fingerprint),
-            authorization.principals.clone(),
-            authorization.valid_after,
-            authorization.valid_before,
-            critical_options,
-            authorization.extensions,
-            ca_cert.clone(),
-            signer,
-        );
+        let cert = Certificate::builder(&ssh_pubkey, req_cert_type, &ca_cert).unwrap()
+            .serial(authorization.serial)
+            .key_id(format!("Rustica-JITC-for-{}", &fingerprint))
+            .set_principals(&authorization.principals)
+            .valid_after(authorization.valid_after)
+            .valid_before(authorization.valid_before)
+            .set_critical_options(critical_options)
+            .set_extensions(authorization.extensions)
+            .sign(signer);
 
         let serialized_cert = match cert {
             Ok(cert) => {
