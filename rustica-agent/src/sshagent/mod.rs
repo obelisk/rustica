@@ -5,7 +5,7 @@ mod protocol;
 mod handler;
 pub mod error;
 
-pub use handler::SSHAgentHandler;
+pub use handler::SshAgentHandler;
 pub use agent::Agent;
 pub use protocol::Response;
 pub use protocol::Identity;

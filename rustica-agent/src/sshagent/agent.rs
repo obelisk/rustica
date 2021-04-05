@@ -6,13 +6,13 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 use super::protocol::Request;
 
-use super::handler::SSHAgentHandler;
+use super::handler::SshAgentHandler;
 
 use super::error::HandleResult;
 pub struct Agent;
 
 impl Agent {
-	fn handle_client<T: SSHAgentHandler>(handler: Arc<Mutex<T>>, mut stream: UnixStream) -> HandleResult<()> {
+	fn handle_client<T: SshAgentHandler>(handler: Arc<Mutex<T>>, mut stream: UnixStream) -> HandleResult<()> {
 		debug!("handling new connection");
 		loop {
 			let req = Request::read(&mut stream)?;
@@ -24,7 +24,7 @@ impl Agent {
 
 	}
 
-	pub fn run<T:SSHAgentHandler + 'static>(handler: T, listener: UnixListener) {
+	pub fn run<T:SshAgentHandler + 'static>(handler: T, listener: UnixListener) {
 		let arc_handler = Arc::new(Mutex::new(handler));
 		// accept the connections and spawn a new thread for each one 
 		for stream in listener.incoming() {

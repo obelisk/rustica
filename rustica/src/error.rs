@@ -1,5 +1,4 @@
 use crate::auth::AuthorizationError;
-use std::convert::Into;
 
 #[derive(Debug)]
 pub enum RusticaServerError {
@@ -14,9 +13,9 @@ pub enum RusticaServerError {
     Unknown = 9001,
 }
 
-impl Into<RusticaServerError> for AuthorizationError {
-    fn into(self) -> RusticaServerError {
-        match self {
+impl From<AuthorizationError> for RusticaServerError {
+    fn from(e: AuthorizationError) -> RusticaServerError {
+        match e {
             AuthorizationError::CertType => RusticaServerError::BadCertOptions,
             AuthorizationError::NotAuthorized => RusticaServerError::NotAuthorized,
             AuthorizationError::AuthorizerError => RusticaServerError::Unknown,

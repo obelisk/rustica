@@ -5,7 +5,7 @@ mod rustica;
 
 use clap::{App, Arg};
 
-use sshagent::{Agent, error::Error as AgentError, Identity, SSHAgentHandler, Response};
+use sshagent::{Agent, error::Error as AgentError, Identity, SshAgentHandler, Response};
 use std::env;
 use std::os::unix::net::{UnixListener};
 use std::process;
@@ -72,7 +72,7 @@ impl From<Option<Options>> for CertificateConfig {
     }
 }
 
-impl SSHAgentHandler for Handler {
+impl SshAgentHandler for Handler {
     fn identities(&mut self) -> Result<Response, AgentError> {
         let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         if let Some(cert) = &self.cert {
@@ -147,7 +147,7 @@ fn provision_new_key(mut signatory: YubikeySigner, pin: &str, subj: &str, mgm_ke
         TouchPolicy::Never
     };
 
-    if let Err(_) = signatory.yk.unlock(pin.as_bytes(), &mgm_key) {
+    if signatory.yk.unlock(pin.as_bytes(), &mgm_key).is_err() {
         println!("Could not unlock key");
         return None
     }
@@ -481,7 +481,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             key_config.certificate = signer.yk.fetch_attestation(&signer.slot).unwrap_or_default();
             key_config.intermediate = signer.yk.fetch_certificate(&SlotId::Attestation).unwrap_or_default();
 
-            if key_config.certificate.len() == 0 || key_config.intermediate.len() == 0 {
+            if key_config.certificate.is_empty() || key_config.intermediate.is_empty() {
                 error!("Part of the attestation could not be generated. Registration may fail");
             }
         }

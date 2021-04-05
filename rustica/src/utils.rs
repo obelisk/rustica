@@ -15,7 +15,7 @@ pub fn build_login_script(hosts: &Option<Vec<String>>, force_command: &Option<St
     // build our script that will force authorization to particular servers
     let mut file_rand = [0; 4];
     let rng = SystemRandom::new();
-    if let Err(_) = rng.fill(&mut file_rand) {
+    if rng.fill(&mut file_rand).is_err() {
         return Err(RusticaServerError::Unknown)
     }
 

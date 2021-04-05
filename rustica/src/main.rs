@@ -143,7 +143,7 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
         Err(_) => return Err(RusticaServerError::BadChallenge),
     };
 
-    if let Err(_) = hmac::verify(hmac_key, hmac_verification.as_bytes(), &decoded_challenge) {
+    if hmac::verify(hmac_key, hmac_verification.as_bytes(), &decoded_challenge).is_err() {
        return Err(RusticaServerError::BadChallenge);
     }
 
@@ -180,7 +180,7 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
         _ => return Err(RusticaServerError::UnsupportedKeyType),
     };
 
-    if let Err(_) = result {
+    if result.is_err() {
         return Err(RusticaServerError::BadChallenge)
     }
 
@@ -581,13 +581,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let authorizer = match matches.value_of("authtype") {
         Some("local") => AuthMechanism::Local(LocalDatabase{}),
-        Some("external") => AuthMechanism::External(AuthServer {
-            server: matches.value_of("authserver").unwrap().to_string(),
-            port: matches.value_of("authserverport").unwrap().to_string(),
-            ca: tokio::fs::read(matches.value_of("authserverca").unwrap().to_string()).await?,
-            mtls_cert: tokio::fs::read(matches.value_of("authservermtlspem").unwrap().to_string()).await?,
-            mtls_key: tokio::fs::read(matches.value_of("authservermtlskey").unwrap().to_string()).await?,
-        }),
+        Some("external") => {
+            let ca = tokio::fs::read(matches.value_of("authserverca").unwrap().to_string()).await?;
+            let mtls_cert = tokio::fs::read(matches.value_of("authservermtlspem").unwrap().to_string()).await?;
+            let mtls_key = tokio::fs::read(matches.value_of("authservermtlskey").unwrap().to_string()).await?;
+            AuthMechanism::External(AuthServer {
+                server: matches.value_of("authserver").unwrap().to_string(),
+                port: matches.value_of("authserverport").unwrap().to_string(),
+                ca,
+                mtls_cert,
+                mtls_key,
+            })
+        },
         _ => unreachable!("Clap should ensure it must be one of the two values above"),
     };
 

@@ -4,8 +4,8 @@ pub mod key;
 
 pub use error::RefreshError;
 
-pub use rustica::rustica_client::{RusticaClient};
-pub use rustica::{
+pub use rustica_proto::rustica_client::{RusticaClient};
+pub use rustica_proto::{
     CertificateRequest,
     CertificateResponse,
     Challenge,
@@ -20,7 +20,7 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use yubikey_piv::key::SlotId;
 
 
-pub mod rustica {
+pub mod rustica_proto {
     tonic::include_proto!("rustica");
 }
 
@@ -36,6 +36,7 @@ pub struct YubikeySigner {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Signatory {
     Yubikey(YubikeySigner),
     Direct(PrivateKey),
@@ -71,7 +72,7 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
 
     let channel = match Channel::from_shared(server.address.clone()) {
         Ok(c) => c,
-        Err(_) => return Err(RefreshError::InvalidURI),
+        Err(_) => return Err(RefreshError::InvalidUri),
     };
 
     let ca = Certificate::from_pem(&server.ca);

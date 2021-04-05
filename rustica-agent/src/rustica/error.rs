@@ -12,7 +12,7 @@ pub enum RefreshError {
     TransportError,
     SigningError,
     UnsupportedMode,
-    InvalidURI,
+    InvalidUri,
     ConfigurationError(String),
     TransportBadStatus(tonic::Status),
     BadEncodedData(hex::FromHexError),
@@ -27,7 +27,7 @@ impl fmt::Display for RefreshError {
             RefreshError::TransportError => write!(f, "Transport Error. Generally a TLS issue"),
             RefreshError::SigningError => write!(f, "Signing or verification failed"),
             RefreshError::UnsupportedMode => write!(f, "Attempted to use a curve or cipher not supported by rustica-agent"),
-            RefreshError::InvalidURI => write!(f, "Provided address of remote service was invalid"),
+            RefreshError::InvalidUri => write!(f, "Provided address of remote service was invalid"),
             RefreshError::TransportBadStatus(ref err) => write!(f, "Bad status from server: {}", err),
             RefreshError::BadEncodedData(ref err) => write!(f, "Bad hex encoding: {}", err),
             RefreshError::RusticaServerError(ref err) => write!(f, "Error from server: {}", err.message)

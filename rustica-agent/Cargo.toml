@@ -1,6 +1,6 @@
 [package]
 name = "rustica-agent"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2018"
 

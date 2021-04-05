@@ -76,7 +76,7 @@ impl AuthServer {
         let extensions = if !approval_response.contains_key("extensions") {
             Extensions::Standard
         } else {
-            let requested_extensions = approval_response["extensions"].split(",").map(|x| (String::from(x), String::new())).collect();
+            let requested_extensions = approval_response["extensions"].split(',').map(|x| (String::from(x), String::new())).collect();
             Extensions::Custom(requested_extensions)
         };
 
@@ -89,19 +89,19 @@ impl AuthServer {
         let force_source_ip = approval_response.contains_key("force_source_ip");
 
         let hosts = if approval_response.contains_key("authorized_fingerprints") {
-            Some(approval_response["authorized_fingerprints"].split(",").map(String::from).collect())
+            Some(approval_response["authorized_fingerprints"].split(',').map(String::from).collect())
         } else {
             None
         };
 
         Ok(Authorization {
             serial: approval_response["serial"].parse::<u64>().unwrap(),
-            principals: approval_response["principals"].split(",").map(String::from).collect(),
+            principals: approval_response["principals"].split(',').map(String::from).collect(),
             hosts,
             valid_before: approval_response["valid_before"].parse::<u64>().unwrap(),
             valid_after: approval_response["valid_after"].parse::<u64>().unwrap(),
-            extensions: extensions,
-            force_command: force_command,
+            extensions,
+            force_command,
             force_source_ip,
         })
     }

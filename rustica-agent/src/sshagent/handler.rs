@@ -3,7 +3,7 @@ use super::protocol::Response;
 
 use super::error::HandleResult;
 
-pub trait SSHAgentHandler: Send + Sync {
+pub trait SshAgentHandler: Send + Sync {
 	fn identities(&mut self) -> HandleResult<Response>;
 	fn sign_request(&mut self, pubkey: Vec<u8>, data: Vec<u8>, flags: u32) -> HandleResult<Response>;
 
