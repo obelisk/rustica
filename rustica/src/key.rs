@@ -11,7 +11,7 @@ pub struct Key {
 pub struct KeyAttestation {
     pub pin_policy: PinPolicy,
     pub touch_policy: TouchPolicy,
-    pub serial: u32,
+    pub serial: u64,
     pub firmware: String,
     pub certificate: Vec<u8>,
     pub intermediate: Vec<u8>,
