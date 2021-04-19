@@ -1,28 +1,17 @@
 #[macro_use] extern crate log;
 
-//mod rustica;
-
 use clap::{App, Arg};
-use rustica_agent::{
-    CertificateConfig,
-    Config,
-    ConfigurationError,
-    Handler,
-    KeyConfig,
-    SigningError,
-};
-use rustica_agent::{RusticaServer, Identity, Signatory, YubikeySigner};
-use rustica_agent::sshagent::{Agent};
+use rustica_agent::*;
+
+use std::convert::TryFrom;
 use std::env;
+use std::fs::{self, File};
+use std::io::{Read};
 use std::os::unix::net::{UnixListener};
 use std::process;
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey};
 
-
-use std::convert::TryFrom;
-use std::fs::{self, File};
-use std::io::{Read};
 use yubikey_piv::key::{AlgorithmId, SlotId};
 use yubikey_piv::policy::{TouchPolicy, PinPolicy};
 
@@ -312,7 +301,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
         (None, None, None) => {
-            error!("A slot or file must be specified to use as identification");
+            error!("A slot or file must be specified for identification");
             return Err(Box::new(ConfigurationError(String::from("No identity provided"))))
         }
     };
@@ -340,7 +329,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return match provision_new_key(signatory, pin, &subj, &mgm_key, matches.value_of("type").unwrap_or("eccp384"), secure) {
             Some(_) => Ok(()),
             None => {
-                // TODO @obelisk Fix this
                 println!("Provisioning Error");
                 return Err(Box::new(SigningError))
             },
@@ -392,10 +380,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let mut cert = None;
     let mut stale_at = 0;
 
-    if let Some(principals) =  matches.value_of("principals") {
+    if let Some(principals) = matches.value_of("principals") {
         certificate_options.principals = principals.split(',').map(|s| s.to_string()).collect();
     }
 
@@ -411,8 +398,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         certificate_options.duration = duration.parse::<u64>().unwrap_or(10);
     }
 
-    if matches.is_present("immediate") {
-        cert = match server.get_custom_certificate(&mut signatory, &certificate_options) {
+    let cert = if matches.is_present("immediate") {
+        match server.get_custom_certificate(&mut signatory, &certificate_options) {
             Ok(x) => {
                 let cert = Certificate::from_string(&x.cert)?;
                 println!("Issued Certificate Details:");
@@ -437,8 +424,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 error!("Error: {}", e);
                 return Err(Box::new(e))
             },
-        };
-    }
+        }
+    } else {
+        None
+    };
 
     println!("Starting Rustica Agent");
     println!("Access Fingerprint: {}", pubkey.fingerprint().hash);
