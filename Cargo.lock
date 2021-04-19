@@ -992,6 +992,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e0d047c1062aa51e256408c560894e5251f08925980e53cf1aa5bd00eec6512"
+dependencies = [
+ "autocfg 1.0.1",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-bigint-dig"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1592,7 +1603,7 @@ dependencies = [
 
 [[package]]
 name = "rustica"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "base64 0.12.3",
  "clap",
@@ -1617,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "base64 0.12.3",
  "byteorder",
@@ -1832,12 +1843,12 @@ dependencies = [
 
 [[package]]
 name = "simple_asn1"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db8d597fce66eb0f19dd129b9956e4054cba21aeaf97d4116595027b670fac50"
+checksum = "6e0e9076e5242ff5a58e854cb478ea9caebce01088f86d3d9c6ad336b7655263"
 dependencies = [
  "chrono",
- "num-bigint 0.3.1",
+ "num-bigint 0.4.0",
  "num-traits",
  "thiserror",
 ]
@@ -1873,15 +1884,14 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "sshcerts"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f20494716a98c333437c08a9c70ab8d365c649e138c9782ec7296c396c34bb58"
+version = "0.4.3"
+source = "git+https://github.com/obelisk/sshcerts#653d9aeff22ee50b18531eb01ed69bc39604b03f"
 dependencies = [
  "base64 0.13.0",
  "log",
- "num-bigint 0.3.1",
+ "num-bigint 0.4.0",
  "ring",
- "simple_asn1 0.5.1",
+ "simple_asn1 0.5.2",
  "yubikey-piv",
 ]
 

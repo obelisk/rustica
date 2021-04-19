@@ -13,22 +13,24 @@ pub struct KeyConfig {
     pub intermediate: Vec<u8>,
 }
 
-pub async fn register_key_async(server: &RusticaServer, mut signatory: &mut Signatory, key: &KeyConfig) -> Result<(), RefreshError> {
-    let (mut client, challenge) = super::complete_rustica_challenge(&server, &mut signatory).await.unwrap();
+impl RusticaServer {
+    pub async fn register_key_async(&self, mut signatory: &mut Signatory, key: &KeyConfig) -> Result<(), RefreshError> {
+        let (mut client, challenge) = super::complete_rustica_challenge(&self, &mut signatory).await.unwrap();
 
-    let request = tonic::Request::new(RegisterKeyRequest {
-        certificate: key.certificate.clone(),
-        intermediate: key.intermediate.clone(),
-        challenge: Some(challenge),
-    });
+        let request = tonic::Request::new(RegisterKeyRequest {
+            certificate: key.certificate.clone(),
+            intermediate: key.intermediate.clone(),
+            challenge: Some(challenge),
+        });
 
-    client.register_key(request).await?;
-    Ok(())
-}
+        client.register_key(request).await?;
+        Ok(())
+    }
 
 
-pub fn register_key(server: &RusticaServer, mut signatory: &mut Signatory, key: &KeyConfig) -> Result<(), RefreshError> {
-    Runtime::new().unwrap().block_on(async {
-        register_key_async(server, &mut signatory, key).await
-    })
+    pub fn register_key(&self, mut signatory: &mut Signatory, key: &KeyConfig) -> Result<(), RefreshError> {
+        Runtime::new().unwrap().block_on(async {
+            self.register_key_async(&mut signatory, key).await
+        })
+    }
 }

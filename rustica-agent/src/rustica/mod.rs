@@ -13,12 +13,12 @@ pub use rustica_proto::{
     RegisterKeyRequest,
 };
 
-use sshcerts::ssh::{CurveKind, PrivateKey, PublicKeyKind, PrivateKeyKind};
+use sshcerts::ssh::{CurveKind, PublicKeyKind, PrivateKeyKind};
 
 use ring::{rand, signature};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
-use yubikey_piv::key::SlotId;
 
+use crate::{RusticaServer, Signatory};
 
 pub mod rustica_proto {
     tonic::include_proto!("rustica");
@@ -27,27 +27,6 @@ pub mod rustica_proto {
 pub struct RusticaCert {
     pub cert: String,
     pub comment: String,
-}
-
-#[derive(Debug)]
-pub struct YubikeySigner {
-    pub slot: SlotId,
-    pub yk: sshcerts::yubikey::Yubikey,
-}
-
-#[derive(Debug)]
-#[allow(clippy::large_enum_variant)]
-pub enum Signatory {
-    Yubikey(YubikeySigner),
-    Direct(PrivateKey),
-}
-
-#[derive(Debug)]
-pub struct RusticaServer {
-    pub address: String,
-    pub ca: String,
-    pub mtls_cert: String,
-    pub mtls_key: String,
 }
 
 pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut Signatory) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
