@@ -158,3 +158,57 @@ impl SshAgentHandler for Handler {
         }
     }
 }
+
+use std::os::raw::{c_char};
+use std::ffi::{CStr};
+use std::os::unix::net::{UnixListener};
+
+#[no_mangle]
+pub extern fn start_yubikey_rustica_agent(slot: u8, config_file: *const c_char, socket_path: *const c_char) -> bool {
+    println!("Starting a new Rustica instance!");
+    let cf = unsafe { CStr::from_ptr(config_file) };
+    let config_file = match cf.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let config = std::fs::read_to_string(config_file);
+    let config: Config = match config {
+        Ok(content) => toml::from_str(&content).unwrap(),
+        Err(e) => {
+            println!("Could not open configuration file: {}", e);
+            return false
+        },
+    };
+
+    let certificate_options = CertificateConfig::from(config.options);
+
+    let handler = Handler {
+        cert: None,
+        stale_at: 0,
+        certificate_options,
+        server: RusticaServer {
+            address: config.server.unwrap(),
+            ca: config.ca_pem.unwrap(),
+            mtls_cert: config.mtls_cert.unwrap(),
+            mtls_key: config.mtls_key.unwrap(),
+        },
+        signatory: Signatory::Yubikey(YubikeySigner {
+            yk: sshcerts::yubikey::Yubikey::new().unwrap(),
+            slot: sshcerts::yubikey::SlotId::try_from(slot).unwrap(),
+        })
+    };
+
+    println!("Slot: {:?}", sshcerts::yubikey::SlotId::try_from(slot));
+
+    let sp = unsafe { CStr::from_ptr(socket_path) };
+    let socket_path = match sp.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let socket = UnixListener::bind(socket_path).unwrap();
+    Agent::run(handler, socket);
+
+    true
+}
