@@ -75,6 +75,7 @@ impl LocalDatabase {
                         }
                     }
                 };
+
                 Ok(Authorization {
                     serial: 0x000000000000000,
                     // When principal is unrestricted, we just pass their requested principals through
