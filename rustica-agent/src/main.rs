@@ -150,15 +150,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .arg(
             Arg::new("immediate")
-                .about("Immiediately request a certificate. Useful for testing and verifying access.")
+                .about("Immiediately request a certificate. Useful for testing and verifying access")
                 .short('i')
         )
         .arg(
             Arg::new("out")
-                .about("Output the certificate to a file and exit. Useful for refreshing host certificates.")
+                .about("Output the certificate to a file and exit. Useful for refreshing host certificates")
                 .short('o')
                 .takes_value(true)
                 .requires("immediate")
+        )
+        .arg(
+            Arg::new("socket")
+                .about("Manually specify the path that will be used for the auth sock")
+                .long("socket")
+                .takes_value(true)
         )
         .subcommand(
             App::new("register")
@@ -229,6 +235,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mtls_key: None,
                 slot: None,
                 options: None,
+                socket: None,
             }
         }
     };
@@ -432,9 +439,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Rustica Agent");
     println!("Access Fingerprint: {}", pubkey.fingerprint().hash);
 
-    let mut socket_path = env::temp_dir();
-    socket_path.push(format!("rustica.{}", process::id()));
-    println!("SSH_AUTH_SOCK={}; export SSH_AUTH_SOCK;", socket_path.to_string_lossy());
+
+    let socket_path = match (matches.value_of("socket"), &config.socket) {
+        (Some(socket), _) => socket.to_owned(),
+        (_, Some(socket)) => socket.to_owned(),
+        (None, None) => {
+            let mut socket = env::temp_dir();
+            socket.push(format!("rustica.{}", process::id()));
+            socket.to_string_lossy().to_string()
+        }
+    };
+
+    println!("SSH_AUTH_SOCK={}; export SSH_AUTH_SOCK;", socket_path);
 
     let handler = Handler {
         server,
@@ -444,7 +460,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         certificate_options,
     };
 
-    let socket = UnixListener::bind(socket_path).unwrap();
+    let socket = UnixListener::bind(socket_path)?;
     Agent::run(handler, socket);
 
     Ok(())

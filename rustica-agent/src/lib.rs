@@ -35,6 +35,7 @@ pub struct Config {
     pub mtls_key: Option<String>,
     pub slot: Option<String>,
     pub options: Option<Options>,
+    pub socket: Option<String>,
 }
 
 #[derive(Debug)]
