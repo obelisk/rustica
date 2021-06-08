@@ -80,6 +80,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .author("Mitchell Grenier <mitchell@confurious.io>")
         .about("The SSH Agent component of Rustica")
         .arg(
+            Arg::new("config")
+                .about("Specify an alternate configuration file.")
+                .long("config")
+                .default_value("/etc/rustica/config.toml")
+                .takes_value(true),
+        )
+        .arg(
             Arg::new("server")
                 .about("Full address of Rustica server to use as CA")
                 .long("server")
@@ -224,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // First we read the configuration file and use those unless overriden by
     // the commandline
-    let config = fs::read_to_string("/etc/rustica/config.toml");
+    let config = fs::read_to_string(matches.value_of("config").unwrap());
     let config = match config {
         Ok(content) => toml::from_str(&content)?,
         Err(_) => {
