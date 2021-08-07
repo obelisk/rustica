@@ -72,6 +72,9 @@ pub enum Request {
         // Request flags.
         flags: u32,
     },
+	AddIdentity {
+		private_key: sshcerts::PrivateKey
+	},
     Unknown,
 }
 
@@ -94,7 +97,12 @@ impl Request {
 				})
 			}
 			MessageRequest::AddIdentity => {
-				Ok(Request::Unknown)
+				match sshcerts::PrivateKey::from_bytes(buf) {
+					Ok(private_key) => {
+						Ok(Request::AddIdentity {private_key: private_key})
+					},
+					Err(_) => Ok(Request::Unknown)
+				}
 			}
 			MessageRequest::RemoveIdentity => {
 				Ok(Request::Unknown)

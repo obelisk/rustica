@@ -21,7 +21,6 @@ impl Agent {
 			trace!("handler: {:?}", response);
 			response.write(&mut stream)?;
 		}
-
 	}
 
 	pub fn run<T:SshAgentHandler + 'static>(handler: T, listener: UnixListener) {

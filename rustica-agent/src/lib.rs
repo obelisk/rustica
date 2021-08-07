@@ -12,12 +12,18 @@ pub use rustica::{
     RefreshError::{ConfigurationError, SigningError}
 };
 
-use sshcerts::ssh::{Certificate, CertType, PrivateKey};
+use sshcerts::ssh::{Certificate, CertType, PrivateKey, SigningFunction};
 use sshcerts::yubikey::SlotId;
 
+use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use std::time::SystemTime;
+
+// FFI related imports
+use std::os::raw::{c_char};
+use std::ffi::{CStr};
+use std::os::unix::net::{UnixListener};
 
 #[derive(Debug, Deserialize)]
 pub struct Options {
@@ -74,6 +80,7 @@ pub struct Handler {
     pub signatory: Signatory,
     pub stale_at: u64,
     pub certificate_options: CertificateConfig,
+    pub identities: HashMap<Vec<u8>, PrivateKey>,
 }
 
 
@@ -101,14 +108,30 @@ impl From<Option<Options>> for CertificateConfig {
 }
 
 impl SshAgentHandler for Handler {
+    fn add_identity(&mut self, private_key: PrivateKey) -> Result<Response, AgentError> {
+        let public_key = private_key.pubkey.encode();
+        self.identities.insert(public_key, private_key);
+        Ok(Response::Success)
+    }
+
     fn identities(&mut self) -> Result<Response, AgentError> {
+        // Build identities from the private keys we have loaded
+        let mut identities: Vec<Identity> = self.identities.iter().map(|x| Identity {
+                key_blob: x.1.pubkey.encode().to_vec(),
+                key_comment: x.1.comment.as_ref().unwrap_or(&String::new()).to_string(),
+            }).collect();
+
+        // If the time hasn't expired on our certificate, we don't need to fetch a new one
         let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         if let Some(cert) = &self.cert {
             if timestamp < self.stale_at {
                 debug!("Certificate has not expired, not refreshing");
+                identities.push(cert.clone());
                 return Ok(Response::Identities(vec![cert.clone()]));
             }
         }
+
+        // Grab a new certificate from the server because we don't have a valid one
         match self.server.get_custom_certificate(&mut self.signatory, &self.certificate_options) {
             Ok(response) => {
                 info!("{:#}", Certificate::from_string(&response.cert).unwrap());
@@ -119,7 +142,8 @@ impl SshAgentHandler for Handler {
                     key_comment: response.comment,
                 };
                 self.cert = Some(ident.clone());
-                Ok(Response::Identities(vec![ident]))
+                identities.push(ident);
+                Ok(Response::Identities(identities))
             },
             Err(e) => {
                 error!("Refresh certificate error: {:?}", e);
@@ -128,23 +152,32 @@ impl SshAgentHandler for Handler {
         }
     }
 
-    /// Pubkey is currently unused because the idea is to only ever have a single cert which itself is only
-    /// active for a very small window of time
-    fn sign_request(&mut self, _pubkey: Vec<u8>, data: Vec<u8>, _flags: u32) -> Result<Response, AgentError> {
-        match &mut self.signatory {
-            Signatory::Yubikey(signer) => {
-                let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).unwrap();
+    /// Sign a request coming in from an SSH command.
+    fn sign_request(&mut self, pubkey: Vec<u8>, data: Vec<u8>, _flags: u32) -> Result<Response, AgentError> {
+        // Tri check to find how to sign the request. Since starting rustica with a file based
+        // key is the same process as keys added afterwards, we do this to prevent duplication
+        // of the private key based signing code.
+        // TODO: @obelisk make this better
+        let signer: Option<SigningFunction> = if self.identities.contains_key(&pubkey) {
+            Some(self.identities[&pubkey].clone().into())
+        } else if let Signatory::Direct(privkey) = &mut self.signatory {
+            Some(privkey.clone().into())
+        } else if let Signatory::Yubikey(signer) = &mut self.signatory {
+            let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).unwrap();
+                // TODO: @obelisk Why is this magic value here
                 let signature = (&signature[27..]).to_vec();
-
                 let pubkey = signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap();
 
-                Ok(Response::SignResponse {
+                return Ok(Response::SignResponse {
                     algo_name: String::from(pubkey.key_type.name),
                     signature,
-                })
-            },
-            Signatory::Direct(privkey) => {
-                let signer:sshcerts::ssh::SigningFunction = privkey.clone().into();
+                });
+        } else {
+            None
+        };
+
+        match signer {
+            Some(signer) => {
                 let sig = match signer(&data) {
                     None => return Err(AgentError::from("Signing Error")),
                     Some(signature) => signature.to_vec(),
@@ -156,13 +189,10 @@ impl SshAgentHandler for Handler {
                     signature: reader.read_bytes().unwrap(),
                 })
             }
+            None => Err(AgentError::from("Signing Error: No Valid Keys"))
         }
     }
 }
-
-use std::os::raw::{c_char};
-use std::ffi::{CStr};
-use std::os::unix::net::{UnixListener};
 
 #[no_mangle]
 pub extern fn start_yubikey_rustica_agent(slot: u8, config_file: *const c_char, socket_path: *const c_char) -> bool {
@@ -197,7 +227,8 @@ pub extern fn start_yubikey_rustica_agent(slot: u8, config_file: *const c_char, 
         signatory: Signatory::Yubikey(YubikeySigner {
             yk: sshcerts::yubikey::Yubikey::new().unwrap(),
             slot: sshcerts::yubikey::SlotId::try_from(slot).unwrap(),
-        })
+        }),
+        identities: HashMap::new(),
     };
 
     println!("Slot: {:?}", sshcerts::yubikey::SlotId::try_from(slot));
