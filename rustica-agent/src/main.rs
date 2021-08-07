@@ -3,6 +3,7 @@
 use clap::{App, Arg};
 use rustica_agent::*;
 
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::env;
 use std::fs::{self, File};
@@ -446,7 +447,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Rustica Agent");
     println!("Access Fingerprint: {}", pubkey.fingerprint().hash);
 
-
     let socket_path = match (matches.value_of("socket"), &config.socket) {
         (Some(socket), _) => socket.to_owned(),
         (_, Some(socket)) => socket.to_owned(),
@@ -465,6 +465,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         signatory,
         stale_at,
         certificate_options,
+        identities: HashMap::new(),
     };
 
     let socket = UnixListener::bind(socket_path)?;
