@@ -6,3 +6,4 @@
 *.env
 /resources/
 !/resources/create_certs.sh
+!/resources/package.sh

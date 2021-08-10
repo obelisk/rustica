@@ -1614,7 +1614,7 @@ dependencies = [
  "prost",
  "ring",
  "sha2",
- "sshcerts 0.4.4",
+ "sshcerts",
  "tokio",
  "tonic",
  "tonic-build",
@@ -1640,7 +1640,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha2",
- "sshcerts 0.5.0",
+ "sshcerts",
  "tokio",
  "toml",
  "tonic",
@@ -1881,23 +1881,9 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "sshcerts"
-version = "0.4.4"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38fa225d401d393970c9c24865141ca326410393a262f2ace71c46bee9d38a98"
-dependencies = [
- "base64 0.13.0",
- "log",
- "num-bigint 0.4.0",
- "ring",
- "simple_asn1 0.5.2",
- "yubikey-piv",
-]
-
-[[package]]
-name = "sshcerts"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93e27c91bdbeb05691d75c6dfc80be5b4e64c0ede00b1be5f63b7995e8a101be"
+checksum = "339c7b99c5c26344dba7f996a8e6a67f0e39c0e48dea00b1f8fe97999d9cc9bd"
 dependencies = [
  "base64 0.13.0",
  "log",
