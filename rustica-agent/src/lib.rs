@@ -13,7 +13,8 @@ pub use rustica::{
 };
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey, SigningFunction};
-use sshcerts::yubikey::SlotId;
+use sshcerts::yubikey::{AlgorithmId, SlotId, RetiredSlotId};
+use yubikey_piv::policy::{TouchPolicy, PinPolicy};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -21,8 +22,8 @@ use std::convert::TryFrom;
 use std::time::SystemTime;
 
 // FFI related imports
-use std::os::raw::{c_char};
-use std::ffi::{CStr};
+use std::os::raw::{c_char, c_int, c_long};
+use std::ffi::{CString, CStr};
 use std::os::unix::net::{UnixListener};
 
 #[derive(Debug, Deserialize)]
@@ -194,8 +195,174 @@ impl SshAgentHandler for Handler {
     }
 }
 
+/// Fetch the list of serial numbers for the connected Yubikeys
+/// The return from this function must be freed by the caller because we can no longer track it
+/// once we return
 #[no_mangle]
-pub extern fn start_yubikey_rustica_agent(slot: u8, config_file: *const c_char, socket_path: *const c_char) -> bool {
+pub extern fn list_yubikeys(out_length: *mut c_int) -> *mut c_long {
+    match &mut yubikey_piv::readers::Readers::open() {
+        Ok(readers) => {
+            let mut serials: Vec<c_long> = vec![];
+            for reader in readers.iter().unwrap().collect::<Vec<yubikey_piv::readers::Reader>>() {
+                let reader = reader.open();
+                if let Err(_) = reader {
+                    continue;
+                }
+                let reader = reader.unwrap();
+                let serial: u32 = reader.serial().into();
+                serials.push(serial.into());
+            }
+
+            let len = serials.len();
+            let ptr = serials.as_mut_ptr();
+            std::mem::forget(serials);
+            unsafe {
+                std::ptr::write(out_length, len as c_int);
+            }
+
+            ptr
+        },
+        Err(_) => std::ptr::null_mut()
+    }
+}
+
+/// Free the list of Yubikey Serial Numbers
+#[no_mangle]
+pub extern fn free_list_yubikeys(length: c_int, yubikeys: *mut c_long) {
+    let len = length as usize;
+
+    // Get back our vector.
+    // Previously we shrank to fit, so capacity == length.
+    let _ = unsafe {Vec::from_raw_parts(yubikeys, len, len)};
+}
+
+/// The return from this function must be freed by the caller because we can no longer track it
+/// once we return
+#[no_mangle]
+pub extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *mut *mut c_char {
+    match &mut sshcerts::yubikey::Yubikey::open(yubikey_serial) {
+        Ok(yk) => {
+            let mut keys = vec![];
+            for slot in 0x82..0x96_u8 {
+                let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
+                if let Ok(subj) = yk.fetch_subject(&slot) {
+                    keys.push(CString::new(format!("{:?} - {}", slot, subj)).unwrap())
+                }
+            }
+
+            let mut out = keys
+                .into_iter()
+                .map(|s| s.into_raw())
+                .collect::<Vec<_>>();
+            out.shrink_to_fit();
+
+            let len = out.len();
+            let ptr = out.as_mut_ptr();
+            std::mem::forget(out);
+
+            // Let's write back the length the caller can expect
+            unsafe {
+                std::ptr::write(out_length, len as c_int);
+            }
+            
+            // Finally return the data
+            ptr
+        },
+        Err(_) => std::ptr::null_mut()
+    }
+}
+
+/// Free the list of Yubikey keys
+#[no_mangle]
+pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
+    let len = length as usize;
+
+    // Get back our vector.
+    // Previously we shrank to fit, so capacity == length.
+    let v = Vec::from_raw_parts(keys, len, len);
+
+    // Now drop one string at a time.
+    for elem in v {
+        let s = CString::from_raw(elem);
+        std::mem::drop(s);
+    }
+}
+
+/// Generate and enroll a new key on the given yubikey in the given slot
+#[no_mangle]
+pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, subject: *const c_char, config_file: *const c_char, pin: *const c_char, management_key: *const c_char) -> bool {
+    println!("Generating and enrolling a new key!");
+    let cf = unsafe { CStr::from_ptr(config_file) };
+    let config_file = match cf.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let pin = unsafe { CStr::from_ptr(pin) };
+    let management_key = unsafe { CStr::from_ptr(management_key) };
+    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
+    let subject = unsafe { CStr::from_ptr(subject) };
+
+    let config = std::fs::read_to_string(config_file);
+    let config: Config = match config {
+        Ok(content) => toml::from_str(&content).unwrap(),
+        Err(e) => {
+            println!("Could not open configuration file: {}", e);
+            return false
+        },
+    };
+
+    let alg = AlgorithmId::EccP384;
+    let slot = sshcerts::yubikey::SlotId::try_from(slot).unwrap();
+    let policy = TouchPolicy::Cached;
+    let mut yk = sshcerts::yubikey::Yubikey::open(yubikey_serial).unwrap();
+
+    if yk.unlock(pin.to_str().unwrap().as_bytes(), &management_key).is_err() {
+        println!("Could not unlock key");
+        return false
+    }
+
+    let key_config = match yk.provision(&slot, subject.to_str().unwrap(), alg, policy, PinPolicy::Never) {
+        Ok(_) => {
+            let certificate = yk.fetch_attestation(&slot);
+            let intermediate = yk.fetch_certificate(&SlotId::Attestation);
+
+            match (certificate, intermediate) {
+                (Ok(certificate), Ok(intermediate)) => KeyConfig {certificate, intermediate},
+                _ => return false,
+            }
+        },
+        Err(_) => return false,
+    };
+
+    let mut signatory = Signatory::Yubikey(YubikeySigner {
+        yk,
+        slot,
+    });
+
+    let server = RusticaServer {
+        address: config.server.unwrap(),
+        ca: config.ca_pem.unwrap(),
+        mtls_cert: config.mtls_cert.unwrap(),
+        mtls_key: config.mtls_key.unwrap(),
+    };
+
+    match server.register_key(&mut signatory, &key_config) {
+        Ok(_) => {
+            println!("Key was successfully registered");
+            true
+        },
+        Err(e) => {
+            error!("Key could not be registered. Server said: {}", e);
+            false
+        },
+    }
+}
+
+
+/// Start a new Rustica instance. Does not return unless Rustica exits.
+#[no_mangle]
+pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_file: *const c_char, socket_path: *const c_char) -> bool {
     println!("Starting a new Rustica instance!");
     let cf = unsafe { CStr::from_ptr(config_file) };
     let config_file = match cf.to_str() {
@@ -225,7 +392,7 @@ pub extern fn start_yubikey_rustica_agent(slot: u8, config_file: *const c_char, 
             mtls_key: config.mtls_key.unwrap(),
         },
         signatory: Signatory::Yubikey(YubikeySigner {
-            yk: sshcerts::yubikey::Yubikey::new().unwrap(),
+            yk: sshcerts::yubikey::Yubikey::open(yubikey_serial).unwrap(),
             slot: sshcerts::yubikey::SlotId::try_from(slot).unwrap(),
         }),
         identities: HashMap::new(),
