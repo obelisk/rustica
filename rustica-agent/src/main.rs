@@ -466,6 +466,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stale_at,
         certificate_options,
         identities: HashMap::new(),
+        notification_function: None,
     };
 
     let socket = UnixListener::bind(socket_path)?;

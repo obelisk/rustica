@@ -74,7 +74,6 @@ pub enum Signatory {
     Direct(PrivateKey),
 }
 
-#[derive(Debug)]
 pub struct Handler {
     pub server: RusticaServer,
     pub cert: Option<Identity>,
@@ -82,6 +81,16 @@ pub struct Handler {
     pub stale_at: u64,
     pub certificate_options: CertificateConfig,
     pub identities: HashMap<Vec<u8>, PrivateKey>,
+    pub notification_function: Option<Box<dyn Fn() -> () + Send + Sync>>,
+}
+
+impl std::fmt::Debug for Handler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Handler")
+         .field("server", &self.server)
+         .field("cert", &self.cert)
+         .finish()
+    }
 }
 
 
@@ -131,6 +140,9 @@ impl SshAgentHandler for Handler {
                 return Ok(Response::Identities(vec![cert.clone()]));
             }
         }
+        if let Some(f) = &self.notification_function {
+            f()
+        }
 
         // Grab a new certificate from the server because we don't have a valid one
         match self.server.get_custom_certificate(&mut self.signatory, &self.certificate_options) {
@@ -164,6 +176,12 @@ impl SshAgentHandler for Handler {
         } else if let Signatory::Direct(privkey) = &mut self.signatory {
             Some(privkey.clone().into())
         } else if let Signatory::Yubikey(signer) = &mut self.signatory {
+            // If using long lived certificates you might need to tap again here because you didn't have to
+            // to get the certificate the first time
+            if let Some(f) = &self.notification_function {
+                f()
+            }
+
             let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).unwrap();
                 // TODO: @obelisk Why is this magic value here
                 let signature = (&signature[27..]).to_vec();
@@ -359,11 +377,15 @@ pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, subject: *const
     }
 }
 
-
 /// Start a new Rustica instance. Does not return unless Rustica exits.
 #[no_mangle]
-pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_file: *const c_char, socket_path: *const c_char) -> bool {
+pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_file: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
     println!("Starting a new Rustica instance!");
+
+    let notification_f = move || {
+        unsafe { notification_fn(); }
+    };
+
     let cf = unsafe { CStr::from_ptr(config_file) };
     let config_file = match cf.to_str() {
         Err(_) => return false,
@@ -396,6 +418,7 @@ pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_
             slot: sshcerts::yubikey::SlotId::try_from(slot).unwrap(),
         }),
         identities: HashMap::new(),
+        notification_function: Some(Box::new(notification_f)),
     };
 
     println!("Slot: {:?}", sshcerts::yubikey::SlotId::try_from(slot));
