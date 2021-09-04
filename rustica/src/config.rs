@@ -56,6 +56,7 @@ pub struct RusticaSettings {
 
 #[derive(Debug)]
 pub enum ConfigurationError {
+    FileError,
     ParsingError,
     SlotParsingError,
     KeysConfigurationError,
@@ -68,6 +69,12 @@ pub enum ConfigurationError {
 impl From<sshcerts::error::Error> for ConfigurationError {
     fn from(_: sshcerts::error::Error) -> ConfigurationError {
         ConfigurationError::SSHKeyError
+    }
+}
+
+impl From<sshcerts::yubikey::Error> for ConfigurationError {
+    fn from(_: sshcerts::yubikey::Error) -> ConfigurationError {
+        ConfigurationError::YubikeyError
     }
 }
 
@@ -119,38 +126,37 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
             .takes_value(true),
     ).get_matches();
 
-    let config = tokio::fs::read(matches.value_of("config").unwrap()).await.unwrap();
+    // Read the configuration file
+    let config = match tokio::fs::read(matches.value_of("config").unwrap()).await {
+        Ok(config) => config,
+        Err(_) => return Err(ConfigurationError::FileError),
+    };
+
+    // Parse the TOML into our configuration structures
     let config: Configuration = match toml::from_slice(&config) {
         Ok(config) => config,
         Err(_) => return Err(ConfigurationError::ParsingError),
     };
 
-    let (user_ca_cert, user_signer, host_ca_cert, host_signer) = match (config.key_type.as_str(), config.user_key, config.host_key) {
-        ("yubikey", uk, hk) => {
-            let us = slot_parser(&uk)?;
-            let hs = slot_parser(&hk)?;
-            let mut yk = Yubikey::new().unwrap();
-            
-            let user_ca_cert = yk.ssh_cert_fetch_pubkey(&us);
-            let host_ca_cert = yk.ssh_cert_fetch_pubkey(&hs);
+    // Verify that if using a yubikey the slots are provisioned or if file
+    // file based keys, the keys are valid.
+    let (user_ca_cert, user_signer, host_ca_cert, host_signer) = match config.key_type.as_str() {
+        "yubikey" => {
+            let us = slot_parser(&config.user_key)?;
+            let hs = slot_parser(&config.host_key)?;
+            let mut yk = Yubikey::new()?;
             let yubikey_mutex = Arc::new(Mutex::new(0));
 
-            match (user_ca_cert, host_ca_cert) {
-                (Ok(ucc), Ok(hcc)) => (
-                    ucc,
-                    create_signer(us, yubikey_mutex.clone()),
-                    hcc,
-                    create_signer(hs, yubikey_mutex)
-                ),
-                _ => {
-                    error!("Could not fetch CA public keys from YubiKey. Is it connected/configured?");
-                    return Err(ConfigurationError::YubikeyError);
-                }
-            }
+            (
+                yk.ssh_cert_fetch_pubkey(&us)?,
+                create_signer(us, yubikey_mutex.clone()),
+                yk.ssh_cert_fetch_pubkey(&hs)?,
+                create_signer(hs, yubikey_mutex)
+            )
         },
-        ("file", uk, hk) => {
-            let userkey = sshcerts::ssh::PrivateKey::from_string(&uk)?;
-            let hostkey = sshcerts::ssh::PrivateKey::from_string(&hk)?;
+        "file" => {
+            let userkey = sshcerts::ssh::PrivateKey::from_string(&config.user_key)?;
+            let hostkey = sshcerts::ssh::PrivateKey::from_string(&config.host_key)?;
             (userkey.pubkey.clone(), userkey.into(), hostkey.pubkey.clone(), hostkey.into())
         },
         _ => {
@@ -159,7 +165,6 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         },
     };
 
-    
     let address = match config.listen_address.parse() {
         Ok(addr) => addr,
         Err(_) => return Err(ConfigurationError::InvalidListenAddress)
