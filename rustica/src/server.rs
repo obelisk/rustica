@@ -34,7 +34,6 @@ use x509_parser::prelude::*;
 use x509_parser::der_parser::oid;
 
 
-
 pub struct RusticaServer {
     pub influx_client: Option<Client>,
     pub hmac_key: hmac::Key,
@@ -93,20 +92,17 @@ fn extract_certificate_identities(peer_certs: &Arc<Vec<TonicCertificate>>) -> Re
 fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertificate>>, challenge: &Challenge) -> Result<(SSHPublicKey, Vec<String>), RusticaServerError> {
     let mtls_identities = extract_certificate_identities(peer_certs)?;
 
-    // If something happens with the timestamp, we go with worst case scenario:
-    // Client timestamp issues - Assume it was sent at time 0
-    // Host timestamp issues   - Assume it's about 292 billion years from now
-    let client_timestamp = &challenge.challenge_time.parse::<u64>().unwrap_or(0);
-    let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(ts) => ts.as_secs(),
-        Err(_e) => 0xFFFFFFFFFFFFFFFF,
+    // Get request time, and current time. Any issue causes request to fail
+    let (request_time, time) = match (challenge.challenge_time.parse::<u64>(), SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)) {
+        (Ok(rt), Ok(time)) => (rt, time.as_secs()),
+        _ => return Err(RusticaServerError::Unknown)
     };
 
-    if (current_timestamp - client_timestamp) > 5 {
+    if (time - request_time) > 5 {
         return Err(RusticaServerError::TimeExpired);
     }
 
-    let hmac_verification = format!("{}-{}", client_timestamp, challenge.pubkey);
+    let hmac_verification = format!("{}-{}", request_time, challenge.pubkey);
     let decoded_challenge = match hex::decode(&challenge.challenge) {
         Ok(dc) => dc,
         Err(_) => return Err(RusticaServerError::BadChallenge),
@@ -138,8 +134,7 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
             )
         },
         SSHPublicKeyKind::Ed25519(key) => {
-            let alg = &ED25519;
-            let peer_public_key = UnparsedPublicKey::new(alg, &key.key);
+            let peer_public_key = UnparsedPublicKey::new(&ED25519, &key.key);
             peer_public_key.verify(
                 &hex::decode(&challenge.challenge).unwrap(),
                 &hex::decode(&challenge.challenge_signature).unwrap()
@@ -159,6 +154,8 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
 impl Rustica for RusticaServer {
     /// Handler when a host is going to make a further request to Rustica
     async fn challenge(&self, request: Request<ChallengeRequest>) -> Result<Response<ChallengeResponse>, Status> {
+        // These unwraps should be fine because Tonic has already handled
+        // the connection mTLS.
         let remote_addr = request.remote_addr().unwrap();
         let peer = request.peer_certs().unwrap();
         let request = request.into_inner();
@@ -167,7 +164,12 @@ impl Rustica for RusticaServer {
             Err(_) => return Err(Status::permission_denied("")),
         };
 
-        debug!("[{}] from [{}] wants to authenticate with key [{}]", mtls_identities.join(","), remote_addr, request.pubkey);
+        let ssh_pubkey = match SSHPublicKey::from_string(&request.pubkey) {
+            Ok(sshpk) => sshpk,
+            Err(_) => return Err(Status::permission_denied("")),
+        };
+
+        info!("[{}] from [{}] wants to authenticate with key [{}]", mtls_identities.join(","), remote_addr, ssh_pubkey.fingerprint().hash);
 
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -188,7 +190,6 @@ impl Rustica for RusticaServer {
 
     /// Handler used when a host requests a new certificate from Rustica
     async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
-        debug!("Received certificate request: {:?}", request);
         let remote_addr = request.remote_addr().unwrap();
         let peer = request.peer_certs();
         let request = request.into_inner();
@@ -222,7 +223,6 @@ impl Rustica for RusticaServer {
         };
 
         let fingerprint = ssh_pubkey.fingerprint().hash;
-
         let auth_props = AuthorizationRequestProperties {
             fingerprint: fingerprint.clone(),
             mtls_identities: mtls_identities.clone(),
@@ -234,17 +234,19 @@ impl Rustica for RusticaServer {
             valid_before: request.valid_before,
         };
 
+        info!("[{}] from [{}] requests a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
+
         let authorization = match &self.authorizer {
             AuthMechanism::Local(local) => local.authorize(&auth_props),
             AuthMechanism::External(external) => external.authorize(&auth_props).await,
         };
 
         let authorization = match authorization {
-            Err(e) => return Ok(create_response(e)),
             Ok(auth) => auth,
+            Err(e) => return Ok(create_response(e)),
         };
-
-        debug!("Authorization: {:?}", authorization);
+        info!("[{}] from [{}] is granted a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
+        debug!("[{}] from [{}] is granted the following authorization on key [{}]: {:?}", mtls_identities.join(","), remote_addr, fingerprint, authorization);
 
         let critical_options = match build_login_script(&authorization.hosts, &authorization.force_command) {
             Ok(cmd) => {

@@ -31,10 +31,6 @@ The following key types have file support:
 - ECDSA 256
 - ECDSA 384
 - Ed25519
-- RSA 2048
-- RSA 3072
-- RSA 4096
-- RSA 8192
 
 The following key types have no support:
 - ECDSA 521
@@ -52,15 +48,11 @@ This will create a authorization database and is specified to Rustica via enviro
 > If you have issues running diesel you may need to install it with:
 > `cargo install diesel_cli --no-default-features --features sqlite`
 
+Create a configuration based on `resources/rustica_example_local.toml` that contains the keys you generated with `create_certs.sh`.
+
 Run Rustica (from the root the repository):
 ```
-DATABASE_URL=rustica/rustica.db cargo run --bin rustica -- \
-    --servercert resources/rusticaserver.pem \
-    --serverkey resources/rusticaserver.key \
-    --clientcacert resources/client_ca.pem \
-    --keytype file \
-    --userkey resources/user_ssh_ca \
-    --hostkey resources/host_ssh_ca
+cargo run --bin rustica -- --config /path/to/your/config
 ```
 
 Finally run rustica-agent:
