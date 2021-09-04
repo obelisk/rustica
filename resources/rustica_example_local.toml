@@ -1,0 +1,72 @@
+# The certificate presented to connecting clients
+server_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBpzCCAU6gAwIBAgIJAJF2kO8NwSW3MAoGCCqGSM49BAMCMBsxGTAXBgNVBAMM
+EEVudGVycHJpc2VSb290Q0EwHhcNMjEwNDEyMjEyMjE4WhcNMjMwNzE2MjEyMjE4
+WjAxMRAwDgYDVQQDDAdydXN0aWNhMRAwDgYDVQQKDAdSdXN0aWNhMQswCQYDVQQG
+EwJDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABGngHyVY4Yzek6R/JIHkD8qg
+DOSWrKkhXtMepIlrzHqDRSmjunmE44Bno54BgGnHIQDO7fqlmowJIl3SfOp7Wgyj
+ZTBjMDUGA1UdIwQuMCyhH6QdMBsxGTAXBgNVBAMMEEVudGVycHJpc2VSb290Q0GC
+CQDN4Hg/7+T34TAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DASBgNVHREECzAJggdy
+dXN0aWNhMAoGCCqGSM49BAMCA0cAMEQCIHjV22nizedDJ77FP0GlHiacMEfmotQ+
+LM6YsKLIRTFSAiBlvbXWWimlsIR4mawWf+wM4MU7hGaLFElYl1VfQ0qUOQ==
+-----END CERTIFICATE-----
+'''
+
+# The key for the certificate presented to clients
+server_key = '''
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgOYXRfJjChRm9btDb
+FOZtuOdvToo6+J61DJVgkRFF4B+hRANCAARp4B8lWOGM3pOkfySB5A/KoAzklqyp
+IV7THqSJa8x6g0Upo7p5hOOAZ6OeAYBpxyEAzu36pZqMCSJd0nzqe1oM
+-----END PRIVATE KEY-----
+'''
+
+# The CA certificate clients must have their identities signed by
+client_ca_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBMTCB2AIJAIkEaaUJkN78MAoGCCqGSM49BAMCMCExHzAdBgNVBAMMFkVudGVy
+cHJpc2VDbGllbnRSb290Q0EwHhcNMjEwNDEyMjEyMjE4WhcNMzEwNDEwMjEyMjE4
+WjAhMR8wHQYDVQQDDBZFbnRlcnByaXNlQ2xpZW50Um9vdENBMFkwEwYHKoZIzj0C
+AQYIKoZIzj0DAQcDQgAElgI+EgbZDkww/eBt81fIhjHuAeNtmCSLEagMGu+iGdMv
+cpgHHoby8E378E9CuC18zfOO1Rea6yb1NYNvtcr01DAKBggqhkjOPQQDAgNIADBF
+AiEAzAwoyVpD+tTJXIpt5Q9WvO2gmPP18PhXyoD2i1rVoNECIC7FDP+P4xsBwyHE
+sxjq3O+xd6CIl7kqr9bYBrMgaeLr
+-----END CERTIFICATE-----
+'''
+
+# The type of key used for the SSHCA. This can be either "file" or "yubikey".
+key_type = "file"
+
+# The key that will be used to sign certificates given to user clients. This 
+# will either be an SSH private key or a Yubikey slot between 1 and 20 
+# inclusive in the form of R##: R1, R10, R20
+user_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAqzwnnUgZ4YjManxdiSf4QmTqmmKHHgRMUrN0cmPsAAQAAAJg74TczO+E3
+MwAAAAtzc2gtZWQyNTUxOQAAACAqzwnnUgZ4YjManxdiSf4QmTqmmKHHgRMUrN0cmPsAAQ
+AAAEABMDiIkR8GZ6l14ekQYXiMM217FWIZsFPkjE5PX6nsqCrPCedSBnhiMxqfF2JJ/hCZ
+OqaYoceBExSs3RyY+wABAAAAFW9iZWxpc2tARXhjbGF2ZS5sb2NhbA==
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+# The key that will be used to sign certificates given to host clients. This 
+# will either be an SSH private key or a Yubikey slot between 1 and 20 
+# inclusive in the form of R##: R1, R10, R20
+host_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACDpG20gEffvyhcPu5mIrYzaBJaVnDjirt5XVy02yRoB5AAAAJgb+7hGG/u4
+RgAAAAtzc2gtZWQyNTUxOQAAACDpG20gEffvyhcPu5mIrYzaBJaVnDjirt5XVy02yRoB5A
+AAAECSzttRabKMWnLySxYTHPA3Ulqdx3m+00Hpl7OJ/dcrQOkbbSAR9+/KFw+7mYitjNoE
+lpWcOOKu3ldXLTbJGgHkAAAAFW9iZWxpc2tARXhjbGF2ZS5sb2NhbA==
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+# This is the listen address that will be used for the Rustica service
+listen_address = "0.0.0.0:50052"
+
+[authorization]
+[authorization."database"]
+path = "/etc/rustica/database.db"
