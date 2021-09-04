@@ -3,8 +3,9 @@ pub mod models;
 
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use dotenv::dotenv;
-use std::env;
+
+use serde_derive::Deserialize;
+
 use std::time::SystemTime;
 use super::{
     Authorization,
@@ -15,15 +16,14 @@ use super::{
 
 use sshcerts::ssh::{CertType, Extensions};
 
-pub struct LocalDatabase {}
+#[derive(Deserialize)]
+pub struct LocalDatabase {
+    pub path: String,
+}
 
-fn establish_connection() -> SqliteConnection {
-    dotenv().ok();
-
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
-        SqliteConnection::establish(&database_url)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+fn establish_connection(path: &str) -> SqliteConnection {
+        SqliteConnection::establish(path)
+        .unwrap_or_else(|_| panic!("Error connecting to {}", path))
 }
 
 impl LocalDatabase {
@@ -36,7 +36,7 @@ impl LocalDatabase {
             Err(_e) => 0xEFFFFFFFFFFFFFFF,
         };
 
-        let conn = establish_connection();
+        let conn = establish_connection(&self.path);
         let principals = {
             use schema::fingerprint_principal_authorizations::dsl::*;
             let results = fingerprint_principal_authorizations.filter(fingerprint.eq(fp))
@@ -95,7 +95,7 @@ impl LocalDatabase {
     }
     
     pub fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<bool, ()> {
-        let connection = establish_connection();
+        let connection = establish_connection(&self.path);
         let mut registered_key = models::RegisteredKey {
             fingerprint: req.fingerprint.clone(),
             user: req.mtls_identities.join(","),

@@ -3,6 +3,7 @@ use author::{AuthorizeRequest, AddIdentityDataRequest};
 
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
+use serde_derive::Deserialize;
 use sshcerts::ssh::Extensions;
 use super::{
     Authorization,
@@ -16,12 +17,13 @@ pub mod author {
     tonic::include_proto!("author");
 }
 
+#[derive(Deserialize)]
 pub struct AuthServer {
     pub server: String,
     pub port: String,
-    pub ca: Vec<u8>,
-    pub mtls_cert: Vec<u8>,
-    pub mtls_key: Vec<u8>,
+    pub ca: String,
+    pub mtls_cert: String,
+    pub mtls_key: String,
 }
 
 impl AuthServer {
@@ -124,10 +126,10 @@ impl AuthServer {
             identity_data,
         });
 
-        let client_identity = Identity::from_pem(&self.mtls_cert, &self.mtls_key);
+        let client_identity = Identity::from_pem(self.mtls_cert.as_bytes(), &self.mtls_key.as_bytes());
         let tls = ClientTlsConfig::new()
             .domain_name(&self.server)
-            .ca_certificate(Certificate::from_pem(&self.ca))
+            .ca_certificate(Certificate::from_pem(self.ca.as_bytes()))
             .identity(client_identity);
 
         let channel = match Channel::from_shared(format!("https://{}:{}", &self.server, &self.port)) {

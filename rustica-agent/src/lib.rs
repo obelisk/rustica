@@ -308,7 +308,7 @@ pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
 
 /// Generate and enroll a new key on the given yubikey in the given slot
 #[no_mangle]
-pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, subject: *const c_char, config_file: *const c_char, pin: *const c_char, management_key: *const c_char) -> bool {
+pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_security: bool, subject: *const c_char, config_file: *const c_char, pin: *const c_char, management_key: *const c_char) -> bool {
     println!("Generating and enrolling a new key!");
     let cf = unsafe { CStr::from_ptr(config_file) };
     let config_file = match cf.to_str() {
@@ -332,7 +332,8 @@ pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, subject: *const
 
     let alg = AlgorithmId::EccP384;
     let slot = sshcerts::yubikey::SlotId::try_from(slot).unwrap();
-    let policy = TouchPolicy::Cached;
+
+    let policy = if high_security {TouchPolicy::Always} else {TouchPolicy::Cached};
     let mut yk = sshcerts::yubikey::Yubikey::open(yubikey_serial).unwrap();
 
     if yk.unlock(pin.to_str().unwrap().as_bytes(), &management_key).is_err() {
