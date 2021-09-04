@@ -1,4 +1,5 @@
 use crate::auth::{AuthMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties};
+use crate::error::RusticaServerError;
 use crate::rustica::{
     CertificateRequest,
     CertificateResponse,
@@ -11,11 +12,6 @@ use crate::rustica::{
 };
 use crate::utils::build_login_script;
 use crate::yubikey::verify_certificate_chain;
-
-use x509_parser::prelude::*;
-use x509_parser::der_parser::oid;
-
-use crate::error::RusticaServerError;
 
 use influx_db_client::{
     Client, Point, Points, Precision, points
@@ -33,6 +29,10 @@ use std::{
 };
 use tonic::{Request, Response, Status};
 use tonic::transport::{Certificate as TonicCertificate};
+
+use x509_parser::prelude::*;
+use x509_parser::der_parser::oid;
+
 
 
 pub struct RusticaServer {
