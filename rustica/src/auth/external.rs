@@ -75,12 +75,13 @@ impl AuthServer {
 
         let approval_response = response.unwrap().into_inner().approval_response;
 
-        let extensions = if !approval_response.contains_key("extensions") {
-            Extensions::Standard
-        } else {
-            let requested_extensions = approval_response["extensions"].split(',').map(|x| (String::from(x), String::new())).collect();
-            Extensions::Custom(requested_extensions)
-        };
+        let extension_keys: Vec<&String> = approval_response.keys().into_iter().filter(|x| x.starts_with("extension.")).collect();
+
+        let mut extensions = HashMap::new();
+        for extension in extension_keys.into_iter() {
+            extensions.insert(extension[10..].to_string(), approval_response[extension].clone());
+        }
+        let extensions = Extensions::Custom(extensions);
 
         let force_command = if approval_response.contains_key("force_command") {
             Some(approval_response["force_command"].clone())
