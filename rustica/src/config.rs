@@ -43,6 +43,7 @@ pub struct Configuration {
     pub host_key: String,
     pub listen_address: String,
     pub authorization: Authorization,
+    pub require_rustica_proof: bool,
     pub influx: Option<InfluxDBConfiguration>,
 }
 
@@ -192,6 +193,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         host_ca_cert,
         user_ca_signer: user_signer,
         host_ca_signer: host_signer,
+        require_rustica_proof: config.require_rustica_proof,
     };
     
     Ok(RusticaSettings {

@@ -64,6 +64,18 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
     let response = response.into_inner();
     let decoded_challenge = hex::decode(&response.challenge)?;
 
+    if response.no_signature_required {
+        debug!("This server does not require signatures be sent to Rustica, not signing the challenge");
+        return Ok((
+            client,
+            Challenge {
+                pubkey: encoded_key.to_string(),
+                challenge_time: response.time,
+                challenge: response.challenge,
+                challenge_signature: String::new(),
+        }))
+    }
+
     let challenge_signature = match signatory {
         Signatory::Yubikey(signer) => {
             let alg = match signer.yk.get_ssh_key_type(&signer.slot){

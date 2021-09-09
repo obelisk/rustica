@@ -8,6 +8,11 @@ message ChallengeRequest {
 message ChallengeResponse {
     string time = 1;
     string challenge = 2;
+    // We have to use the inverse of what we would normally because the default
+    // value for a bool in Tonic is false. If we don't do this, it won't be
+    // backwards compatible (a new client will see the lack of this field
+    // as not requiring a signature).
+    bool no_signature_required = 3;
 }
 
 message Challenge {
