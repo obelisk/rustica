@@ -115,17 +115,17 @@ fn create_signer(slot: SlotId, mutex: Arc<Mutex<u32>>) -> Box<dyn Fn(&[u8]) -> O
 
 pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let matches = App::new("Rustica")
-    .version(env!("CARGO_PKG_VERSION"))
-    .author("Mitchell Grenier <mitchell@confurious.io>")
-    .about("Rustica is a Yubikey backed SSHCA")
-    .arg(
-        Arg::new("config")
-            .about("Path to Rustica configuration toml file")
-            .long("config")
-            .required(true)
-            .default_value("/etc/rustica/rustica.toml")
-            .takes_value(true),
-    ).get_matches();
+        .version(env!("CARGO_PKG_VERSION"))
+        .author("Mitchell Grenier <mitchell@confurious.io>")
+        .about("Rustica is a Yubikey backed SSHCA")
+        .arg(
+            Arg::new("config")
+                .about("Path to Rustica configuration toml file")
+                .long("config")
+                .required(true)
+                .default_value("/etc/rustica/rustica.toml")
+                .takes_value(true),
+        ).get_matches();
 
     // Read the configuration file
     let config = match tokio::fs::read(matches.value_of("config").unwrap()).await {
