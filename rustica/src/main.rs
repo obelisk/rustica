@@ -9,11 +9,13 @@ mod config;
 mod error;
 mod key;
 mod server;
+mod signing;
 mod utils;
 mod yubikey;
 
 use auth::AuthMechanism;
 use rustica::rustica_server::{RusticaServer as GRPCRusticaServer};
+use sshcerts::ssh::CertType;
 use tonic::transport::{Certificate as TonicCertificate, Identity, Server, ServerTlsConfig};
 
 pub mod rustica {
@@ -27,12 +29,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = Identity::from_pem(settings.server_cert, settings.server_key);
     let client_ca_cert = TonicCertificate::from_pem(settings.client_ca_cert);
 
-    println!("Starting Rustica on: {}", settings.address);
-    info!("User CA Pubkey: {}", &settings.server.user_ca_cert);
-    println!("User CA Fingerprint (SHA256): {}", settings.server.user_ca_cert.fingerprint().hash);
+    let (user_ca_cert, host_ca_cert) = match (settings.server.signer.get_signer_public_key(CertType::User), settings.server.signer.get_signer_public_key(CertType::Host)) {
+        (Ok(ucc), Ok(hcc)) => (ucc, hcc),
+        (Err(e), _) => {
+            error!("Could not fetch public key for user certificate signing: {:?}", e);
+            // Make this error
+            return Ok(());
+        },
+        (_, Err(e)) => {
+            error!("Could not fetch public key for host certificate signing: {:?}", e);
+            // Make this error
+            return Ok(());
+        }
+    };
 
-    info!("Host CA Pubkey: {}", &settings.server.host_ca_cert);
-    println!("Host CA Fingerprint (SHA256): {}", settings.server.host_ca_cert.fingerprint().hash);
+    println!("Starting Rustica on: {}", settings.address);
+    info!("User CA Pubkey: {}", &user_ca_cert);
+    println!("User CA Fingerprint (SHA256): {}", user_ca_cert.fingerprint().hash);
+
+    info!("Host CA Pubkey: {}", &host_ca_cert);
+    println!("Host CA Fingerprint (SHA256): {}", host_ca_cert.fingerprint().hash);
 
     match &settings.server.authorizer {
         AuthMechanism::Local(db) => println!("Authorization handled by local database at: {}", &db.path),
