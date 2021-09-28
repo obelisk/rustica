@@ -1,12 +1,13 @@
 use crate::auth::{AuthMechanism, AuthServer, LocalDatabase};
 use crate::server::RusticaServer;
+use crate::signing::{FileSigner, VaultSigner, SigningMechanism, YubikeySigner};
 
 use clap::{App, Arg};
 
 use influx_db_client::Client;
 
 use ring::{hmac, rand};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use sshcerts::yubikey::Yubikey;
 
 use std::convert::TryFrom;
@@ -34,15 +35,21 @@ pub struct Authorization {
 }
 
 #[derive(Deserialize)]
+pub struct Signing {
+    pub file: Option<FileSigner>,
+    pub vault: Option<VaultSigner>,
+    pub yubikey: Option<YubikeySigner>,
+}
+
+
+#[derive(Deserialize)]
 pub struct Configuration {
     pub server_cert: String,
     pub server_key: String,
     pub client_ca_cert: String,
-    pub key_type: String,
-    pub user_key: String,
-    pub host_key: String,
     pub listen_address: String,
     pub authorization: Authorization,
+    pub signing: Signing,
     pub require_rustica_proof: bool,
     pub influx: Option<InfluxDBConfiguration>,
 }
@@ -65,6 +72,7 @@ pub enum ConfigurationError {
     YubikeyError,
     InvalidListenAddress,
     AuthorizerError,
+    SigningMechanismError,
 }
 
 impl From<sshcerts::error::Error> for ConfigurationError {
@@ -95,24 +103,6 @@ fn slot_parser(slot: &str) -> Result<SlotId, ConfigurationError> {
     }
 }
 
-fn create_signer(slot: SlotId, mutex: Arc<Mutex<u32>>) -> Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync> {
-    Box::new(move |buf: &[u8]| {
-        match mutex.lock() {
-            Ok(_) => {
-                let mut yk = Yubikey::new().unwrap();
-                match yk.ssh_cert_signer(buf, &slot) {
-                    Ok(sig) => Some(sig),
-                    Err(_) => None,
-                }
-            },
-            Err(e) => {
-                error!("Error in acquiring mutex for yubikey signing: {}", e);
-                None
-            }
-        }
-    })
-}
-
 pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let matches = App::new("Rustica")
         .version(env!("CARGO_PKG_VERSION"))
@@ -139,33 +129,6 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         Err(_) => return Err(ConfigurationError::ParsingError),
     };
 
-    // Verify that if using a yubikey the slots are provisioned or if file
-    // file based keys, the keys are valid.
-    let (user_ca_cert, user_signer, host_ca_cert, host_signer) = match config.key_type.as_str() {
-        "yubikey" => {
-            let us = slot_parser(&config.user_key)?;
-            let hs = slot_parser(&config.host_key)?;
-            let mut yk = Yubikey::new()?;
-            let yubikey_mutex = Arc::new(Mutex::new(0));
-
-            (
-                yk.ssh_cert_fetch_pubkey(&us)?,
-                create_signer(us, yubikey_mutex.clone()),
-                yk.ssh_cert_fetch_pubkey(&hs)?,
-                create_signer(hs, yubikey_mutex)
-            )
-        },
-        "file" => {
-            let userkey = sshcerts::ssh::PrivateKey::from_string(&config.user_key)?;
-            let hostkey = sshcerts::ssh::PrivateKey::from_string(&config.host_key)?;
-            (userkey.pubkey.clone(), userkey.into(), hostkey.pubkey.clone(), hostkey.into())
-        },
-        _ => {
-            error!("The key type must be one of: [file, yubikey]. Both a user and host key must be provided");
-            return Err(ConfigurationError::KeysConfigurationError);
-        },
-    };
-
     let address = match config.listen_address.parse() {
         Ok(addr) => addr,
         Err(_) => return Err(ConfigurationError::InvalidListenAddress)
@@ -182,6 +145,13 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         _ => return Err(ConfigurationError::AuthorizerError),
     };
 
+    let signer = match (config.signing.file, config.signing.vault, config.signing.yubikey) {
+        (Some(file), None, None) => SigningMechanism::File(file),
+        (None, Some(vault), None) => SigningMechanism::Vault(vault),
+        (None, None, Some(yubikey)) => SigningMechanism::Yubikey(yubikey),
+        _ => return Err(ConfigurationError::SigningMechanismError),
+    };
+
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
     
@@ -189,10 +159,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         influx_client,
         hmac_key,
         authorizer,
-        user_ca_cert,
-        host_ca_cert,
-        user_ca_signer: user_signer,
-        host_ca_signer: host_signer,
+        signer,
         require_rustica_proof: config.require_rustica_proof,
     };
     

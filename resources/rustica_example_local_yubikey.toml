@@ -1,0 +1,60 @@
+# The certificate presented to connecting clients
+server_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBqzCCAVCgAwIBAgIJAIDetXKVHvT9MAoGCCqGSM49BAMCMBsxGTAXBgNVBAMM
+EEVudGVycHJpc2VSb290Q0EwHhcNMjEwOTA5MTg0ODA1WhcNMjMxMjEzMTg0ODA1
+WjAxMRAwDgYDVQQDDAdydXN0aWNhMRAwDgYDVQQKDAdSdXN0aWNhMQswCQYDVQQG
+EwJDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABA4FXg6srQVPFUNRt8O2xJU/
+lOr8sFeTfMfiXk7TS+rdEI0gk7dxtQsrNSwh+3e5UjjJEQkKbkdkhZHuHUvhS1Wj
+ZzBlMDUGA1UdIwQuMCyhH6QdMBsxGTAXBgNVBAMMEEVudGVycHJpc2VSb290Q0GC
+CQDdGlaBb9C6TDAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DAUBgNVHREEDTALggls
+b2NhbGhvc3QwCgYIKoZIzj0EAwIDSQAwRgIhAP0YNQmo8G/LlW6lozn+JmcfT9z9
+cNI4mA6YUI2cWtOPAiEArV3Cnypaq8JBP/GCelXiojGEZHgWLaF4ZsCy+ssQjrs=
+-----END CERTIFICATE-----
+'''
+
+# The key for the certificate presented to clients
+server_key = '''
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgv4HTe9TP3vBptisr
+NEO26q5/71dv21JSpSFpwVGtQ3WhRANCAAQOBV4OrK0FTxVDUbfDtsSVP5Tq/LBX
+k3zH4l5O00vq3RCNIJO3cbULKzUsIft3uVI4yREJCm5HZIWR7h1L4UtV
+-----END PRIVATE KEY-----
+'''
+
+# The CA certificate clients must have their identities signed by
+client_ca_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBMjCB2AIJAPWVCGGAtuF3MAoGCCqGSM49BAMCMCExHzAdBgNVBAMMFkVudGVy
+cHJpc2VDbGllbnRSb290Q0EwHhcNMjEwOTA5MTg0ODA1WhcNMzEwOTA3MTg0ODA1
+WjAhMR8wHQYDVQQDDBZFbnRlcnByaXNlQ2xpZW50Um9vdENBMFkwEwYHKoZIzj0C
+AQYIKoZIzj0DAQcDQgAEmGjwIaBON7DIrm/tSTTp96WXiovAWoUYwtziWQmqntMr
+GVjQMx5DyGre2cCbMDz2AyJrEDX1ReX+mFODaP+IdTAKBggqhkjOPQQDAgNJADBG
+AiEApHx6eH8yM+PrH87C/KahHCgcInFyLHvO0vVd8+sKUtICIQD8w6LSUcigT0C6
+woKz1ehFp3cKUtt2UEySnvbL/WxDSQ==
+-----END CERTIFICATE-----
+'''
+
+# This is the listen address that will be used for the Rustica service
+listen_address = "0.0.0.0:50052"
+
+# This setting controls if the agent has to prove that it
+# controls the private key to Rustica. Setting this to true means a user needs
+# to generate two signatures (one to Rustica, and one to the host). The
+# advantage of using this, is a compromised host cannot get certificates
+# from the server without physical interaction.
+#
+# A client will always need to sign the challenge from the host they
+# are attempting to connect to however so a physical tap will always
+# be required.
+require_rustica_proof = false
+
+
+[signing]
+[signing."yubikey"]
+user_slot = "R2"
+host_slot = "R3"
+
+[authorization]
+[authorization."database"]
+path = "/tmp/rustica.db"
