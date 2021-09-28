@@ -8,15 +8,6 @@ use influx_db_client::Client;
 
 use ring::{hmac, rand};
 use serde::Deserialize;
-use sshcerts::yubikey::Yubikey;
-
-use std::convert::TryFrom;
-// It is my understanding that it is fine to use a standard Mutex here
-// instead of a tokio Mutex because we are not holding the lock across an
-// await boundary.
-use std::sync::{Arc, Mutex};
-
-use yubikey_piv::key::SlotId;
 
 use std::net::SocketAddr;
 
@@ -66,8 +57,6 @@ pub struct RusticaSettings {
 pub enum ConfigurationError {
     FileError,
     ParsingError,
-    SlotParsingError,
-    KeysConfigurationError,
     SSHKeyError,
     YubikeyError,
     InvalidListenAddress,
@@ -84,22 +73,6 @@ impl From<sshcerts::error::Error> for ConfigurationError {
 impl From<sshcerts::yubikey::Error> for ConfigurationError {
     fn from(_: sshcerts::yubikey::Error) -> ConfigurationError {
         ConfigurationError::YubikeyError
-    }
-}
-
-fn slot_parser(slot: &str) -> Result<SlotId, ConfigurationError> {
-    // If first character is R, then we need to parse the nice
-    // notation
-    if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
-        let slot_value = slot[1..].parse::<u8>();
-        match slot_value {
-            Ok(v) if v <= 20 => Ok(SlotId::try_from(0x81_u8 + v).unwrap()),
-            _ => Err(ConfigurationError::SlotParsingError),
-        }
-    } else if let Ok(s) = SlotId::try_from(slot.to_owned()) {
-        Ok(s)
-    } else {
-        Err(ConfigurationError::SlotParsingError)
     }
 }
 

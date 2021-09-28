@@ -1,7 +1,7 @@
-use sshcerts::{Certificate, PublicKey, PrivateKey, ssh::CertType, ssh::SigningFunction};
+use sshcerts::{PublicKey, PrivateKey, ssh::CertType, ssh::SigningFunction};
 use serde::Deserialize;
 
-use super::{FileSigner, SigningError};
+use super::FileSigner;
 
 impl FileSigner {
     pub fn get_signer(&self, cert_type: CertType) -> SigningFunction {

@@ -2,7 +2,6 @@ use sshcerts::ssh::{CertType, PublicKey, PrivateKey, SigningFunction};
 use sshcerts::yubikey::{SlotId, Yubikey};
 use std::sync::{Arc, Mutex};
 use serde::Deserialize;
-use std::convert::TryFrom;
 
 mod file;
 mod yubikey;
@@ -39,14 +38,13 @@ pub enum SigningMechanism {
 #[derive(Debug)]
 pub enum SigningError {
     AccessError(String),
-    UnknownSigningError(String),
 }
 
 impl SigningMechanism {
     pub fn get_signer(&self, cert_type: CertType) -> SigningFunction {
         match self {
             SigningMechanism::File(file) => file.get_signer(cert_type),
-            SigningMechanism::Vault(vault) => panic!("Unimplemented"),
+            SigningMechanism::Vault(_vault) => panic!("Unimplemented"),
             SigningMechanism::Yubikey(yubikey) => yubikey.get_signer(cert_type),
         }
     }
@@ -54,7 +52,7 @@ impl SigningMechanism {
     pub fn get_signer_public_key(&self, cert_type: CertType) -> Result<PublicKey, SigningError> {
         match self {
             SigningMechanism::File(file) => Ok(file.get_signer_public_key(cert_type)),
-            SigningMechanism::Vault(vault) => panic!("Unimplemented"),
+            SigningMechanism::Vault(_vault) => panic!("Unimplemented"),
             SigningMechanism::Yubikey(yubikey) => yubikey.get_signer_public_key(cert_type),
         }
     }

@@ -49,12 +49,12 @@ impl YubikeySigner {
             // everything will have to be mutable which causes an issue
             // for the RusticaServer struct
             Ok(_) => Yubikey::new().unwrap().ssh_cert_fetch_pubkey(&slot),
-            Err(e) => return Err(SigningError::AccessError(format!("Could not lock Yubikey to fetch from slot: {:?}", slot))),
+            Err(e) => return Err(SigningError::AccessError(format!("Could not lock Yubikey to fetch from slot: {:?}. Error: {}", slot, e))),
         };
 
         match public_key {
             Ok(public_key) => Ok(public_key),
-            Err(e) => Err(SigningError::AccessError(format!("Could not fetch public key from slot: {:?}", slot)))
+            Err(e) => Err(SigningError::AccessError(format!("Could not fetch public key from slot: {:?}. Error: {}", slot, e)))
         }
     }
 
