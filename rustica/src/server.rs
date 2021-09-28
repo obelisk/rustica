@@ -42,6 +42,7 @@ pub struct RusticaServer {
     pub user_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
     pub host_ca_cert: SSHPublicKey,
     pub host_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
+    pub require_rustica_proof: bool,
 }
 
 
@@ -89,7 +90,7 @@ fn extract_certificate_identities(peer_certs: &Arc<Vec<TonicCertificate>>) -> Re
 /// - Validate Time is not expired
 /// - Validate Mac
 /// - Validate Signature
-fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertificate>>, challenge: &Challenge) -> Result<(SSHPublicKey, Vec<String>), RusticaServerError> {
+fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertificate>>, challenge: &Challenge, check_signature: bool) -> Result<(SSHPublicKey, Vec<String>), RusticaServerError> {
     let mtls_identities = extract_certificate_identities(peer_certs)?;
 
     // Get request time, and current time. Any issue causes request to fail
@@ -109,7 +110,8 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
     };
 
     if hmac::verify(hmac_key, hmac_verification.as_bytes(), &decoded_challenge).is_err() {
-       return Err(RusticaServerError::BadChallenge);
+        error!("Received a bad challenge from: {}", mtls_identities.join(","));
+        return Err(RusticaServerError::BadChallenge);
     }
 
     // Request integrity confirmed, continue parsing knowing it has
@@ -119,6 +121,10 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
         Ok(sshpk) => sshpk,
         Err(_) => return Err(RusticaServerError::InvalidKey),
     };
+
+    if !check_signature {
+        return Ok((ssh_pubkey, mtls_identities))
+    }
 
     let result = match &ssh_pubkey.kind {
         SSHPublicKeyKind::Ecdsa(key) => {
@@ -144,6 +150,7 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
     };
 
     if result.is_err() {
+        error!("Could not verify signature on challenge: {}", mtls_identities.join(","));
         return Err(RusticaServerError::BadChallenge)
     }
 
@@ -183,6 +190,7 @@ impl Rustica for RusticaServer {
         let reply = ChallengeResponse {
             time: timestamp,
             challenge: hex::encode(tag),
+            no_signature_required: !self.require_rustica_proof,
         };
 
         Ok(Response::new(reply))
@@ -199,7 +207,7 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadRequest)),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, &challenge) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, &challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Ok(create_response(e)),
         };
@@ -330,7 +338,7 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, &challenge) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, &challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };

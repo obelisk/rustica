@@ -75,12 +75,14 @@ impl AuthServer {
 
         let approval_response = response.unwrap().into_inner().approval_response;
 
-        let extensions = if !approval_response.contains_key("extensions") {
-            Extensions::Standard
-        } else {
-            let requested_extensions = approval_response["extensions"].split(',').map(|x| (String::from(x), String::new())).collect();
-            Extensions::Custom(requested_extensions)
-        };
+        // Find all extension keys, strip the "extension." prefix and create a new
+        // hashmap with the values
+        let extensions: HashMap<String, String> = approval_response.keys().into_iter()
+            .filter(|x| x.starts_with("extension."))
+            .map(|ext| (ext.strip_prefix("extension.").unwrap().to_string(), approval_response[ext].clone()))
+            .collect();
+
+        let extensions = Extensions::Custom(extensions);
 
         let force_command = if approval_response.contains_key("force_command") {
             Some(approval_response["force_command"].clone())

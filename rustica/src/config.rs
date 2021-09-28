@@ -43,6 +43,7 @@ pub struct Configuration {
     pub host_key: String,
     pub listen_address: String,
     pub authorization: Authorization,
+    pub require_rustica_proof: bool,
     pub influx: Option<InfluxDBConfiguration>,
 }
 
@@ -114,17 +115,17 @@ fn create_signer(slot: SlotId, mutex: Arc<Mutex<u32>>) -> Box<dyn Fn(&[u8]) -> O
 
 pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let matches = App::new("Rustica")
-    .version(env!("CARGO_PKG_VERSION"))
-    .author("Mitchell Grenier <mitchell@confurious.io>")
-    .about("Rustica is a Yubikey backed SSHCA")
-    .arg(
-        Arg::new("config")
-            .about("Path to Rustica configuration toml file")
-            .long("config")
-            .required(true)
-            .default_value("/etc/rustica/rustica.toml")
-            .takes_value(true),
-    ).get_matches();
+        .version(env!("CARGO_PKG_VERSION"))
+        .author("Mitchell Grenier <mitchell@confurious.io>")
+        .about("Rustica is a Yubikey backed SSHCA")
+        .arg(
+            Arg::new("config")
+                .about("Path to Rustica configuration toml file")
+                .long("config")
+                .required(true)
+                .default_value("/etc/rustica/rustica.toml")
+                .takes_value(true),
+        ).get_matches();
 
     // Read the configuration file
     let config = match tokio::fs::read(matches.value_of("config").unwrap()).await {
@@ -192,6 +193,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         host_ca_cert,
         user_ca_signer: user_signer,
         host_ca_signer: host_signer,
+        require_rustica_proof: config.require_rustica_proof,
     };
     
     Ok(RusticaSettings {

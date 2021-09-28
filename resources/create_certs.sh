@@ -49,6 +49,7 @@ if [ "$1" = "client" ]; then
 fi
 
 if [ "$1" = "build_local" ]; then
+    echo "Building certifications for local testing!"
     export BUILD_LOCAL=true
 fi
 
