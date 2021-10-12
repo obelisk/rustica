@@ -71,8 +71,6 @@ impl YubikeySigner {
                 Ok(v) if v <= 20 => Ok(SlotId::try_from(0x81_u8 + v).unwrap()),
                 _ => Err(serde::de::Error::custom("Invalid Slot")),
             }
-        } else if let Ok(s) = SlotId::try_from(slot.to_owned()) {
-            Ok(s)
         } else {
             Err(serde::de::Error::custom("Invalid Slot"))
         }

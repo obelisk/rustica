@@ -12,9 +12,7 @@ use std::os::unix::net::{UnixListener};
 use std::process;
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey};
-
-use yubikey_piv::key::{AlgorithmId, SlotId};
-use yubikey_piv::policy::{TouchPolicy, PinPolicy};
+use sshcerts::yubikey::{AlgorithmId, SlotId, TouchPolicy, PinPolicy};
 
 
 fn provision_new_key(mut signatory: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], alg: &str, secure: bool) -> Option<KeyConfig> {
@@ -60,8 +58,6 @@ fn slot_parser(slot: &str) -> Option<SlotId> {
             Ok(v) if v <= 20 => Some(SlotId::try_from(0x81_u8 + v).unwrap()),
             _ => None,
         }
-    } else if let Ok(s) = SlotId::try_from(slot.to_owned()) {
-        Some(s)
     } else {
         None
     }

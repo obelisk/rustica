@@ -22,14 +22,14 @@ serde = "1.0.97"
 serde_derive = "1.0"
 sha2 = "0.9.2"
 # For Production
-sshcerts = {version = "0.6.1", features = ["yubikey"]}
+#sshcerts = {version = "0.6.1", features = ["yubikey"]}
 # For Development
 # sshcerts = {git = "https://github.com/obelisk/sshcerts", features = ["yubikey"]}
-#sshcerts = {path = "../../sshcerts", features = ["yubikey"]}
+sshcerts = {path = "../../sshcerts", features = ["yubikey_support"]}
 tokio = { version = "1.0.0", features = ["full"] }
 toml = "0.5.8"
 tonic = {version = "0.4", features = ["tls"] }
-yubikey-piv = {version = "0.1.0", features = ["untested"]}
+yubikey = {version = "0.4", features = ["untested"]}
 
 [build-dependencies]
 tonic-build = "0.4"

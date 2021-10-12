@@ -13,8 +13,7 @@ pub use rustica::{
 };
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey, SigningFunction};
-use sshcerts::yubikey::{AlgorithmId, SlotId, RetiredSlotId};
-use yubikey_piv::policy::{TouchPolicy, PinPolicy};
+use sshcerts::yubikey::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -218,10 +217,10 @@ impl SshAgentHandler for Handler {
 /// once we return
 #[no_mangle]
 pub extern fn list_yubikeys(out_length: *mut c_int) -> *mut c_long {
-    match &mut yubikey_piv::readers::Readers::open() {
+    match &mut yubikey::reader::Context::open() {
         Ok(readers) => {
             let mut serials: Vec<c_long> = vec![];
-            for reader in readers.iter().unwrap().collect::<Vec<yubikey_piv::readers::Reader>>() {
+            for reader in readers.iter().unwrap().collect::<Vec<yubikey::reader::Reader>>() {
                 let reader = reader.open();
                 if let Err(_) = reader {
                     continue;

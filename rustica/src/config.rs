@@ -99,7 +99,10 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     // Parse the TOML into our configuration structures
     let config: Configuration = match toml::from_slice(&config) {
         Ok(config) => config,
-        Err(_) => return Err(ConfigurationError::ParsingError),
+        Err(e) => {
+            error!("Failed to parse config: {}", e);
+            return Err(ConfigurationError::ParsingError);
+        },
     };
 
     let address = match config.listen_address.parse() {

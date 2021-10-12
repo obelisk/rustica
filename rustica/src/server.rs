@@ -281,14 +281,6 @@ impl Rustica for RusticaServer {
             Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
         };
 
-        /*
-        let signer = match signing_type {
-            SigningType::File(file) => file.get_signer(req_cert_type),
-            SigningType::Yubikey(yk) => yk.get_signer(req_cert_type),
-            SigningType::Vault(vault) => vault.get_signer(req_cert_type),
-        };
-        */
-
         let cert = Certificate::builder(&ssh_pubkey, req_cert_type, &ca_cert).unwrap()
             .serial(authorization.serial)
             .key_id(format!("Rustica-JITC-for-{}", &fingerprint))

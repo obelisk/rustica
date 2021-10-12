@@ -81,22 +81,23 @@ create_editor_certs () {
 }
 
 # Generate CA key and cert
-openssl ecparam -genkey -name prime256v1 -noout -out ca.key
-openssl req -x509 -new -key ca.key -nodes -days 3650 -out ca.pem -subj '/CN=EnterpriseRootCA'
+#openssl ecparam -genkey -name prime256v1 -noout -out ca.key
+#openssl req -x509 -new -key ca.key -nodes -days 3650 -out ca.pem -subj '/CN=EnterpriseRootCA'
 
 # Generate Client CA key and cert
-openssl ecparam -genkey -name prime256v1 -noout -out client_ca.key
-openssl req -new -key client_ca.key -x509 -nodes -days 3650 -out client_ca.pem -subj '/CN=EnterpriseClientRootCA'
+#openssl ecparam -genkey -name prime256v1 -noout -out client_ca.key
+#openssl req -new -key client_ca.key -x509 -nodes -days 3650 -out client_ca.pem -subj '/CN=EnterpriseClientRootCA'
 
 # ------------ Generate Private Keys For Test Infra ------------ #
 # Generate Rustica Certificates
-create_editor_certs "rustica"
+#create_editor_certs "rustica"
 # Generate Author Certificates
-create_editor_certs "author"
+#create_editor_certs "author"
 # Generate CopyEditor Certificates
-create_editor_certs "copyeditor"
+#create_editor_certs "copyeditor"
+create_editor_certs "approved"
 
 # ------------ Generate User and Host CA Keys ------------ #
-ssh-keygen -t ed25519 -f rustica/user_ssh_ca -q -N ""
-ssh-keygen -t ed25519 -f rustica/host_ssh_ca -q -N ""
+#ssh-keygen -t ed25519 -f rustica/user_ssh_ca -q -N ""
+#ssh-keygen -t ed25519 -f rustica/host_ssh_ca -q -N ""
 
