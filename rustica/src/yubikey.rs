@@ -83,7 +83,7 @@ fn build_key(ssh_pubkey: PublicKey, certificate: X509Certificate, client: &[u8],
 /// certificate are valid against the Yubico attestation root ca.
 pub fn verify_certificate_chain(client: &[u8], intermediate: &[u8]) -> Result<Key, YubikeyValidationError> {
     // Extract the certificate public key and convert to an sshcerts PublicKey
-    let ssh_pubkey = match sshcerts::yubikey::ssh::extract_ssh_pubkey_from_x509_certificate(client) {
+    let ssh_pubkey = match sshcerts::yubikey::piv::ssh::extract_ssh_pubkey_from_x509_certificate(client) {
         Ok(ssh) => ssh,
         Err(_) => return Err(YubikeyValidationError::ParseError),
     };

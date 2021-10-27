@@ -12,7 +12,7 @@ use std::os::unix::net::{UnixListener};
 use std::process;
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey};
-use sshcerts::yubikey::{AlgorithmId, SlotId, TouchPolicy, PinPolicy};
+use sshcerts::yubikey::piv::{AlgorithmId, SlotId, TouchPolicy, PinPolicy, Yubikey};
 
 
 fn provision_new_key(mut signatory: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], alg: &str, secure: bool) -> Option<KeyConfig> {
@@ -25,7 +25,7 @@ fn provision_new_key(mut signatory: YubikeySigner, pin: &str, subj: &str, mgm_ke
 
     let policy = if secure {
         println!("You're creating a secure key that will require touch to use.");
-        TouchPolicy::Cached
+        TouchPolicy::Always
     } else {
         TouchPolicy::Never
     };
@@ -58,6 +58,9 @@ fn slot_parser(slot: &str) -> Option<SlotId> {
             Ok(v) if v <= 20 => Some(SlotId::try_from(0x81_u8 + v).unwrap()),
             _ => None,
         }
+    } else if slot.len() == 4 && slot.starts_with("0x"){
+        let slot_value = hex::decode(&slot[2..]).unwrap()[0];
+        Some(SlotId::try_from(slot_value).unwrap())
     } else {
         None
     }
@@ -188,7 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .default_value("010203040506070801020304050607080102030405060708")
                         .long("mgmkey")
                         .short('m')
-                        .required(true)
+                        .required(false)
                         .takes_value(true),
                 )
                 .arg(
@@ -197,13 +200,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .default_value("123456")
                         .long("pin")
                         .short('p')
-                        .required(true)
+                        .required(false)
                         .takes_value(true),
                 )
                 .arg(
                     Arg::new("type")
                         .about("Specify the type of key you want to provision")
-                        .default_value("eccp256")
+                        .default_value("eccp384")
                         .long("type")
                         .short('t')
                         .possible_value("eccp256")
@@ -302,7 +305,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(slot), _, _) | (_, Some(slot), _) => {
             match slot_parser(slot) {
                 Some(s) => Signatory::Yubikey(YubikeySigner {
-                    yk: sshcerts::yubikey::Yubikey::new()?,
+                    yk: Yubikey::new()?,
                     slot: s,
                 }),
                 None => {

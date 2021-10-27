@@ -85,7 +85,6 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
             Arg::new("config")
                 .about("Path to Rustica configuration toml file")
                 .long("config")
-                .required(true)
                 .default_value("/etc/rustica/rustica.toml")
                 .takes_value(true),
         ).get_matches();

@@ -13,7 +13,7 @@ pub use rustica::{
 };
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey, SigningFunction};
-use sshcerts::yubikey::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy};
+use sshcerts::yubikey::piv::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy, Yubikey};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -63,7 +63,7 @@ pub struct RusticaServer {
 #[derive(Debug)]
 pub struct YubikeySigner {
     pub slot: SlotId,
-    pub yk: sshcerts::yubikey::Yubikey,
+    pub yk: Yubikey,
 }
 
 #[derive(Debug)]
@@ -257,7 +257,7 @@ pub extern fn free_list_yubikeys(length: c_int, yubikeys: *mut c_long) {
 /// once we return
 #[no_mangle]
 pub extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *mut *mut c_char {
-    match &mut sshcerts::yubikey::Yubikey::open(yubikey_serial) {
+    match &mut Yubikey::open(yubikey_serial) {
         Ok(yk) => {
             let mut keys = vec![];
             for slot in 0x82..0x96_u8 {
@@ -307,10 +307,10 @@ pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
 
 /// Generate and enroll a new key on the given yubikey in the given slot
 #[no_mangle]
-pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_security: bool, subject: *const c_char, config_file: *const c_char, pin: *const c_char, management_key: *const c_char) -> bool {
+pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_security: bool, subject: *const c_char, config_data: *const c_char, pin: *const c_char, management_key: *const c_char) -> bool {
     println!("Generating and enrolling a new key!");
-    let cf = unsafe { CStr::from_ptr(config_file) };
-    let config_file = match cf.to_str() {
+    let cf = unsafe { CStr::from_ptr(config_data) };
+    let config_data = match cf.to_str() {
         Err(_) => return false,
         Ok(s) => s,
     };
@@ -320,20 +320,13 @@ pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_security: 
     let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
     let subject = unsafe { CStr::from_ptr(subject) };
 
-    let config = std::fs::read_to_string(config_file);
-    let config: Config = match config {
-        Ok(content) => toml::from_str(&content).unwrap(),
-        Err(e) => {
-            println!("Could not open configuration file: {}", e);
-            return false
-        },
-    };
+    let config: Config = toml::from_str(&config_data).unwrap();
 
     let alg = AlgorithmId::EccP384;
-    let slot = sshcerts::yubikey::SlotId::try_from(slot).unwrap();
+    let slot = SlotId::try_from(slot).unwrap();
 
     let policy = if high_security {TouchPolicy::Always} else {TouchPolicy::Cached};
-    let mut yk = sshcerts::yubikey::Yubikey::open(yubikey_serial).unwrap();
+    let mut yk = Yubikey::open(yubikey_serial).unwrap();
 
     if yk.unlock(pin.to_str().unwrap().as_bytes(), &management_key).is_err() {
         println!("Could not unlock key");
@@ -379,27 +372,20 @@ pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_security: 
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
 #[no_mangle]
-pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_file: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
+pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_data: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
         unsafe { notification_fn(); }
     };
 
-    let cf = unsafe { CStr::from_ptr(config_file) };
-    let config_file = match cf.to_str() {
+    let cf = unsafe { CStr::from_ptr(config_data) };
+    let config_data = match cf.to_str() {
         Err(_) => return false,
         Ok(s) => s,
     };
 
-    let config = std::fs::read_to_string(config_file);
-    let config: Config = match config {
-        Ok(content) => toml::from_str(&content).unwrap(),
-        Err(e) => {
-            println!("Could not open configuration file: {}", e);
-            return false
-        },
-    };
+    let config: Config = toml::from_str(&config_data).unwrap();
 
     let certificate_options = CertificateConfig::from(config.options);
 
@@ -414,14 +400,14 @@ pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_
             mtls_key: config.mtls_key.unwrap(),
         },
         signatory: Signatory::Yubikey(YubikeySigner {
-            yk: sshcerts::yubikey::Yubikey::open(yubikey_serial).unwrap(),
-            slot: sshcerts::yubikey::SlotId::try_from(slot).unwrap(),
+            yk: Yubikey::open(yubikey_serial).unwrap(),
+            slot: SlotId::try_from(slot).unwrap(),
         }),
         identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
     };
 
-    println!("Slot: {:?}", sshcerts::yubikey::SlotId::try_from(slot));
+    println!("Slot: {:?}", SlotId::try_from(slot));
 
     let sp = unsafe { CStr::from_ptr(socket_path) };
     let socket_path = match sp.to_str() {

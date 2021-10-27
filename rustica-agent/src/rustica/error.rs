@@ -56,8 +56,8 @@ impl From<hex::FromHexError> for RefreshError {
     }
 }
 
-impl From<sshcerts::yubikey::Error> for RefreshError {
-    fn from(_e: sshcerts::yubikey::Error) -> Self {
+impl From<sshcerts::yubikey::piv::Error> for RefreshError {
+    fn from(_e: sshcerts::yubikey::piv::Error) -> Self {
         RefreshError::SigningError
     }
 }

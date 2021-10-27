@@ -1,5 +1,5 @@
 use sshcerts::ssh::{CertType, PublicKey, PrivateKey, SigningFunction};
-use sshcerts::yubikey::{SlotId, Yubikey};
+use sshcerts::yubikey::piv::{SlotId, Yubikey};
 use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 

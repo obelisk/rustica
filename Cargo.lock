@@ -1905,6 +1905,7 @@ version = "0.7.0"
 dependencies = [
  "base64 0.13.0",
  "der-parser",
+ "hex",
  "log",
  "num-bigint",
  "rcgen",
