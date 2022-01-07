@@ -4,7 +4,7 @@ pub mod models;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 
-use serde_derive::Deserialize;
+use serde::Deserialize;
 
 use std::time::SystemTime;
 use super::{

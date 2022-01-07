@@ -3,7 +3,7 @@ use author::{AuthorizeRequest, AddIdentityDataRequest};
 
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use sshcerts::ssh::Extensions;
 use super::{
     Authorization,

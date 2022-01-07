@@ -10,6 +10,7 @@ use crate::rustica::{
     RegisterKeyResponse,
     rustica_server::Rustica,
 };
+use crate::signing::{SigningMechanism};
 use crate::utils::build_login_script;
 use crate::yubikey::verify_certificate_chain;
 
@@ -38,10 +39,7 @@ pub struct RusticaServer {
     pub influx_client: Option<Client>,
     pub hmac_key: hmac::Key,
     pub authorizer: AuthMechanism,
-    pub user_ca_cert: SSHPublicKey,
-    pub user_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
-    pub host_ca_cert: SSHPublicKey,
-    pub host_ca_signer: Box<dyn Fn(&[u8]) -> Option<Vec<u8>> + Send + Sync>,
+    pub signer: SigningMechanism,
     pub require_rustica_proof: bool,
 }
 
@@ -225,9 +223,17 @@ impl Rustica for RusticaServer {
         }
 
         let (req_cert_type, ca_cert, signer) = match request.cert_type {
-            1 => (CertType::User, &self.user_ca_cert, &self.user_ca_signer),
-            2 => (CertType::Host, &self.host_ca_cert, &self.host_ca_signer),
+            1 => (CertType::User, self.signer.get_signer_public_key(CertType::User), self.signer.get_signer(CertType::User)),
+            2 => (CertType::Host, self.signer.get_signer_public_key(CertType::Host), self.signer.get_signer(CertType::Host)),
             _ => return Ok(create_response(RusticaServerError::BadCertOptions)),
+        };
+
+        let ca_cert = match ca_cert {
+            Ok(ca_cert) => ca_cert,
+            Err(e) => {
+                error!("Could not fetch public key to insert into new certificate: {:?}", e);
+                return Ok(create_response(RusticaServerError::Unknown));
+            }
         };
 
         let fingerprint = ssh_pubkey.fingerprint().hash;
