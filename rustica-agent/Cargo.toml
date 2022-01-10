@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 base64 = "0.12.1"
 byteorder = "1.4.2"
-clap = "3.0.0-beta.2"
+clap = "3.0.5"
 env_logger = "0.8.2"
 futures-core = "0.3"
 futures-util = "0.3"
@@ -29,7 +29,7 @@ sshcerts = {version = "0.7", features = ["yubikey_support"]}
 tokio = { version = "1.0.0", features = ["full"] }
 toml = "0.5.8"
 tonic = {version = "0.4", features = ["tls"] }
-yubikey = {version = "0.4", features = ["untested"]}
+yubikey = {version = "0.5", features = ["untested"]}
 
 [build-dependencies]
 tonic-build = "0.4"

@@ -81,40 +81,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .about("The SSH Agent component of Rustica")
         .arg(
             Arg::new("config")
-                .about("Specify an alternate configuration file.")
+                .help("Specify an alternate configuration file.")
                 .long("config")
                 .default_value("/etc/rustica/config.toml")
                 .takes_value(true),
         )
         .arg(
             Arg::new("server")
-                .about("Full address of Rustica server to use as CA")
+                .help("Full address of Rustica server to use as CA")
                 .long("server")
                 .short('r')
                 .takes_value(true),
         )
         .arg(
             Arg::new("capem")
-                .about("Path to PEM that contains CA of the server's certificate")
+                .help("Path to PEM that contains CA of the server's certificate")
                 .long("capem")
                 .short('c')
                 .takes_value(true),
         )
         .arg(
             Arg::new("mtlscert")
-                .about("Path to PEM that contains client cert")
+                .help("Path to PEM that contains client cert")
                 .long("mtlscert")
                 .takes_value(true),
         )
         .arg(
             Arg::new("mtlskey")
-                .about("Path to PEM that contains client key")
+                .help("Path to PEM that contains client key")
                 .long("mtlskey")
                 .takes_value(true),
         )
         .arg(
             Arg::new("slot")
-                .about("Numerical value for the slot on the yubikey to use for your private key")
+                .help("Numerical value for the slot on the yubikey to use for your private key")
                 .long("slot")
                 .short('s')
                 .validator(slot_validator)
@@ -122,14 +122,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .arg(
             Arg::new("file")
-                .about("Used instead of a slot to provide a private key via file")
+                .help("Used instead of a slot to provide a private key via file")
                 .long("file")
                 .short('f')
                 .takes_value(true),
         )
         .arg(
             Arg::new("kind")
-                .about("The type of certificate you want to request")
+                .help("The type of certificate you want to request")
                 .long("kind")
                 .short('k')
                 .possible_value("user")
@@ -138,38 +138,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .arg(
             Arg::new("duration")
-                .about("Your request for certificate duration in seconds")
+                .help("Your request for certificate duration in seconds")
                 .long("duration")
                 .short('d')
                 .takes_value(true),
         )
         .arg(
             Arg::new("principals")
-                .about("A comma separated list of values you are requesting as principals")
+                .help("A comma separated list of values you are requesting as principals")
                 .short('n')
                 .takes_value(true),
         )
         .arg(
             Arg::new("hosts")
-                .about("A comma separated list of hostnames you are requesting a certificate for")
+                .help("A comma separated list of hostnames you are requesting a certificate for")
                 .short('h')
                 .takes_value(true),
         )
         .arg(
             Arg::new("immediate")
-                .about("Immiediately request a certificate. Useful for testing and verifying access")
+                .help("Immiediately request a certificate. Useful for testing and verifying access")
                 .short('i')
         )
         .arg(
             Arg::new("out")
-                .about("Output the certificate to a file and exit. Useful for refreshing host certificates")
+                .help("Output the certificate to a file and exit. Useful for refreshing host certificates")
                 .short('o')
                 .takes_value(true)
                 .requires("immediate")
         )
         .arg(
             Arg::new("socket")
-                .about("Manually specify the path that will be used for the auth sock")
+                .help("Manually specify the path that will be used for the auth sock")
                 .long("socket")
                 .takes_value(true)
         )
@@ -178,7 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .about("Take your key and register with the backend. If a hardware key, proof of providence will be sent to the backend")
                 .arg(
                     Arg::new("no-attest")
-                        .about("Don't send an attestation even with a hardware key. Only useful if your attestation chain is broken or for testing.")
+                        .help("Don't send an attestation even with a hardware key. Only useful if your attestation chain is broken or for testing.")
                         .long("no-attest")
                 )
         )
@@ -187,7 +187,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .about("Provision this slot with a new private key. The pin number must be passed as parameter here")
                 .arg(
                     Arg::new("management-key")
-                        .about("Specify the management key")
+                        .help("Specify the management key")
                         .default_value("010203040506070801020304050607080102030405060708")
                         .long("mgmkey")
                         .short('m')
@@ -196,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .arg(
                     Arg::new("pin")
-                        .about("Specify the pin")
+                        .help("Specify the pin")
                         .default_value("123456")
                         .long("pin")
                         .short('p')
@@ -205,7 +205,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .arg(
                     Arg::new("type")
-                        .about("Specify the type of key you want to provision")
+                        .help("Specify the type of key you want to provision")
                         .default_value("eccp384")
                         .long("type")
                         .short('t')
@@ -215,13 +215,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .arg(
                     Arg::new("require-touch")
-                        .about("Newly provisioned key requires touch for signing operations (touch cached for 15 seconds)")
+                        .help("Newly provisioned key requires touch for signing operations (touch cached for 15 seconds)")
                         .long("require-touch")
                         .short('r')
                 )
                 .arg(
                     Arg::new("subject")
-                        .about("Subject of the new cert you're creating (this is only used as a note)")
+                        .help("Subject of the new cert you're creating (this is only used as a note)")
                         .default_value("Rustica-AgentQuickProvision")
                         .long("subj")
                         .short('j')

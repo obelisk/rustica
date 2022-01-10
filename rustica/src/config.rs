@@ -104,7 +104,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         .about("Rustica is a Yubikey backed SSHCA")
         .arg(
             Arg::new("config")
-                .about("Path to Rustica configuration toml file")
+                .help("Path to Rustica configuration toml file")
                 .long("config")
                 .default_value("/etc/rustica/rustica.toml")
                 .takes_value(true),
