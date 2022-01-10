@@ -241,6 +241,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mtls_cert: None,
                 mtls_key: None,
                 slot: None,
+                key: None,
                 options: None,
                 socket: None,
             }
@@ -300,9 +301,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-    let mut signatory = match (&cmd_slot, &config.slot, matches.value_of("file")) {
-        (_, _, Some(file)) => Signatory::Direct(PrivateKey::from_path(file)?),
-        (Some(slot), _, _) | (_, Some(slot), _) => {
+    // Determine the signatory to be used. These match statements, execute in order,
+    // create a hierarchy of which keys override others.
+    // If a file is specified at the command line, that overrides everything else.
+    // If there is no file, check for a key in the config file.
+    // If there is no key in the config, check if a slot has been passed.
+    // If there is a slot both on the command line and config file, prefer the command line
+    // Otherwise use the slot in the config
+    // If none of these, error.
+    let mut signatory = match (&cmd_slot, &config.slot, matches.value_of("file"), &config.key) {
+        (_, _, Some(file), _) => Signatory::Direct(PrivateKey::from_path(file)?),
+        (_, _, _, Some(key_string)) => Signatory::Direct(PrivateKey::from_string(key_string)?),
+        (Some(slot), _, _, _) | (_, Some(slot), _, _) => {
             match slot_parser(slot) {
                 Some(s) => Signatory::Yubikey(YubikeySigner {
                     yk: Yubikey::new()?,
@@ -314,8 +324,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         },
-        (None, None, None) => {
-            error!("A slot or file must be specified for identification");
+        (None, None, None, None) => {
+            error!("A slot, file, or private key must be specified for identification");
             return Err(Box::new(ConfigurationError(String::from("No identity provided"))))
         }
     };
