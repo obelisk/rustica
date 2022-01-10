@@ -1,0 +1,128 @@
+# The certificate presented to connecting clients
+server_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBqzCCAVCgAwIBAgIJAIDetXKVHvT9MAoGCCqGSM49BAMCMBsxGTAXBgNVBAMM
+EEVudGVycHJpc2VSb290Q0EwHhcNMjEwOTA5MTg0ODA1WhcNMjMxMjEzMTg0ODA1
+WjAxMRAwDgYDVQQDDAdydXN0aWNhMRAwDgYDVQQKDAdSdXN0aWNhMQswCQYDVQQG
+EwJDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABA4FXg6srQVPFUNRt8O2xJU/
+lOr8sFeTfMfiXk7TS+rdEI0gk7dxtQsrNSwh+3e5UjjJEQkKbkdkhZHuHUvhS1Wj
+ZzBlMDUGA1UdIwQuMCyhH6QdMBsxGTAXBgNVBAMMEEVudGVycHJpc2VSb290Q0GC
+CQDdGlaBb9C6TDAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DAUBgNVHREEDTALggls
+b2NhbGhvc3QwCgYIKoZIzj0EAwIDSQAwRgIhAP0YNQmo8G/LlW6lozn+JmcfT9z9
+cNI4mA6YUI2cWtOPAiEArV3Cnypaq8JBP/GCelXiojGEZHgWLaF4ZsCy+ssQjrs=
+-----END CERTIFICATE-----
+'''
+
+# The key for the certificate presented to clients
+server_key = '''
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgv4HTe9TP3vBptisr
+NEO26q5/71dv21JSpSFpwVGtQ3WhRANCAAQOBV4OrK0FTxVDUbfDtsSVP5Tq/LBX
+k3zH4l5O00vq3RCNIJO3cbULKzUsIft3uVI4yREJCm5HZIWR7h1L4UtV
+-----END PRIVATE KEY-----
+'''
+
+# The CA certificate clients must have their identities signed by
+client_ca_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBMjCB2AIJAPWVCGGAtuF3MAoGCCqGSM49BAMCMCExHzAdBgNVBAMMFkVudGVy
+cHJpc2VDbGllbnRSb290Q0EwHhcNMjEwOTA5MTg0ODA1WhcNMzEwOTA3MTg0ODA1
+WjAhMR8wHQYDVQQDDBZFbnRlcnByaXNlQ2xpZW50Um9vdENBMFkwEwYHKoZIzj0C
+AQYIKoZIzj0DAQcDQgAEmGjwIaBON7DIrm/tSTTp96WXiovAWoUYwtziWQmqntMr
+GVjQMx5DyGre2cCbMDz2AyJrEDX1ReX+mFODaP+IdTAKBggqhkjOPQQDAgNJADBG
+AiEApHx6eH8yM+PrH87C/KahHCgcInFyLHvO0vVd8+sKUtICIQD8w6LSUcigT0C6
+woKz1ehFp3cKUtt2UEySnvbL/WxDSQ==
+-----END CERTIFICATE-----
+'''
+
+# This is the listen address that will be used for the Rustica service
+listen_address = "0.0.0.0:50052"
+
+# This setting controls if the agent has to prove that it
+# controls the private key to Rustica. Setting this to true means a user needs
+# to generate two signatures (one to Rustica, and one to the host). The
+# advantage of using this, is a compromised host cannot get certificates
+# from the server without physical interaction.
+#
+# A client will always need to sign the challenge from the host they
+# are attempting to connect to however so a physical tap will always
+# be required.
+require_rustica_proof = false
+
+[signing]
+# [signing."yubikey"]
+# user_slot = "R1"
+# host_slot = "R1"
+
+# Rustica has many ways it can sign SSH certificates which are sent to
+# clients. This method uses private keys embedded in the configuration
+# file. This will mean the hosts which you want to login to via Rustica
+# must respect the public portion of the user key variable below.
+[signing."file"]
+# The key that will be used to sign certificates given to user clients. 
+user_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+gAAAKhxqRWZcakV
+mQAAAAtzc2gtZWQyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+g
+AAAEA8yRG/XWtjlY007gj8tNflVX9fnHPDcQYH2HTImTKvPeGrtTSBxbrqYk1amwv/gAM1
+eg5Qwsddhszw8gduo9P6AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+# The key that will be used to sign certificates given to host clients
+host_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnewAAAKhQSP5+UEj+
+fgAAAAtzc2gtZWQyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnew
+AAAEAevZOed5UnsVdAASUn+sJ+dUfUnG1kQ1wRH9L758mSCxcC2QuSbJKphPaKx0fRxE52
+sDNPZwaD2kv14ulnBCd7AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+# [signing."vault"]
+# vault_ca_cert = ""
+# vault_address = ""
+# vault_token = ""
+# user_key_path = ""
+# host_key_path = ""
+
+[authorization]
+[authorization."external"]
+server = "localhost"
+port = "50051"
+ca = '''
+-----BEGIN CERTIFICATE-----
+MIIBJTCBzAIJAN0aVoFv0LpMMAoGCCqGSM49BAMCMBsxGTAXBgNVBAMMEEVudGVy
+cHJpc2VSb290Q0EwHhcNMjEwOTA5MTg0ODA1WhcNMzEwOTA3MTg0ODA1WjAbMRkw
+FwYDVQQDDBBFbnRlcnByaXNlUm9vdENBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcD
+QgAEdPrpMQ3qlBwsS8jn7XG1edMjaVtwhd8Z5+PmBm4CvPD9JuquUTboZbngMjM5
+Sf8m7GP/rtDHomHEOz48nE6h4DAKBggqhkjOPQQDAgNIADBFAiBzxRuxdsmEKXXL
+wFaX8UZUq9KPir58yDwqBdWM/0/IHAIhAME3q+c7kZ6JQNyjZr7l64uiwYAWuOe7
+W2W/nJCtw6Ff
+-----END CERTIFICATE-----
+'''
+mtls_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBqzCCAVCgAwIBAgIJAIDetXKVHvT9MAoGCCqGSM49BAMCMBsxGTAXBgNVBAMM
+EEVudGVycHJpc2VSb290Q0EwHhcNMjEwOTA5MTg0ODA1WhcNMjMxMjEzMTg0ODA1
+WjAxMRAwDgYDVQQDDAdydXN0aWNhMRAwDgYDVQQKDAdSdXN0aWNhMQswCQYDVQQG
+EwJDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABA4FXg6srQVPFUNRt8O2xJU/
+lOr8sFeTfMfiXk7TS+rdEI0gk7dxtQsrNSwh+3e5UjjJEQkKbkdkhZHuHUvhS1Wj
+ZzBlMDUGA1UdIwQuMCyhH6QdMBsxGTAXBgNVBAMMEEVudGVycHJpc2VSb290Q0GC
+CQDdGlaBb9C6TDAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DAUBgNVHREEDTALggls
+b2NhbGhvc3QwCgYIKoZIzj0EAwIDSQAwRgIhAP0YNQmo8G/LlW6lozn+JmcfT9z9
+cNI4mA6YUI2cWtOPAiEArV3Cnypaq8JBP/GCelXiojGEZHgWLaF4ZsCy+ssQjrs=
+-----END CERTIFICATE-----
+'''
+
+mtls_key = '''
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgv4HTe9TP3vBptisr
+NEO26q5/71dv21JSpSFpwVGtQ3WhRANCAAQOBV4OrK0FTxVDUbfDtsSVP5Tq/LBX
+k3zH4l5O00vq3RCNIJO3cbULKzUsIft3uVI4yREJCm5HZIWR7h1L4UtV
+-----END PRIVATE KEY-----
+'''
