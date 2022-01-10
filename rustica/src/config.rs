@@ -1,7 +1,7 @@
 use crate::auth::{AuthMechanism, AuthServer, LocalDatabase};
 use crate::logging::{Log, LoggingConfiguration};
 use crate::server::RusticaServer;
-use crate::signing::{SigningConfiguration, SigningMechanism};
+use crate::signing::SigningConfiguration;
 
 use clap::{App, Arg};
 
@@ -136,19 +136,10 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         _ => return Err(ConfigurationError::AuthorizerError),
     };
 
-    let signer:SigningMechanism = match config.signing.try_into() {
+    let signer = match config.signing.try_into() {
         Ok(signer) => signer,
         Err(_) => return Err(ConfigurationError::SigningMechanismError),
     };
-
-    /*
-    let signer = match (config.signing.file, config.signing.vault, config.signing.yubikey) {
-        (Some(file), None, None) => SigningMechanism::File(file),
-        (None, Some(vault), None) => SigningMechanism::Vault(vault),
-        (None, None, Some(yubikey)) => SigningMechanism::Yubikey(yubikey),
-        _ => return Err(ConfigurationError::SigningMechanismError),
-    };
-    */
 
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
