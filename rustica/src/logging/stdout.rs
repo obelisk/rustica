@@ -1,4 +1,4 @@
-use super::{Log, Severity};
+use super::{Log, RusticaLogger, Severity};
 
 use serde::Deserialize;
 
@@ -11,8 +11,10 @@ impl StdoutLogger {
     pub fn new(_config: Config) -> Self {
         Self {}
     }
+}
 
-    pub fn send_log(&self, log: &Log) -> Result<(), ()> {
+impl RusticaLogger for StdoutLogger {
+    fn send_log(&self, log: &Log) -> Result<(), ()> {
         match log.severity {
             Severity::Error => error!("{}", log.message),
             Severity::Warning => warn!("{}", log.message),

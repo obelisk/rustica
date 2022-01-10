@@ -4,7 +4,13 @@ version = "0.7.0"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = []
+
+all = ["influx", "splunk"]
+
+influx = ["influx_db_client"]
+splunk = ["reqwest", "serde_json"]
 
 [dependencies]
 base64 = "0.12.1"
@@ -15,7 +21,6 @@ env_logger = "0.8.2"
 futures-core = "0.3"
 futures-util = "0.3"
 hex = "0.4.2"
-influx_db_client = "^0.5.0"
 log = "0.4.13"
 prost = "0.7"
 ring = "0.16.20"
@@ -25,12 +30,19 @@ sha2 = "0.9.2"
 sshcerts = { version = "0.7", features = ["yubikey_support"] }
 # For Development
 # sshcerts = {git = "https://github.com/obelisk/sshcerts", features = ["yubikey"]}
-#sshcerts = {path = "../../sshcerts", features = ["yubikey_piv"]}
+# sshcerts = {path = "../../sshcerts", features = ["yubikey_piv"]}
 tokio = { version = "1.0.0", features = ["full"] }
 toml = "0.5"
 tonic = { version = "0.4", features = ["tls"] }
 x509-parser = { version = "0.9", features = ["verify"] }
 yubikey = { version = "0.4", features = ["untested"] }
+
+# Dependencies for Influx
+influx_db_client = { version = "0.5.0", optional = true }
+
+# Dependencies for Splunk
+reqwest = { version = "0.11", features = ["native-tls"], optional = true }
+serde_json = { version = "1.0", optional = true }
 
 [build-dependencies]
 tonic-build = "0.4"

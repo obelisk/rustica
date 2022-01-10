@@ -1,4 +1,4 @@
-use super::{Log};
+use super::{Log, RusticaLogger};
 
 use influx_db_client::{
     Client, Point, Points, Precision, points
@@ -15,6 +15,7 @@ pub struct Config {
     user: String,
     password: String,
 }
+
 pub struct InfluxLogger {
     client: Client,
     runtime: Runtime
@@ -27,8 +28,10 @@ impl InfluxLogger {
             runtime: Runtime::new().unwrap(),
         }
     }
+}
 
-    pub fn send_log(&self, log: &Log) -> Result<(), ()> {
+impl RusticaLogger for InfluxLogger {
+    fn send_log(&self, log: &Log) -> Result<(), ()> {
         let point = Point::new(&log.dataset)
             .add_tag("fingerprint", log.fingerprint.clone())
             .add_tag("mtls_identities", log.mtls_identities.join(","))
