@@ -8,6 +8,7 @@ mod auth;
 mod config;
 mod error;
 mod key;
+mod logging;
 mod server;
 mod signing;
 mod utils;
@@ -18,6 +19,8 @@ use rustica::rustica_server::{RusticaServer as GRPCRusticaServer};
 use sshcerts::ssh::CertType;
 use tonic::transport::{Certificate as TonicCertificate, Identity, Server, ServerTlsConfig};
 
+use std::thread;
+
 pub mod rustica {
     tonic::include_proto!("rustica");
 }
@@ -25,7 +28,7 @@ pub mod rustica {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let settings = config::configure().await.unwrap();
+    let settings = config::configure().await?;
     let identity = Identity::from_pem(settings.server_cert, settings.server_key);
     let client_ca_cert = TonicCertificate::from_pem(settings.client_ca_cert);
 
@@ -44,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     println!("Starting Rustica on: {}", settings.address);
+
     info!("User CA Pubkey: {}", &user_ca_cert);
     println!("User CA Fingerprint (SHA256): {}", user_ca_cert.fingerprint().hash);
 
@@ -54,6 +58,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         AuthMechanism::Local(db) => println!("Authorization handled by local database at: {}", &db.path),
         AuthMechanism::External(e) => println!("Authorization handled by remote service at: {}", &e.server),
     }
+    let logging_configuration = settings.logging_configuration;
+    let log_receiver = settings.log_receiver;
+
+    thread::spawn(|| {
+        logging::start_logging_thread(logging_configuration, log_receiver);
+    });
 
     Server::builder()
         .tls_config(ServerTlsConfig::new().identity(identity).client_ca_root(client_ca_cert))?

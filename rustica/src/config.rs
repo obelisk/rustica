@@ -1,23 +1,16 @@
 use crate::auth::{AuthMechanism, AuthServer, LocalDatabase};
+use crate::logging::{Log, LoggingConfiguration};
 use crate::server::RusticaServer;
 use crate::signing::{FileSigner, VaultSigner, SigningMechanism, YubikeySigner};
 
 use clap::{App, Arg};
 
-use influx_db_client::Client;
+use crossbeam_channel::{unbounded, Receiver};
 
 use ring::{hmac, rand};
 use serde::Deserialize;
 
 use std::net::SocketAddr;
-
-#[derive(Deserialize)]
-pub struct InfluxDBConfiguration {
-    pub address: String,
-    pub database: String,
-    pub user: String,
-    pub password: String,
-}
 
 #[derive(Deserialize)]
 pub struct Authorization {
@@ -32,7 +25,6 @@ pub struct Signing {
     pub yubikey: Option<YubikeySigner>,
 }
 
-
 #[derive(Deserialize)]
 pub struct Configuration {
     pub server_cert: String,
@@ -42,7 +34,7 @@ pub struct Configuration {
     pub authorization: Authorization,
     pub signing: Signing,
     pub require_rustica_proof: bool,
-    pub influx: Option<InfluxDBConfiguration>,
+    pub logging: LoggingConfiguration,
 }
 
 pub struct RusticaSettings {
@@ -51,9 +43,10 @@ pub struct RusticaSettings {
     pub server_cert: String,
     pub server_key: String,
     pub address: SocketAddr,
+    pub log_receiver: Receiver<Log>,
+    pub logging_configuration: LoggingConfiguration,
 }
 
-#[derive(Debug)]
 pub enum ConfigurationError {
     FileError,
     ParsingError,
@@ -75,6 +68,34 @@ impl From<sshcerts::yubikey::Error> for ConfigurationError {
         ConfigurationError::YubikeyError
     }
 }
+
+impl std::error::Error for ConfigurationError {
+    fn description(&self) -> &str {
+        ""
+    }
+}
+
+impl std::fmt::Display for ConfigurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ConfigurationError::FileError => "Could not read configuration file",
+            ConfigurationError::ParsingError => "Could not parse the configuration file",
+            ConfigurationError::SSHKeyError => "Could not parse the provided SSH keys file",
+            ConfigurationError::YubikeyError => "Could not find or use a connected Yubikey",
+            ConfigurationError::InvalidListenAddress => "Invalid address and/or port to listen on",
+            ConfigurationError::AuthorizerError => "Configuration for authorization was invalid",
+            ConfigurationError::SigningMechanismError => "Configuration for signing certificates was invalid",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl std::fmt::Debug for ConfigurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 
 pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let matches = App::new("Rustica")
@@ -109,10 +130,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         Err(_) => return Err(ConfigurationError::InvalidListenAddress)
     };
 
-    let influx_client = match config.influx {
-        Some(influx) => Some(Client::new(influx.address.parse().unwrap(), influx.database).set_authentication(influx.user, influx.password)),
-        None => None,
-    };
+    let (log_sender, log_receiver) = unbounded();
 
     let authorizer = match (config.authorization.database, config.authorization.external) {
         (Some(database), None) => AuthMechanism::Local(database),
@@ -131,7 +149,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
     
     let server = RusticaServer {
-        influx_client,
+        log_sender,
         hmac_key,
         authorizer,
         signer,
@@ -144,5 +162,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         server_cert: config.server_cert,
         server_key: config.server_key,
         address,
+        log_receiver,
+        logging_configuration: config.logging,
     })
 }

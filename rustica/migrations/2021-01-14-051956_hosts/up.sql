@@ -54,7 +54,7 @@ CREATE TABLE fingerprint_critical_options (
 -- containing the "obelisk" and "mitchell" principals                         -
 -------------------------------------------------------------------------------
 -- 
--- INSERT INTO fingerprint_principal_authorizations VALUES (0, "id2n9OXvk0phR9jIvKtfaNkj6E1RnY6TY+xVbcvSAdU", "obelisk");
+INSERT INTO fingerprint_principal_authorizations VALUES (0, "oMNBoPp8pTCkeJoe2dzhFKm/grZ1qFlqmaKS9dBGHNY", "testuser");
 -- INSERT INTO fingerprint_principal_authorizations VALUES (1, "0ZUOTCC6OQ7kwHJ8lXx16pICBFErB48I4rGe4wVXfW8", "test");
 -- INSERT INTO fingerprint_principal_authorizations VALUES (2, "0ZUOTCC6OQ7kwHJ8lXx16pICBFErB48I4rGe4wVXfW8", "mitchell");
 
@@ -168,5 +168,5 @@ CREATE TABLE fingerprint_critical_options (
 
 -- User Fingerprint Permissions
 -- Fingerprint, HostUnrestricted, PrincipalUnrestricted, AllowHostCerts, AllowUserCerts, MaxCreationTime
--- INSERT INTO fingerprint_permissions VALUES ("id2n9OXvk0phR9jIvKtfaNkj6E1RnY6TY+xVbcvSAdU", TRUE, FALSE, FALSE, TRUE, 10);
+INSERT INTO fingerprint_permissions VALUES ("oMNBoPp8pTCkeJoe2dzhFKm/grZ1qFlqmaKS9dBGHNY", TRUE, FALSE, FALSE, TRUE, 10);
 -- INSERT INTO fingerprint_permissions VALUES ("0ZUOTCC6OQ7kwHJ8lXx16pICBFErB48I4rGe4wVXfW8", TRUE, FALSE, FALSE, TRUE, 10);

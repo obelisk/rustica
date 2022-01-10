@@ -1,5 +1,6 @@
 use crate::auth::{AuthMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties};
 use crate::error::RusticaServerError;
+use crate::logging::{Log, Severity};
 use crate::rustica::{
     CertificateRequest,
     CertificateResponse,
@@ -14,9 +15,7 @@ use crate::signing::{SigningMechanism};
 use crate::utils::build_login_script;
 use crate::yubikey::verify_certificate_chain;
 
-use influx_db_client::{
-    Client, Point, Points, Precision, points
-};
+use crossbeam_channel::Sender;
 
 use sshcerts::ssh::{
     CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind
@@ -36,7 +35,7 @@ use x509_parser::der_parser::oid;
 
 
 pub struct RusticaServer {
-    pub influx_client: Option<Client>,
+    pub log_sender: Sender<Log>,
     pub hmac_key: hmac::Key,
     pub authorizer: AuthMechanism,
     pub signer: SigningMechanism,
@@ -314,6 +313,7 @@ impl Rustica for RusticaServer {
             error_code: RusticaServerError::Success as i64,
         };
 
+        /*
         if let Some(influx_client) = &self.influx_client {
             let point = Point::new("rustica_logs")
                 .add_tag("fingerprint", fingerprint)
@@ -324,7 +324,18 @@ impl Rustica for RusticaServer {
             if let Err(e) = influx_client.write_points(points!(point), Some(Precision::Seconds), None).await {
                 error!("Could not log to influx DB: {}", e);
             }
-        }
+        }*/
+
+        self.log_sender.send(Log {
+            action: format!("Certificate Issued"),
+            dataset: format!("rustica_logs"),
+            fingerprint,
+            mtls_identities,
+            principals: authorization.principals,
+            hosts: authorization.hosts.unwrap_or_default(),
+            message: format!(""),
+            severity: Severity::Info,
+        });
 
         Ok(Response::new(reply))
     }
