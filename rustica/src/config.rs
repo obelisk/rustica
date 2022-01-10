@@ -1,7 +1,7 @@
 use crate::auth::{AuthMechanism, AuthServer, LocalDatabase};
 use crate::logging::{Log, LoggingConfiguration};
 use crate::server::RusticaServer;
-use crate::signing::{FileSigner, VaultSigner, SigningMechanism, YubikeySigner};
+use crate::signing::{SigningConfiguration, SigningMechanism};
 
 use clap::{App, Arg};
 
@@ -10,7 +10,9 @@ use crossbeam_channel::{unbounded, Receiver};
 use ring::{hmac, rand};
 use serde::Deserialize;
 
+use std::convert::TryInto;
 use std::net::SocketAddr;
+
 
 #[derive(Deserialize)]
 pub struct Authorization {
@@ -18,12 +20,6 @@ pub struct Authorization {
     pub external: Option<AuthServer>,
 }
 
-#[derive(Deserialize)]
-pub struct Signing {
-    pub file: Option<FileSigner>,
-    pub vault: Option<VaultSigner>,
-    pub yubikey: Option<YubikeySigner>,
-}
 
 #[derive(Deserialize)]
 pub struct Configuration {
@@ -32,7 +28,7 @@ pub struct Configuration {
     pub client_ca_cert: String,
     pub listen_address: String,
     pub authorization: Authorization,
-    pub signing: Signing,
+    pub signing: SigningConfiguration,
     pub require_rustica_proof: bool,
     pub logging: LoggingConfiguration,
 }
@@ -63,11 +59,13 @@ impl From<sshcerts::error::Error> for ConfigurationError {
     }
 }
 
+/*
 impl From<sshcerts::yubikey::Error> for ConfigurationError {
     fn from(_: sshcerts::yubikey::Error) -> ConfigurationError {
         ConfigurationError::YubikeyError
     }
 }
+*/
 
 impl std::error::Error for ConfigurationError {
     fn description(&self) -> &str {
@@ -138,12 +136,19 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         _ => return Err(ConfigurationError::AuthorizerError),
     };
 
+    let signer:SigningMechanism = match config.signing.try_into() {
+        Ok(signer) => signer,
+        Err(_) => return Err(ConfigurationError::SigningMechanismError),
+    };
+
+    /*
     let signer = match (config.signing.file, config.signing.vault, config.signing.yubikey) {
         (Some(file), None, None) => SigningMechanism::File(file),
         (None, Some(vault), None) => SigningMechanism::Vault(vault),
         (None, None, Some(yubikey)) => SigningMechanism::Yubikey(yubikey),
         _ => return Err(ConfigurationError::SigningMechanismError),
     };
+    */
 
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();

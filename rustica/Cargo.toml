@@ -7,10 +7,11 @@ edition = "2018"
 [features]
 default = []
 
-all = ["influx", "splunk"]
+all = ["influx", "splunk", "yubikey-support"]
 
 influx = ["influx_db_client"]
 splunk = ["reqwest", "serde_json"]
+yubikey-support = ["sshcerts/yubikey-support"]
 
 [dependencies]
 base64 = "0.12.1"
@@ -27,15 +28,14 @@ ring = "0.16.20"
 serde = {version = "1.0", features = ["derive"]}
 sha2 = "0.9.2"
 # For Production
-sshcerts = { version = "0.7", features = ["yubikey_support"] }
+# sshcerts = { version = "0.7", features = ["x509-support"]}
 # For Development
 # sshcerts = {git = "https://github.com/obelisk/sshcerts", features = ["yubikey"]}
-# sshcerts = {path = "../../sshcerts", features = ["yubikey_piv"]}
+sshcerts = {path = "../../sshcerts", features = ["x509-support"]}
 tokio = { version = "1.0.0", features = ["full"] }
 toml = "0.5"
 tonic = { version = "0.4", features = ["tls"] }
 x509-parser = { version = "0.9", features = ["verify"] }
-yubikey = { version = "0.5", features = ["untested"] }
 
 # Dependencies for Influx
 influx_db_client = { version = "0.5.0", optional = true }

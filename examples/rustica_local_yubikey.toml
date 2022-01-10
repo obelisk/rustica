@@ -49,6 +49,8 @@ listen_address = "0.0.0.0:50052"
 # be required.
 require_rustica_proof = false
 
+[logging]
+[logging."stdout"]
 
 [signing]
 [signing."yubikey"]

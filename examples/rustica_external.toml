@@ -83,6 +83,9 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
+[logging]
+[logging."stdout"]
+
 # [signing."vault"]
 # vault_ca_cert = ""
 # vault_address = ""
