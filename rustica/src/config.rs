@@ -47,7 +47,6 @@ pub enum ConfigurationError {
     FileError,
     ParsingError,
     SSHKeyError,
-    YubikeyError,
     InvalidListenAddress,
     AuthorizerError,
     SigningMechanismError,
@@ -58,14 +57,6 @@ impl From<sshcerts::error::Error> for ConfigurationError {
         ConfigurationError::SSHKeyError
     }
 }
-
-/*
-impl From<sshcerts::yubikey::Error> for ConfigurationError {
-    fn from(_: sshcerts::yubikey::Error) -> ConfigurationError {
-        ConfigurationError::YubikeyError
-    }
-}
-*/
 
 impl std::error::Error for ConfigurationError {
     fn description(&self) -> &str {
@@ -79,7 +70,6 @@ impl std::fmt::Display for ConfigurationError {
             ConfigurationError::FileError => "Could not read configuration file",
             ConfigurationError::ParsingError => "Could not parse the configuration file",
             ConfigurationError::SSHKeyError => "Could not parse the provided SSH keys file",
-            ConfigurationError::YubikeyError => "Could not find or use a connected Yubikey",
             ConfigurationError::InvalidListenAddress => "Invalid address and/or port to listen on",
             ConfigurationError::AuthorizerError => "Configuration for authorization was invalid",
             ConfigurationError::SigningMechanismError => "Configuration for signing certificates was invalid",

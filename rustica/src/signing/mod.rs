@@ -1,53 +1,25 @@
-use sshcerts::ssh::{CertType, PublicKey, PrivateKey, SigningFunction};
-#[cfg(feature = "yubikey-support")]
-use sshcerts::yubikey::piv::{SlotId, Yubikey};
-#[cfg(feature = "yubikey-support")]
-use std::sync::{Arc, Mutex};
+use sshcerts::ssh::{CertType, PublicKey, SigningFunction};
 use serde::Deserialize;
 use std::convert::TryInto;
 
 mod file;
+mod vault;
 #[cfg(feature = "yubikey-support")]
 mod yubikey;
 
 #[derive(Deserialize)]
-pub struct FileSigner {
-    #[serde(deserialize_with = "FileSigner::parse_private_key")]
-    user_key: PrivateKey,
-    #[serde(deserialize_with = "FileSigner::parse_private_key")]
-    host_key: PrivateKey,
-}
-
-#[derive(Deserialize)]
-pub struct VaultSigner {
-
-}
-
-#[cfg(feature = "yubikey-support")]
-#[derive(Deserialize)]
-pub struct YubikeySigner {
-    #[serde(deserialize_with = "YubikeySigner::parse_slot")]
-    user_slot: SlotId,
-    #[serde(deserialize_with = "YubikeySigner::parse_slot")]
-    host_slot: SlotId,
-    #[serde(skip_deserializing, default = "YubikeySigner::new_yubikey_mutex")]
-    yubikey: Arc<Mutex<Yubikey>>
-}
-
-#[derive(Deserialize)]
 pub struct SigningConfiguration {
-    pub file: Option<FileSigner>,
-    pub vault: Option<VaultSigner>,
+    pub file: Option<file::FileSigner>,
+    pub vault: Option<vault::VaultSigner>,
     #[cfg(feature = "yubikey-support")]
-    pub yubikey: Option<YubikeySigner>,
+    pub yubikey: Option<yubikey::YubikeySigner>,
 }
-
 
 pub enum SigningMechanism {
-    File(FileSigner),
-    Vault(VaultSigner),
+    File(file::FileSigner),
+    Vault(vault::VaultSigner),
     #[cfg(feature = "yubikey-support")]
-    Yubikey(YubikeySigner),
+    Yubikey(yubikey::YubikeySigner),
 }
 
 #[derive(Debug)]

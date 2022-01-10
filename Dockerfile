@@ -1,6 +1,6 @@
 FROM rust:1.56 as builder
 
-RUN apt update && apt upgrade -y && apt install -y git libpcsclite-dev
+RUN apt update && apt upgrade -y && apt install -y git
 RUN rustup component add rustfmt
 RUN mkdir /rustica
 COPY proto /tmp/proto
