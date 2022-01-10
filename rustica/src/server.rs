@@ -313,19 +313,6 @@ impl Rustica for RusticaServer {
             error_code: RusticaServerError::Success as i64,
         };
 
-        /*
-        if let Some(influx_client) = &self.influx_client {
-            let point = Point::new("rustica_logs")
-                .add_tag("fingerprint", fingerprint)
-                .add_tag("mtls_identities", mtls_identities.join(","))
-                .add_field("principals", authorization.principals.join(","))
-                .add_field("hosts", authorization.hosts.unwrap_or_default().join(","));
-
-            if let Err(e) = influx_client.write_points(points!(point), Some(Precision::Seconds), None).await {
-                error!("Could not log to influx DB: {}", e);
-            }
-        }*/
-
         self.log_sender.send(Log {
             action: format!("Certificate Issued"),
             dataset: format!("rustica_logs"),
