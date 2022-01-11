@@ -1,4 +1,4 @@
-use crate::auth::{AuthMechanism, AuthServer, LocalDatabase};
+use crate::auth::AuthorizationConfiguration;
 use crate::logging::{Log, LoggingConfiguration};
 use crate::server::RusticaServer;
 use crate::signing::SigningConfiguration;
@@ -15,18 +15,12 @@ use std::net::SocketAddr;
 
 
 #[derive(Deserialize)]
-pub struct Authorization {
-    pub database: Option<LocalDatabase>,
-    pub external: Option<AuthServer>,
-}
-
-#[derive(Deserialize)]
 pub struct Configuration {
     pub server_cert: String,
     pub server_key: String,
     pub client_ca_cert: String,
     pub listen_address: String,
-    pub authorization: Authorization,
+    pub authorization: AuthorizationConfiguration,
     pub signing: SigningConfiguration,
     pub require_rustica_proof: bool,
     pub logging: LoggingConfiguration,
@@ -119,9 +113,8 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
 
     let (log_sender, log_receiver) = unbounded();
 
-    let authorizer = match (config.authorization.database, config.authorization.external) {
-        (Some(database), None) => AuthMechanism::Local(database),
-        (None, Some(external)) => AuthMechanism::External(external),
+    let authorizer = match config.authorization.try_into() {
+        Ok(authorizer) => authorizer,
         _ => return Err(ConfigurationError::AuthorizerError),
     };
 

@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate log;
 
+#[cfg(feature = "local-db")]
 #[macro_use]
 extern crate diesel;
 
@@ -14,7 +15,6 @@ mod signing;
 mod utils;
 mod yubikey;
 
-use auth::AuthMechanism;
 use rustica::rustica_server::{RusticaServer as GRPCRusticaServer};
 use sshcerts::ssh::CertType;
 use tonic::transport::{Certificate as TonicCertificate, Identity, Server, ServerTlsConfig};
@@ -54,10 +54,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Host CA Pubkey: {}", &host_ca_cert);
     println!("Host CA Fingerprint (SHA256): {}", host_ca_cert.fingerprint().hash);
 
-    match &settings.server.authorizer {
-        AuthMechanism::Local(db) => println!("Authorization handled by local database at: {}", &db.path),
-        AuthMechanism::External(e) => println!("Authorization handled by remote service at: {}", &e.server),
-    }
+    println!("{}", settings.server.authorizer.info());
+
     let logging_configuration = settings.logging_configuration;
     let log_receiver = settings.log_receiver;
 

@@ -7,17 +7,17 @@ edition = "2018"
 [features]
 default = []
 
-all = ["influx", "splunk", "yubikey-support"]
+all = ["influx", "splunk", "yubikey-support", "local-db"]
 
 influx = ["influx_db_client"]
 splunk = ["reqwest", "serde_json"]
 yubikey-support = ["sshcerts/yubikey-support"]
+local-db = ["diesel"]
 
 [dependencies]
 base64 = "0.12.1"
 clap = "3.0.5"
 crossbeam-channel = "0.5"
-diesel = { version = "1.4.4", features = ["sqlite"] }
 env_logger = "0.8.2"
 futures-core = "0.3"
 futures-util = "0.3"
@@ -36,6 +36,9 @@ tokio = { version = "1.0.0", features = ["full"] }
 toml = "0.5"
 tonic = { version = "0.4", features = ["tls"] }
 x509-parser = { version = "0.9", features = ["verify"] }
+
+# Dependencies for local-db
+diesel = { version = "1.4.4", features = ["sqlite"], optional = true }
 
 # Dependencies for Influx
 influx_db_client = { version = "0.5.0", optional = true }

@@ -1,4 +1,4 @@
-use crate::auth::{AuthMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties};
+use crate::auth::{AuthorizationMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties};
 use crate::error::RusticaServerError;
 use crate::logging::{Log, Severity};
 use crate::rustica::{
@@ -37,7 +37,7 @@ use x509_parser::der_parser::oid;
 pub struct RusticaServer {
     pub log_sender: Sender<Log>,
     pub hmac_key: hmac::Key,
-    pub authorizer: AuthMechanism,
+    pub authorizer: AuthorizationMechanism,
     pub signer: SigningMechanism,
     pub require_rustica_proof: bool,
 }
@@ -249,10 +249,7 @@ impl Rustica for RusticaServer {
 
         info!("[{}] from [{}] requests a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
 
-        let authorization = match &self.authorizer {
-            AuthMechanism::Local(local) => local.authorize(&auth_props),
-            AuthMechanism::External(external) => external.authorize(&auth_props).await,
-        };
+        let authorization = self.authorizer.authorize(&auth_props).await;
 
         let authorization = match authorization {
             Ok(auth) => auth,
@@ -359,10 +356,7 @@ impl Rustica for RusticaServer {
             attestation,
         };
 
-        let response = match &self.authorizer {
-            AuthMechanism::Local(local) => local.register_key(&register_properties),
-            AuthMechanism::External(external) => external.register_key(&register_properties).await,
-        };
+        let response = self.authorizer.register_key(&register_properties).await;
 
         match response {
             Ok(true) => return Ok(Response::new(RegisterKeyResponse{})),

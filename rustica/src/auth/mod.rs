@@ -1,17 +1,26 @@
+#[cfg(feature = "local-db")]
 pub mod database;
 pub mod external;
 
-pub use database::LocalDatabase;
-pub use external::AuthServer;
 pub use super::key::KeyAttestation;
 
 use sshcerts::ssh::{CertType, Extensions};
+
+use serde::Deserialize;
+use std::convert::TryInto;
 
 #[derive(Debug)]
 pub enum AuthorizationError {
     CertType,
     NotAuthorized,
     AuthorizerError,
+}
+
+#[derive(Deserialize)]
+pub struct AuthorizationConfiguration {
+    #[cfg(feature = "local-db")]
+    pub database: Option<database::LocalDatabase>,
+    pub external: Option<external::AuthServer>,
 }
 
 #[derive(Debug)]
@@ -46,7 +55,53 @@ pub struct RegisterKeyRequestProperties {
     pub attestation: Option<KeyAttestation>,
 }
 
-pub enum AuthMechanism {
-    Local(LocalDatabase),
-    External(AuthServer),
+pub enum AuthorizationMechanism {
+    #[cfg(feature = "local-db")]
+    Local(database::LocalDatabase),
+    External(external::AuthServer),
+}
+
+impl AuthorizationMechanism {
+    pub async fn authorize(&self, auth_props: &AuthorizationRequestProperties) -> Result<Authorization, AuthorizationError> {
+        match &self {
+            #[cfg(feature = "local-db")]
+            AuthorizationMechanism::Local(local) => local.authorize(&auth_props),
+            AuthorizationMechanism::External(external) => external.authorize(&auth_props).await,
+        }
+    }
+
+    pub async fn register_key(&self, register_properties: &RegisterKeyRequestProperties) -> Result<bool, ()> {
+        match &self {
+            #[cfg(feature = "local-db")]
+            AuthorizationMechanism::Local(local) => local.register_key(&register_properties),
+            AuthorizationMechanism::External(external) => external.register_key(&register_properties).await,
+        }
+    }
+
+    pub fn info(&self) -> String {
+        match &self {
+            #[cfg(feature = "local-db")]
+            AuthorizationMechanism::Local(local) => format!("Authorization handled by local database at: {}", &local.path),
+            AuthorizationMechanism::External(external) => format!("Authorization handled by remote service at: {}", &external.server),
+        }
+    }
+}
+
+impl TryInto<AuthorizationMechanism> for AuthorizationConfiguration {
+    type Error = ();
+    fn try_into(self) -> Result<AuthorizationMechanism, ()> {
+        #[cfg(feature = "local-db")]
+        match (self.database, self.external) {
+            (Some(database), None) => Ok(AuthorizationMechanism::Local(database)),
+            (None, Some(external)) => Ok(AuthorizationMechanism::External(external)),
+            _ => return Err(()),
+        }
+
+        #[cfg(not(feature = "local-db"))]
+        if let Some(external) = self.external {
+            Ok(AuthorizationMechanism::External(external))
+        } else {
+            Err(())
+        }
+    }
 }
