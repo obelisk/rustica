@@ -1,4 +1,4 @@
-FROM rust:1.56 as builder
+FROM messense/rust-musl-cross:aarch64-musl as builder
 
 RUN apt update && apt upgrade -y && apt install -y git
 RUN rustup component add rustfmt
@@ -9,8 +9,8 @@ WORKDIR /tmp/rustica
 
 RUN cargo build --release
 
-from ubuntu as runtime
-COPY --from=builder /tmp/rustica/target/release/rustica /rustica
-COPY examples/rustica_local_file.toml /etc/rustica/rustica.toml
+from scratch as runtime
+COPY --from=builder /tmp/rustica/target/aarch64-unknown-linux-musl/release/rustica /rustica
+COPY examples/rustica_external.toml /etc/rustica/rustica.toml
 
 ENTRYPOINT [ "/rustica" ]
