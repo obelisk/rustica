@@ -20,7 +20,6 @@ pub struct Authorization {
     pub external: Option<AuthServer>,
 }
 
-
 #[derive(Deserialize)]
 pub struct Configuration {
     pub server_cert: String,
