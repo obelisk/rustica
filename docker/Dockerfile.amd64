@@ -11,6 +11,5 @@ RUN cargo build --release
 
 from scratch as runtime
 COPY --from=builder /tmp/rustica/target/x86_64-unknown-linux-musl/release/rustica /rustica
-COPY examples/rustica_external.toml /etc/rustica/rustica.toml
 USER 1000
 ENTRYPOINT [ "/rustica" ]

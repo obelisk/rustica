@@ -1,6 +1,5 @@
 FROM messense/rust-musl-cross:aarch64-musl as builder
 
-RUN apt update && apt upgrade -y && apt install -y git
 RUN rustup component add rustfmt
 RUN mkdir /rustica
 COPY proto /tmp/proto
@@ -11,6 +10,5 @@ RUN cargo build --release
 
 from scratch as runtime
 COPY --from=builder /tmp/rustica/target/aarch64-unknown-linux-musl/release/rustica /rustica
-COPY examples/rustica_external.toml /etc/rustica/rustica.toml
-
+USER 1000
 ENTRYPOINT [ "/rustica" ]
