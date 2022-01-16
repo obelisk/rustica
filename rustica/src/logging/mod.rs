@@ -6,9 +6,11 @@ mod stdout;
 
 use stdout::StdoutLogger;
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, RecvTimeoutError};
 
 use serde::{Deserialize, Serialize};
+
+use std::time::Duration;
 
 #[derive(Serialize)]
 pub enum Severity {
@@ -17,14 +19,18 @@ pub enum Severity {
     Info,
 }
 
+/// A generic heartbeat message to keep external systems informed
+/// that Rustica is still healthy
 #[derive(Serialize)]
-pub struct Log {
-    /// The severity of the log message
-    pub severity: Severity,
-    /// Dataset this log belongs to
-    pub dataset: String,
-    /// Action taken this log pertains to
-    pub action: String,
+pub struct Heartbeat {
+    /// Can be used to identify this particular instance in redundant
+    /// environments
+    pub identifier: String,
+}
+
+/// Issued when a certificate request is granted to a user or host
+#[derive(Serialize)]
+pub struct CertificateIssued {
     /// The fingerprint of a related key
     pub fingerprint: String,
     /// The MTLS identities of the action taken
@@ -33,8 +39,33 @@ pub struct Log {
     pub principals: Vec<String>,
     /// Hosts that were authorized
     pub hosts: Vec<String>,
+}
+
+/// Issued when a new key is registered with the service
+#[derive(Serialize)]
+pub struct KeyRegistered {
+    /// The fingerprint of a related key
+    pub fingerprint: String,
+    /// The MTLS identities of registree
+    pub mtls_identities: Vec<String>,
+}
+
+/// Issued when errors or notable events occur within the system
+#[derive(Serialize)]
+pub struct InternalMessage {
+    /// The severity of the log message
+    pub severity: Severity,
     /// Extra data to be passed
     pub message: String,
+}
+
+
+#[derive(Serialize)]
+pub enum Log {
+    CertificateIssued(CertificateIssued),
+    KeyRegistered(KeyRegistered),
+    InternalMessage(InternalMessage),
+    Heartbeat(Heartbeat),
 }
 
 #[derive(Deserialize)]
@@ -81,19 +112,25 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
     };
 
     // Main logging loop
-    while let Ok(log) = log_receiver.recv() {
+    loop {
+        let log = match log_receiver.recv_timeout(Duration::from_secs(300)) {
+            Ok(l) => l,
+            Err(RecvTimeoutError::Timeout) => Log::Heartbeat(Heartbeat {identifier: format!("")}),
+            _ => break,
+        };
+
         if let Some(logger) = &stdout_logger {
-            logger.send_log(&log);
+            logger.send_log(&log).unwrap();
         }
 
         #[cfg(feature = "influx")]
         if let Some(logger) = &influx_logger {
-            logger.send_log(&log);
+            logger.send_log(&log).unwrap();
         }
 
         #[cfg(feature = "splunk")]
         if let Some(logger) = &splunk_logger {
-            logger.send_log(&log);
+            logger.send_log(&log).unwrap();
         }
     }
 

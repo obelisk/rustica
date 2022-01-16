@@ -12,13 +12,15 @@ use serde::Deserialize;
 pub struct Config {
     address: String,
     database: String,
+    dataset: String,
     user: String,
     password: String,
 }
 
 pub struct InfluxLogger {
     client: Client,
-    runtime: Runtime
+    runtime: Runtime,
+    dataset: String,
 }
 
 impl InfluxLogger {
@@ -26,24 +28,32 @@ impl InfluxLogger {
         Self {
             client: Client::new(config.address.parse().unwrap(), config.database).set_authentication(config.user, config.password),
             runtime: Runtime::new().unwrap(),
+            dataset: config.dataset,
         }
     }
 }
 
 impl RusticaLogger for InfluxLogger {
     fn send_log(&self, log: &Log) -> Result<(), ()> {
-        let point = Point::new(&log.dataset)
-            .add_tag("fingerprint", log.fingerprint.clone())
-            .add_tag("mtls_identities", log.mtls_identities.join(","))
-            .add_field("principals", log.principals.join(","))
-            .add_field("hosts", log.hosts.join(","));
+        match log {
+            Log::CertificateIssued(ci) => {
+                let point = Point::new(&self.dataset)
+                .add_tag("fingerprint", ci.fingerprint.clone())
+                .add_tag("mtls_identities", ci.mtls_identities.join(","))
+                .add_field("principals", ci.principals.join(","))
+                .add_field("hosts", ci.hosts.join(","));
 
-        let client = self.client.clone();
-        self.runtime.spawn(async move {
-            if let Err(e) = client.write_points(points!(point), Some(Precision::Seconds), None).await {
-                error!("Could not log to influx DB: {}", e);
+                let client = self.client.clone();
+                self.runtime.spawn(async move {
+                    if let Err(e) = client.write_points(points!(point), Some(Precision::Seconds), None).await {
+                        error!("Could not log to influx DB: {}", e);
+                    }
+                });  
             }
-        });  
+            Log::KeyRegistered(_kr) => (),
+            Log::InternalMessage(_im) => (),
+            Log::Heartbeat(_) => (),
+        }
         Ok(())
     }
 }

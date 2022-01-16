@@ -16,7 +16,6 @@ pub enum RusticaServerError {
 impl From<AuthorizationError> for RusticaServerError {
     fn from(e: AuthorizationError) -> RusticaServerError {
         match e {
-            AuthorizationError::CertType => RusticaServerError::BadCertOptions,
             AuthorizationError::NotAuthorized => RusticaServerError::NotAuthorized,
             AuthorizationError::AuthorizerError => RusticaServerError::Unknown,
         }

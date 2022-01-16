@@ -11,7 +11,6 @@ use std::convert::TryInto;
 
 #[derive(Debug)]
 pub enum AuthorizationError {
-    CertType,
     NotAuthorized,
     AuthorizerError,
 }

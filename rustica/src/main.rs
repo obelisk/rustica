@@ -47,13 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     println!("Starting Rustica on: {}", settings.address);
-
-    info!("User CA Pubkey: {}", &user_ca_cert);
     println!("User CA Fingerprint (SHA256): {}", user_ca_cert.fingerprint().hash);
-
-    info!("Host CA Pubkey: {}", &host_ca_cert);
     println!("Host CA Fingerprint (SHA256): {}", host_ca_cert.fingerprint().hash);
-
     println!("{}", settings.server.authorizer.info());
 
     let logging_configuration = settings.logging_configuration;

@@ -1,6 +1,6 @@
 use crate::auth::{AuthorizationMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties};
 use crate::error::RusticaServerError;
-use crate::logging::{Log, Severity};
+use crate::logging::{CertificateIssued, KeyRegistered, InternalMessage, Log, Severity};
 use crate::rustica::{
     CertificateRequest,
     CertificateResponse,
@@ -173,7 +173,7 @@ impl Rustica for RusticaServer {
             Err(_) => return Err(Status::permission_denied("")),
         };
 
-        info!("[{}] from [{}] wants to authenticate with key [{}]", mtls_identities.join(","), remote_addr, ssh_pubkey.fingerprint().hash);
+        debug!("[{}] from [{}] wants to authenticate with key [{}]", mtls_identities.join(","), remote_addr, ssh_pubkey.fingerprint().hash);
 
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -247,7 +247,7 @@ impl Rustica for RusticaServer {
             valid_before: request.valid_before,
         };
 
-        info!("[{}] from [{}] requests a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
+        debug!("[{}] from [{}] requests a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
 
         let authorization = self.authorizer.authorize(&auth_props).await;
 
@@ -255,7 +255,7 @@ impl Rustica for RusticaServer {
             Ok(auth) => auth,
             Err(e) => return Ok(create_response(e)),
         };
-        info!("[{}] from [{}] is granted a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
+
         debug!("[{}] from [{}] is granted the following authorization on key [{}]: {:?}", mtls_identities.join(","), remote_addr, fingerprint, authorization);
 
         let critical_options = match build_login_script(&authorization.hosts, &authorization.force_command) {
@@ -310,16 +310,14 @@ impl Rustica for RusticaServer {
             error_code: RusticaServerError::Success as i64,
         };
 
-        self.log_sender.send(Log {
-            action: format!("Certificate Issued"),
-            dataset: format!("rustica_logs"),
+        if let Err(e) = self.log_sender.send(Log::CertificateIssued(CertificateIssued {
             fingerprint,
             mtls_identities,
             principals: authorization.principals,
             hosts: authorization.hosts.unwrap_or_default(),
-            message: format!(""),
-            severity: Severity::Info,
-        });
+        })) {
+            panic!("Could not send to logging thread!! {}", e);
+        }
 
         Ok(Response::new(reply))
     }
@@ -350,8 +348,8 @@ impl Rustica for RusticaServer {
         };
 
         let register_properties = RegisterKeyRequestProperties {
-            fingerprint,
-            mtls_identities,
+            fingerprint: fingerprint.clone(),
+            mtls_identities: mtls_identities.clone(),
             requester_ip,
             attestation,
         };
@@ -359,8 +357,27 @@ impl Rustica for RusticaServer {
         let response = self.authorizer.register_key(&register_properties).await;
 
         match response {
-            Ok(true) => return Ok(Response::new(RegisterKeyResponse{})),
-            _ => return Err(Status::unavailable("Could not register new key")),
+            Ok(true) => {
+                self.log_sender.send(Log::KeyRegistered(KeyRegistered {
+                    fingerprint,
+                    mtls_identities,
+                })).unwrap();
+                return Ok(Response::new(RegisterKeyResponse{}))
+            },
+            Ok(false) => {
+                self.log_sender.send(Log::InternalMessage(InternalMessage {
+                    severity: Severity::Warning,
+                    message: format!("[{}] could not be registered with the authorizer. Identities: [{}]", fingerprint, mtls_identities.join(", ")),
+                })).unwrap();
+                return Err(Status::unavailable("Could not register new key"))
+            },
+            Err(_) => {
+                self.log_sender.send(Log::InternalMessage(InternalMessage {
+                    severity: Severity::Error,
+                    message: format!("Authorizer threw error registering fingerprint: [{}] with identities: [{}]", fingerprint, mtls_identities.join(", ")),
+                })).unwrap();
+                return Err(Status::unavailable("Could not register new key"))
+            },
         }
     }
 }
