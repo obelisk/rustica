@@ -310,9 +310,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Otherwise use the slot in the config
     // If none of these, error.
     let mut signatory = match (&cmd_slot, &config.slot, matches.value_of("file"), &config.key) {
-        (_, _, Some(file), _) => Signatory::Direct(PrivateKey::from_path(file)?),
-        (_, _, _, Some(key_string)) => Signatory::Direct(PrivateKey::from_string(key_string)?),
-        (Some(slot), _, _, _) | (_, Some(slot), _, _) => {
+        (Some(slot), _, _, _) => {
             match slot_parser(slot) {
                 Some(s) => Signatory::Yubikey(YubikeySigner {
                     yk: Yubikey::new()?,
@@ -324,6 +322,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         },
+        (_, _, Some(file), _) => Signatory::Direct(PrivateKey::from_path(file)?),
+        (_, Some(slot), _, _) => {
+            match slot_parser(slot) {
+                Some(s) => Signatory::Yubikey(YubikeySigner {
+                    yk: Yubikey::new()?,
+                    slot: s,
+                }),
+                None => {
+                    error!("Chosen slot was invalid. Slot should be of the the form of: R# where # is between 1 and 20 inclusive");
+                    return Err(Box::new(ConfigurationError(String::from("Bad slot"))))
+                }
+            }
+        },
+        (_, _, _, Some(key_string)) => Signatory::Direct(PrivateKey::from_string(key_string)?),
         (None, None, None, None) => {
             error!("A slot, file, or private key must be specified for identification");
             return Err(Box::new(ConfigurationError(String::from("No identity provided"))))
