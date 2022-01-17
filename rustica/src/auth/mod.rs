@@ -11,6 +11,8 @@ use std::convert::TryInto;
 
 #[derive(Debug)]
 pub enum AuthorizationError {
+    #[allow(dead_code)]
+    CertType,
     NotAuthorized,
     AuthorizerError,
 }
