@@ -44,7 +44,7 @@ diesel = { version = "1.4.4", features = ["sqlite"], optional = true }
 influx_db_client = { version = "0.5.0", optional = true }
 
 # Dependencies for Splunk
-reqwest = { version = "0.11", features = ["rustls-tls"], optional = true }
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"], optional = true }
 serde_json = { version = "1.0", optional = true }
 
 [build-dependencies]
