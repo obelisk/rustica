@@ -24,6 +24,7 @@ pub enum SigningMechanism {
 
 #[derive(Debug)]
 pub enum SigningError {
+    #[allow(dead_code)]
     AccessError(String),
 }
 

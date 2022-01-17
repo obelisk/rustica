@@ -14,9 +14,10 @@ use std::time::Duration;
 
 #[derive(Serialize)]
 pub enum Severity {
-    Error,
-    Warning,
+    #[allow(dead_code)]
     Info,
+    Warning,
+    Error,
 }
 
 /// A generic heartbeat message to keep external systems informed
