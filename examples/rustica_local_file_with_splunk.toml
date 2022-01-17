@@ -77,6 +77,9 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
+[logging]
+identifier = "Some Instance"
+
 [logging."stdout"]
 
 # This is not a real token, I randomly generated a UUID
