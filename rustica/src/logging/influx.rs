@@ -46,8 +46,7 @@ impl RusticaLogger for InfluxLogger {
                 let point = Point::new(&self.dataset)
                 .add_tag("fingerprint", ci.fingerprint.clone())
                 .add_tag("mtls_identities", ci.mtls_identities.join(","))
-                .add_field("principals", ci.principals.join(","))
-                .add_field("hosts", ci.hosts.join(","));
+                .add_field("principals", ci.principals.join(","));
 
                 let client = self.client.clone();
                 self.runtime.spawn(async move {
