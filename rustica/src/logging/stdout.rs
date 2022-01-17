@@ -1,4 +1,4 @@
-use super::{Log, RusticaLogger, Severity};
+use super::{Log, LoggingError, RusticaLogger, Severity};
 
 use serde::Deserialize;
 
@@ -14,7 +14,7 @@ impl StdoutLogger {
 }
 
 impl RusticaLogger for StdoutLogger {
-    fn send_log(&self, log: &Log) -> Result<(), ()> {
+    fn send_log(&self, log: &Log) -> Result<(), LoggingError> {
         match log {
             Log::CertificateIssued(ci) => {
                 info!(

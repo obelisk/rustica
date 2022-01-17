@@ -78,10 +78,18 @@ pub struct LoggingConfiguration {
     splunk: Option<splunk::Config>,
 }
 
+#[derive(Debug)]
+pub enum LoggingError {
+    #[allow(dead_code)]
+    SerializationError(String),
+    #[allow(dead_code)]
+    CommunicationError(String),
+}
+
 /// To implement a new logger, it must implement the `send_log` function
 /// and return success or failure.
 pub trait RusticaLogger {
-    fn send_log(&self, log: &Log) -> Result<(), ()>;
+    fn send_log(&self, log: &Log) -> Result<(), LoggingError>;
 }
 
 pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver<Log>) {
@@ -126,12 +134,16 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
 
         #[cfg(feature = "influx")]
         if let Some(logger) = &influx_logger {
-            logger.send_log(&log).unwrap();
+            if let Err(_) = logger.send_log(&log) {
+                error!("Could not send logs to InfluxDB");
+            }
         }
 
         #[cfg(feature = "splunk")]
         if let Some(logger) = &splunk_logger {
-            logger.send_log(&log).unwrap();
+            if let Err(_) = logger.send_log(&log) {
+                error!("Could not send logs to Splunk");
+            }
         }
     }
 

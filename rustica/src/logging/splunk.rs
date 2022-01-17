@@ -1,4 +1,4 @@
-use super::{Log, RusticaLogger};
+use super::{Log, LoggingError, RusticaLogger};
 
 use reqwest;
 
@@ -50,15 +50,12 @@ impl SplunkLogger {
 }
 
 impl RusticaLogger for SplunkLogger {
-    fn send_log(&self, log: &Log) -> Result<(), ()> {
+    fn send_log(&self, log: &Log) -> Result<(), LoggingError> {
         let splunk_log = SplunkLogWrapper {event: log};
 
         let data = match serde_json::to_string(&splunk_log) {
             Ok(json) => json,
-            Err(e) => {
-                error!("Could not serialize event to send to splunk: {}", e);
-                return Err(());
-            }
+            Err(e) => return Err(LoggingError::SerializationError(e.to_string()))
         };
 
         let res = self.client.post(&self.url)
@@ -69,10 +66,11 @@ impl RusticaLogger for SplunkLogger {
 
         self.runtime.spawn(async move {
             match res.send().await {
-                Ok(resp) => trace!("Sent Log: {:?}", resp),
-                Err(e) => error!("Could not send log: {:?}", e),
+                Ok(_) => (),
+                Err(e) => error!("Could not log to Splunk: {}", e.to_string()),
             };
-        });  
+        });
+
         Ok(())
     }
 }

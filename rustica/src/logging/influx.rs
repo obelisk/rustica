@@ -1,4 +1,4 @@
-use super::{Log, RusticaLogger};
+use super::{Log, LoggingError, RusticaLogger};
 
 use influx_db_client::{
     Client, Point, Points, Precision, points
@@ -34,7 +34,7 @@ impl InfluxLogger {
 }
 
 impl RusticaLogger for InfluxLogger {
-    fn send_log(&self, log: &Log) -> Result<(), ()> {
+    fn send_log(&self, log: &Log) -> Result<(), LoggingError> {
         match log {
             Log::CertificateIssued(ci) => {
                 let point = Point::new(&self.dataset)
