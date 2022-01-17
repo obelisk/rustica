@@ -1,0 +1,35 @@
+name: Check Compilation of Splunk, Influx, and LocalDB Features
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ubuntu-build-with-splunk:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --bin=rustica --features=splunk
+
+  ubuntu-build-with-influx:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --bin=rustica --features=influx
+
+  ubuntu-build-with-local-db:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --bin=rustica --features=local-db
