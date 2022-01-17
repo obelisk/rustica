@@ -42,6 +42,30 @@ pub struct RusticaServer {
     pub require_rustica_proof: bool,
 }
 
+/// Macro for simplifying sending error logs to the Rustica logging system.
+/// Contains an unwrap because logging should never fail and if it does
+/// there is no defined way to handle it.
+macro_rules! rustica_error {
+    ($self:ident, $message:expr) => {
+        $self.log_sender.send(Log::InternalMessage(InternalMessage {
+            severity: Severity::Error,
+            message: $message,
+        })).unwrap();
+    };
+}
+
+/// Macro for simplifying sending warning logs to the Rustica logging system.
+/// Contains an unwrap because logging should never fail and if it does
+/// there is no defined way to handle it.
+macro_rules! rustica_warning {
+    ($self:ident, $message:expr) => {
+        $self.log_sender.send(Log::InternalMessage(InternalMessage {
+            severity: Severity::Warning,
+            message: $message,
+        })).unwrap();
+    };
+}
+
 
 fn create_response<T>(e: T) -> Response<CertificateResponse> where 
 T : Into::<RusticaServerError> {
@@ -230,7 +254,7 @@ impl Rustica for RusticaServer {
         let ca_cert = match ca_cert {
             Ok(ca_cert) => ca_cert,
             Err(e) => {
-                error!("Could not fetch public key to insert into new certificate: {:?}", e);
+                rustica_error!(self, format!("Could not fetch public key to insert into new certificate: {:?}", e));
                 return Ok(create_response(RusticaServerError::Unknown));
             }
         };
@@ -293,13 +317,13 @@ impl Rustica for RusticaServer {
 
                 // Sanity check that we can parse the cert we just generated
                 if let Err(e) = Certificate::from_string(&serialized) {
-                    error!("Couldn't deserialize certificate: {}", e);
+                    rustica_error!(self, format!("Couldn't deserialize certificate: {}", e));
                     return Ok(create_response(RusticaServerError::BadCertOptions));
                 }
                 serialized
             }
             Err(e) => {
-                error!("Creating certificate failed: {}", e);
+                rustica_error!(self, format!("Creating certificate failed: {}", e));
                 return Ok(create_response(RusticaServerError::BadChallenge));
             }
         };
@@ -310,14 +334,12 @@ impl Rustica for RusticaServer {
             error_code: RusticaServerError::Success as i64,
         };
 
-        if let Err(e) = self.log_sender.send(Log::CertificateIssued(CertificateIssued {
+        self.log_sender.send(Log::CertificateIssued(CertificateIssued {
             fingerprint,
             mtls_identities,
             principals: authorization.principals,
             hosts: authorization.hosts.unwrap_or_default(),
-        })) {
-            panic!("Could not send to logging thread!! {}", e);
-        }
+        })).unwrap();
 
         Ok(Response::new(reply))
     }
@@ -365,17 +387,11 @@ impl Rustica for RusticaServer {
                 return Ok(Response::new(RegisterKeyResponse{}))
             },
             Ok(false) => {
-                self.log_sender.send(Log::InternalMessage(InternalMessage {
-                    severity: Severity::Warning,
-                    message: format!("[{}] could not be registered with the authorizer. Identities: [{}]", fingerprint, mtls_identities.join(", ")),
-                })).unwrap();
+                rustica_warning!(self, format!("[{}] could not be registered with the authorizer. Identities: [{}]", fingerprint, mtls_identities.join(", ")));
                 return Err(Status::unavailable("Could not register new key"))
             },
             Err(_) => {
-                self.log_sender.send(Log::InternalMessage(InternalMessage {
-                    severity: Severity::Error,
-                    message: format!("Authorizer threw error registering fingerprint: [{}] with identities: [{}]", fingerprint, mtls_identities.join(", ")),
-                })).unwrap();
+                rustica_error!(self, format!("Authorizer threw error registering fingerprint: [{}] with identities: [{}]", fingerprint, mtls_identities.join(", ")));
                 return Err(Status::unavailable("Could not register new key"))
             },
         }
