@@ -4,8 +4,6 @@ mod influx;
 mod splunk;
 mod stdout;
 
-use stdout::StdoutLogger;
-
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 
 use serde::{Deserialize, Serialize};
@@ -63,9 +61,20 @@ pub struct InternalMessage {
 
 #[derive(Serialize)]
 pub enum Log {
+    /// Represents the event of issuing a certificate. This happens whenever a
+    /// user connects to a remote machine that uses Rustica and they need to
+    /// refresh their certificate.
     CertificateIssued(CertificateIssued),
+    /// A user has registered a new key with the Rustica system. This is
+    /// emitted even if Rustica is not storing these keys locally and is
+    /// only forwarding them on to an authorization service.
     KeyRegistered(KeyRegistered),
+    /// Used for relaying status messages to a logging backend. Rustica errors
+    /// or failures send messages of this type.
     InternalMessage(InternalMessage),
+    /// Is not used by other components of Rustica. This is created and sent
+    /// by the logging system if it has not received a message from the server
+    /// module for a period of time.
     Heartbeat(Heartbeat),
 }
 
@@ -81,8 +90,11 @@ pub struct LoggingConfiguration {
 #[derive(Debug)]
 pub enum LoggingError {
     #[allow(dead_code)]
+    /// Returned when there is a failure serializing received logging data
     SerializationError(String),
     #[allow(dead_code)]
+    /// Returned when there is a issue communicating with a backend or other
+    /// remote system.
     CommunicationError(String),
 }
 
@@ -92,14 +104,23 @@ pub trait RusticaLogger {
     fn send_log(&self, log: &Log) -> Result<(), LoggingError>;
 }
 
+/// This is the entry point of our logging thread started from main. This
+/// should be running in its own thread waiting for logs to come in from
+/// the tonic server. If it does not receive a message in 300 seconds it
+/// will send a heartbeat message instead. For stdout, and influx, this is
+/// a noop and will not actually be sent to the backend (or logged to the
+/// screen).
 pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver<Log>) {
     // Configure the different loggers
     let stdout_logger = match config.stdout {
         Some(config) => {
             println!("Configured logger: stdout");
-            Some(StdoutLogger::new(config))
+            Some(stdout::StdoutLogger::new(config))
         },
-        None => None,
+        None => {
+            println!("stdout logger is not enabled. This is not recommended!");
+            None
+        },
     };
 
     #[cfg(feature = "influx")]

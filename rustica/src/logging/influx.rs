@@ -24,6 +24,7 @@ pub struct InfluxLogger {
 }
 
 impl InfluxLogger {
+    /// Create a new InfluxDB logger from the provided configuration
     pub fn new(config: Config) -> Self {
         Self {
             client: Client::new(config.address.parse().unwrap(), config.database).set_authentication(config.user, config.password),
@@ -34,6 +35,11 @@ impl InfluxLogger {
 }
 
 impl RusticaLogger for InfluxLogger {
+    /// Sends a log to the configured InfluxDB database and dataset. This call
+    /// happens asynchronous which has the benefit of not blocking the logging
+    /// thread (meaning it will not hold out other loggers like stdout), but
+    /// has the drawback that we cannot return a proper LoggingError on failure
+    /// because we cannot wait for the call to complete.
     fn send_log(&self, log: &Log) -> Result<(), LoggingError> {
         match log {
             Log::CertificateIssued(ci) => {

@@ -31,8 +31,10 @@ struct SplunkLogWrapper<'a> {
     event: &'a Log
 }
 
-
 impl SplunkLogger {
+    /// Implement the new function for the Splunk logger. This converts
+    /// the configuration struct into a type that can handle sending
+    /// logs directly to a Splunk HEC endpoint.
     pub fn new(config: Config) -> Self {
         // I don't think this can fail with our settings so we do an unwrap
         let client = reqwest::Client::builder()
@@ -50,6 +52,11 @@ impl SplunkLogger {
 }
 
 impl RusticaLogger for SplunkLogger {
+    /// Send a log to Splunk via an HEC endpoint. This function uses a tokio
+    /// runtime within the SplunkLogger type. This means that sending a log
+    /// will not block sending logs to other services (like stdout) but it
+    /// does mean we cannot return a proper LoggingError to the caller since
+    /// we cannot wait for it to complete.
     fn send_log(&self, log: &Log) -> Result<(), LoggingError> {
         let splunk_log = SplunkLogWrapper {event: log};
 
