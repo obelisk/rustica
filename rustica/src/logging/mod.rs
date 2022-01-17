@@ -11,22 +11,23 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// A severity scale to measure how critical a log is when sent
+/// to a logging service.
 #[derive(Serialize)]
 pub enum Severity {
+    /// An informative log
     #[allow(dead_code)]
     Info,
+    /// A non critical error
     Warning,
+    /// A critical error
     Error,
 }
 
 /// A generic heartbeat message to keep external systems informed
 /// that Rustica is still healthy
 #[derive(Serialize)]
-pub struct Heartbeat {
-    /// Can be used to identify this particular instance in redundant
-    /// environments
-    pub identifier: String,
-}
+pub struct Heartbeat {}
 
 /// Issued when a certificate request is granted to a user or host
 #[derive(Serialize)]
@@ -89,8 +90,21 @@ pub enum Log {
     Heartbeat(Heartbeat),
 }
 
+/// Logs are public to the rest of the codebase so we have no control over their
+/// contents. This type wraps those logs in an additional structure to allow us
+/// to add metadata relevant to the logging system or instance itself.
+#[derive(Serialize)]
+struct WrappedLog {
+    /// The log sent from the server module
+    log: Log,
+    /// An identifier to identify this instance or configuration in redundant
+    /// environments
+    identifier: String,
+}
+
 #[derive(Deserialize)]
 pub struct LoggingConfiguration {
+    identifier: Option<String>,
     stdout: Option<stdout::Config>,
     #[cfg(feature = "influx")]
     influx: Option<influx::Config>,
@@ -111,8 +125,8 @@ pub enum LoggingError {
 
 /// To implement a new logger, it must implement the `send_log` function
 /// and return success or failure.
-pub trait RusticaLogger {
-    fn send_log(&self, log: &Log) -> Result<(), LoggingError>;
+trait RusticaLogger {
+    fn send_log(&self, log: &WrappedLog) -> Result<(), LoggingError>;
 }
 
 /// This is the entry point of our logging thread started from main. This
@@ -156,8 +170,13 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
     loop {
         let log = match log_receiver.recv_timeout(Duration::from_secs(300)) {
             Ok(l) => l,
-            Err(RecvTimeoutError::Timeout) => Log::Heartbeat(Heartbeat {identifier: format!("")}),
+            Err(RecvTimeoutError::Timeout) => Log::Heartbeat(Heartbeat {}),
             _ => break,
+        };
+
+        let log = WrappedLog {
+            log,
+            identifier: config.identifier.clone().unwrap_or_default(),
         };
 
         if let Some(logger) = &stdout_logger {

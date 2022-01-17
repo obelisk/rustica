@@ -1,4 +1,4 @@
-use super::{Log, LoggingError, RusticaLogger};
+use super::{Log, LoggingError, RusticaLogger, WrappedLog};
 
 use influx_db_client::{
     Client, Point, Points, Precision, points
@@ -40,8 +40,8 @@ impl RusticaLogger for InfluxLogger {
     /// thread (meaning it will not hold out other loggers like stdout), but
     /// has the drawback that we cannot return a proper LoggingError on failure
     /// because we cannot wait for the call to complete.
-    fn send_log(&self, log: &Log) -> Result<(), LoggingError> {
-        match log {
+    fn send_log(&self, log: &WrappedLog) -> Result<(), LoggingError> {
+        match &log.log {
             Log::CertificateIssued(ci) => {
                 let point = Point::new(&self.dataset)
                 .add_tag("fingerprint", ci.fingerprint.clone())
