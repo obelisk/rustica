@@ -1,4 +1,4 @@
-name: Check Compilation of Splunk, Influx, and LocalDB Features
+name: Check Rustica Compilation of All Features
 
 on:
   push:
