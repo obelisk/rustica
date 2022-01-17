@@ -307,8 +307,8 @@ impl Rustica for RusticaServer {
             .set_principals(&authorization.principals)
             .valid_after(authorization.valid_after)
             .valid_before(authorization.valid_before)
-            .set_critical_options(critical_options)
-            .set_extensions(authorization.extensions)
+            .set_critical_options(critical_options.clone())
+            .set_extensions(authorization.extensions.clone())
             .sign(signer);
 
         let serialized_cert = match cert {
@@ -336,9 +336,14 @@ impl Rustica for RusticaServer {
 
         self.log_sender.send(Log::CertificateIssued(CertificateIssued {
             fingerprint,
+            signed_by: ca_cert.fingerprint().hash,
+            certificate_type: req_cert_type.to_string(),
             mtls_identities,
             principals: authorization.principals,
-            hosts: authorization.hosts.unwrap_or_default(),
+            extensions: authorization.extensions.into(),
+            critical_options: critical_options.into(),
+            valid_after: authorization.valid_after,
+            valid_before: authorization.valid_before,
         })).unwrap();
 
         Ok(Response::new(reply))

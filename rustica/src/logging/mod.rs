@@ -8,6 +8,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError};
 
 use serde::{Deserialize, Serialize};
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Serialize)]
@@ -32,12 +33,22 @@ pub struct Heartbeat {
 pub struct CertificateIssued {
     /// The fingerprint of a related key
     pub fingerprint: String,
+    /// The fingerprint of the signing certificate
+    pub signed_by: String,
+    /// Certificate type, either User or Host
+    pub certificate_type: String,
     /// The MTLS identities of the action taken
     pub mtls_identities: Vec<String>,
     /// The principals authorized for the request
     pub principals: Vec<String>,
-    /// Hosts that were authorized
-    pub hosts: Vec<String>,
+    /// Extensions present in issued certificate
+    pub extensions: HashMap<String, String>,
+    /// Critical Options present in the issued certificate
+    pub critical_options: HashMap<String, String>,
+    /// Validity period starts
+    pub valid_after: u64,
+    /// Validity period ends
+    pub valid_before: u64,
 }
 
 /// Issued when a new key is registered with the service

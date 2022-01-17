@@ -1953,9 +1953,9 @@ dependencies = [
 
 [[package]]
 name = "sshcerts"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5176be24800ac13b7a15cde1dcc888522209842c45c71daa2eb5b99f3d7a6ca"
+checksum = "9b250b62e640a77b7ff1a644a49ef85461b458d0d15347ba2fdcabdb2553e2d7"
 dependencies = [
  "base64 0.13.0",
  "der-parser 5.1.2",
