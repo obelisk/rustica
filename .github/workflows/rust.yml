@@ -10,6 +10,14 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  macos-build-with-yubikey:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --package=rustica --features="yubikey-support"
+
   ubuntu-build-with-splunk:
     runs-on: ubuntu-latest
 
