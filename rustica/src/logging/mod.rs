@@ -70,7 +70,7 @@ pub struct InternalMessage {
     pub message: String,
 }
 
-
+/// Represents a log to be sent to the configured logging systems.
 #[derive(Serialize)]
 pub enum Log {
     /// Represents the event of issuing a certificate. This happens whenever a
@@ -102,12 +102,30 @@ struct WrappedLog {
     identifier: String,
 }
 
+/// Defines the complete logging configuration shape. This consists of some top
+/// level options for configuring logging as a whole, then several optional sub
+/// structs that configure individual logging systems.
 #[derive(Deserialize)]
 pub struct LoggingConfiguration {
+    /// This is used as a decorator when sending logs to backends in the event
+    /// that there are multiple Rustica instances in a single logging
+    /// environment.
     identifier: Option<String>,
+    /// If logs are received after this many seconds, the system will send an
+    /// empty heartbeat log to the logging systems to signal it is still up
+    /// and healthy.
+    heartbeat_interval: Option<u64>,
+    /// Configures the stdout logger. This is powered by env_logger and is a
+    /// thin wrapper around it, however it lets us log to stdout the same way
+    /// we log to other more complex systems.
     stdout: Option<stdout::Config>,
+    /// Log to InfluxDB for timerseries logging. Generally this is used in
+    /// conjuction with Grafana. The influx module contains more information
+    /// on configuring this logger.
     #[cfg(feature = "influx")]
     influx: Option<influx::Config>,
+    /// Log to Splunk for standard logging. The splunk module contains more
+    /// information on configuring this logger.
     #[cfg(feature = "splunk")]
     splunk: Option<splunk::Config>,
 }
@@ -136,6 +154,7 @@ trait RusticaLogger {
 /// a noop and will not actually be sent to the backend (or logged to the
 /// screen).
 pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver<Log>) {
+    let heartbeat_interval = config.heartbeat_interval.unwrap_or(300);
     // Configure the different loggers
     let stdout_logger = match config.stdout {
         Some(config) => {
@@ -168,7 +187,7 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
 
     // Main logging loop
     loop {
-        let log = match log_receiver.recv_timeout(Duration::from_secs(300)) {
+        let log = match log_receiver.recv_timeout(Duration::from_secs(heartbeat_interval)) {
             Ok(l) => l,
             Err(RecvTimeoutError::Timeout) => Log::Heartbeat(Heartbeat {}),
             _ => break,

@@ -79,6 +79,7 @@ ECAwQ=
 
 [logging]
 identifier = "Some Instance"
+heartbeat_interval = 240
 
 [logging."stdout"]
 
