@@ -40,6 +40,7 @@ pub struct Config {
     pub mtls_cert: Option<String>,
     pub mtls_key: Option<String>,
     pub slot: Option<String>,
+    pub key: Option<String>,
     pub options: Option<Options>,
     pub socket: Option<String>,
 }

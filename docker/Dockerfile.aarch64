@@ -1,0 +1,14 @@
+FROM messense/rust-musl-cross:aarch64-musl as builder
+
+RUN rustup component add rustfmt
+RUN mkdir /rustica
+COPY proto /tmp/proto
+COPY rustica /tmp/rustica
+WORKDIR /tmp/rustica
+
+RUN cargo build --features="splunk" --release
+
+from scratch as runtime
+COPY --from=builder /tmp/rustica/target/aarch64-unknown-linux-musl/release/rustica /rustica
+USER 1000
+ENTRYPOINT [ "/rustica" ]

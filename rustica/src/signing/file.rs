@@ -1,7 +1,13 @@
 use sshcerts::{PublicKey, PrivateKey, ssh::CertType, ssh::SigningFunction};
 use serde::Deserialize;
 
-use super::FileSigner;
+#[derive(Deserialize)]
+pub struct FileSigner {
+    #[serde(deserialize_with = "FileSigner::parse_private_key")]
+    user_key: PrivateKey,
+    #[serde(deserialize_with = "FileSigner::parse_private_key")]
+    host_key: PrivateKey,
+}
 
 impl FileSigner {
     pub fn get_signer(&self, cert_type: CertType) -> SigningFunction {

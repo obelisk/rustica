@@ -1,5 +1,6 @@
-use crate::auth::{AuthMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties};
+use crate::auth::{AuthorizationMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties};
 use crate::error::RusticaServerError;
+use crate::logging::{CertificateIssued, KeyRegistered, InternalMessage, Log, Severity};
 use crate::rustica::{
     CertificateRequest,
     CertificateResponse,
@@ -14,9 +15,7 @@ use crate::signing::{SigningMechanism};
 use crate::utils::build_login_script;
 use crate::yubikey::verify_certificate_chain;
 
-use influx_db_client::{
-    Client, Point, Points, Precision, points
-};
+use crossbeam_channel::Sender;
 
 use sshcerts::ssh::{
     CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind
@@ -36,11 +35,35 @@ use x509_parser::der_parser::oid;
 
 
 pub struct RusticaServer {
-    pub influx_client: Option<Client>,
+    pub log_sender: Sender<Log>,
     pub hmac_key: hmac::Key,
-    pub authorizer: AuthMechanism,
+    pub authorizer: AuthorizationMechanism,
     pub signer: SigningMechanism,
     pub require_rustica_proof: bool,
+}
+
+/// Macro for simplifying sending error logs to the Rustica logging system.
+/// Contains an unwrap because logging should never fail and if it does
+/// there is no defined way to handle it.
+macro_rules! rustica_error {
+    ($self:ident, $message:expr) => {
+        $self.log_sender.send(Log::InternalMessage(InternalMessage {
+            severity: Severity::Error,
+            message: $message,
+        })).unwrap();
+    };
+}
+
+/// Macro for simplifying sending warning logs to the Rustica logging system.
+/// Contains an unwrap because logging should never fail and if it does
+/// there is no defined way to handle it.
+macro_rules! rustica_warning {
+    ($self:ident, $message:expr) => {
+        $self.log_sender.send(Log::InternalMessage(InternalMessage {
+            severity: Severity::Warning,
+            message: $message,
+        })).unwrap();
+    };
 }
 
 
@@ -174,7 +197,7 @@ impl Rustica for RusticaServer {
             Err(_) => return Err(Status::permission_denied("")),
         };
 
-        info!("[{}] from [{}] wants to authenticate with key [{}]", mtls_identities.join(","), remote_addr, ssh_pubkey.fingerprint().hash);
+        debug!("[{}] from [{}] wants to authenticate with key [{}]", mtls_identities.join(","), remote_addr, ssh_pubkey.fingerprint().hash);
 
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -231,7 +254,7 @@ impl Rustica for RusticaServer {
         let ca_cert = match ca_cert {
             Ok(ca_cert) => ca_cert,
             Err(e) => {
-                error!("Could not fetch public key to insert into new certificate: {:?}", e);
+                rustica_error!(self, format!("Could not fetch public key to insert into new certificate: {:?}", e));
                 return Ok(create_response(RusticaServerError::Unknown));
             }
         };
@@ -248,18 +271,15 @@ impl Rustica for RusticaServer {
             valid_before: request.valid_before,
         };
 
-        info!("[{}] from [{}] requests a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
+        debug!("[{}] from [{}] requests a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
 
-        let authorization = match &self.authorizer {
-            AuthMechanism::Local(local) => local.authorize(&auth_props),
-            AuthMechanism::External(external) => external.authorize(&auth_props).await,
-        };
+        let authorization = self.authorizer.authorize(&auth_props).await;
 
         let authorization = match authorization {
             Ok(auth) => auth,
             Err(e) => return Ok(create_response(e)),
         };
-        info!("[{}] from [{}] is granted a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
+
         debug!("[{}] from [{}] is granted the following authorization on key [{}]: {:?}", mtls_identities.join(","), remote_addr, fingerprint, authorization);
 
         let critical_options = match build_login_script(&authorization.hosts, &authorization.force_command) {
@@ -287,8 +307,8 @@ impl Rustica for RusticaServer {
             .set_principals(&authorization.principals)
             .valid_after(authorization.valid_after)
             .valid_before(authorization.valid_before)
-            .set_critical_options(critical_options)
-            .set_extensions(authorization.extensions)
+            .set_critical_options(critical_options.clone())
+            .set_extensions(authorization.extensions.clone())
             .sign(signer);
 
         let serialized_cert = match cert {
@@ -297,13 +317,13 @@ impl Rustica for RusticaServer {
 
                 // Sanity check that we can parse the cert we just generated
                 if let Err(e) = Certificate::from_string(&serialized) {
-                    error!("Couldn't deserialize certificate: {}", e);
+                    rustica_error!(self, format!("Couldn't deserialize certificate: {}", e));
                     return Ok(create_response(RusticaServerError::BadCertOptions));
                 }
                 serialized
             }
             Err(e) => {
-                error!("Creating certificate failed: {}", e);
+                rustica_error!(self, format!("Creating certificate failed: {}", e));
                 return Ok(create_response(RusticaServerError::BadChallenge));
             }
         };
@@ -314,17 +334,17 @@ impl Rustica for RusticaServer {
             error_code: RusticaServerError::Success as i64,
         };
 
-        if let Some(influx_client) = &self.influx_client {
-            let point = Point::new("rustica_logs")
-                .add_tag("fingerprint", fingerprint)
-                .add_tag("mtls_identities", mtls_identities.join(","))
-                .add_field("principals", authorization.principals.join(","))
-                .add_field("hosts", authorization.hosts.unwrap_or_default().join(","));
-
-            if let Err(e) = influx_client.write_points(points!(point), Some(Precision::Seconds), None).await {
-                error!("Could not log to influx DB: {}", e);
-            }
-        }
+        self.log_sender.send(Log::CertificateIssued(CertificateIssued {
+            fingerprint,
+            signed_by: ca_cert.fingerprint().hash,
+            certificate_type: req_cert_type.to_string(),
+            mtls_identities,
+            principals: authorization.principals,
+            extensions: authorization.extensions.into(),
+            critical_options: critical_options.into(),
+            valid_after: authorization.valid_after,
+            valid_before: authorization.valid_before,
+        })).unwrap();
 
         Ok(Response::new(reply))
     }
@@ -355,20 +375,30 @@ impl Rustica for RusticaServer {
         };
 
         let register_properties = RegisterKeyRequestProperties {
-            fingerprint,
-            mtls_identities,
+            fingerprint: fingerprint.clone(),
+            mtls_identities: mtls_identities.clone(),
             requester_ip,
             attestation,
         };
 
-        let response = match &self.authorizer {
-            AuthMechanism::Local(local) => local.register_key(&register_properties),
-            AuthMechanism::External(external) => external.register_key(&register_properties).await,
-        };
+        let response = self.authorizer.register_key(&register_properties).await;
 
         match response {
-            Ok(true) => return Ok(Response::new(RegisterKeyResponse{})),
-            _ => return Err(Status::unavailable("Could not register new key")),
+            Ok(true) => {
+                self.log_sender.send(Log::KeyRegistered(KeyRegistered {
+                    fingerprint,
+                    mtls_identities,
+                })).unwrap();
+                return Ok(Response::new(RegisterKeyResponse{}))
+            },
+            Ok(false) => {
+                rustica_warning!(self, format!("[{}] could not be registered with the authorizer. Identities: [{}]", fingerprint, mtls_identities.join(", ")));
+                return Err(Status::unavailable("Could not register new key"))
+            },
+            Err(_) => {
+                rustica_error!(self, format!("Authorizer threw error registering fingerprint: [{}] with identities: [{}]", fingerprint, mtls_identities.join(", ")));
+                return Err(Status::unavailable("Could not register new key"))
+            },
         }
     }
 }

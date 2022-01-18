@@ -50,11 +50,37 @@ listen_address = "0.0.0.0:50052"
 require_rustica_proof = false
 
 
+# Rustica has many ways it can sign SSH certificates which are sent to
+# clients. This method uses private keys embedded in the configuration
+# file. This will mean the hosts which you want to login to via Rustica
+# must respect the public portion of the user key variable below.
 [signing]
-[signing."yubikey"]
-user_slot = "R2"
-host_slot = "R3"
+[signing."file"]
+user_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+gAAAKhxqRWZcakV
+mQAAAAtzc2gtZWQyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+g
+AAAEA8yRG/XWtjlY007gj8tNflVX9fnHPDcQYH2HTImTKvPeGrtTSBxbrqYk1amwv/gAM1
+eg5Qwsddhszw8gduo9P6AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+host_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnewAAAKhQSP5+UEj+
+fgAAAAtzc2gtZWQyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnew
+AAAEAevZOed5UnsVdAASUn+sJ+dUfUnG1kQ1wRH9L758mSCxcC2QuSbJKphPaKx0fRxE52
+sDNPZwaD2kv14ulnBCd7AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+[logging]
+[logging."stdout"]
 
 [authorization]
 [authorization."database"]
-path = "/tmp/rustica.db"
+path = "resources/example.db"

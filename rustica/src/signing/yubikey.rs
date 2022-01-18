@@ -4,7 +4,18 @@ use serde::Deserialize;
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
-use super::{YubikeySigner, SigningError};
+use super::SigningError;
+
+#[derive(Deserialize)]
+pub struct YubikeySigner {
+    #[serde(deserialize_with = "YubikeySigner::parse_slot")]
+    user_slot: SlotId,
+    #[serde(deserialize_with = "YubikeySigner::parse_slot")]
+    host_slot: SlotId,
+    #[serde(skip_deserializing, default = "YubikeySigner::new_yubikey_mutex")]
+    yubikey: Arc<Mutex<Yubikey>>
+}
+
 
 impl YubikeySigner {
     fn create_signer(&self, slot: SlotId) -> SigningFunction {

@@ -1,42 +1,30 @@
-use sshcerts::ssh::{CertType, PublicKey, PrivateKey, SigningFunction};
-use sshcerts::yubikey::piv::{SlotId, Yubikey};
-use std::sync::{Arc, Mutex};
+use sshcerts::ssh::{CertType, PublicKey, SigningFunction};
 use serde::Deserialize;
+use std::convert::TryInto;
 
 mod file;
+mod vault;
+#[cfg(feature = "yubikey-support")]
 mod yubikey;
 
 #[derive(Deserialize)]
-pub struct FileSigner {
-    #[serde(deserialize_with = "FileSigner::parse_private_key")]
-    user_key: PrivateKey,
-    #[serde(deserialize_with = "FileSigner::parse_private_key")]
-    host_key: PrivateKey,
-}
-
-#[derive(Deserialize)]
-pub struct VaultSigner {
-
-}
-
-#[derive(Deserialize)]
-pub struct YubikeySigner {
-    #[serde(deserialize_with = "YubikeySigner::parse_slot")]
-    user_slot: SlotId,
-    #[serde(deserialize_with = "YubikeySigner::parse_slot")]
-    host_slot: SlotId,
-    #[serde(skip_deserializing, default = "YubikeySigner::new_yubikey_mutex")]
-    yubikey: Arc<Mutex<Yubikey>>
+pub struct SigningConfiguration {
+    pub file: Option<file::FileSigner>,
+    pub vault: Option<vault::VaultSigner>,
+    #[cfg(feature = "yubikey-support")]
+    pub yubikey: Option<yubikey::YubikeySigner>,
 }
 
 pub enum SigningMechanism {
-    File(FileSigner),
-    Vault(VaultSigner),
-    Yubikey(YubikeySigner),
+    File(file::FileSigner),
+    Vault(vault::VaultSigner),
+    #[cfg(feature = "yubikey-support")]
+    Yubikey(yubikey::YubikeySigner),
 }
 
 #[derive(Debug)]
 pub enum SigningError {
+    #[allow(dead_code)]
     AccessError(String),
 }
 
@@ -45,6 +33,7 @@ impl SigningMechanism {
         match self {
             SigningMechanism::File(file) => file.get_signer(cert_type),
             SigningMechanism::Vault(_vault) => panic!("Unimplemented"),
+            #[cfg(feature = "yubikey-support")]
             SigningMechanism::Yubikey(yubikey) => yubikey.get_signer(cert_type),
         }
     }
@@ -53,7 +42,28 @@ impl SigningMechanism {
         match self {
             SigningMechanism::File(file) => Ok(file.get_signer_public_key(cert_type)),
             SigningMechanism::Vault(_vault) => panic!("Unimplemented"),
+            #[cfg(feature = "yubikey-support")]
             SigningMechanism::Yubikey(yubikey) => yubikey.get_signer_public_key(cert_type),
+        }
+    }
+}
+
+impl TryInto<SigningMechanism> for SigningConfiguration {
+    type Error = ();
+    fn try_into(self) -> Result<SigningMechanism, ()> {
+        #[cfg(feature = "yubikey-support")]
+        match (self.file, self.vault, self.yubikey) {
+            (Some(file), None, None) => Ok(SigningMechanism::File(file)),
+            (None, Some(vault), None) => Ok(SigningMechanism::Vault(vault)),
+            (None, None, Some(yubikey)) => Ok(SigningMechanism::Yubikey(yubikey)),
+            _ => return Err(()),
+        }
+
+        #[cfg(not(feature = "yubikey-support"))]
+        match (self.file, self.vault) {
+            (Some(file), None) => Ok(SigningMechanism::File(file)),
+            (None, Some(vault)) => Ok(SigningMechanism::Vault(vault)),
+            _ => return Err(()),
         }
     }
 }

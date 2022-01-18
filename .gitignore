@@ -7,5 +7,4 @@
 /resources/
 !/resources/create_certs.sh
 !/resources/package.sh
-!/resources/rustica_example_local.toml
-!/resources/rustica_example_external.toml
+/kubernetes
