@@ -246,8 +246,8 @@ impl Rustica for RusticaServer {
         }
 
         let (req_cert_type, ca_cert, signer) = match request.cert_type {
-            1 => (CertType::User, self.signer.get_signer_public_key(CertType::User), self.signer.get_signer(CertType::User)),
-            2 => (CertType::Host, self.signer.get_signer_public_key(CertType::Host), self.signer.get_signer(CertType::Host)),
+            1 => (CertType::User, self.signer.get_signer_public_key(CertType::User).await, self.signer.get_signer(CertType::User)),
+            2 => (CertType::Host, self.signer.get_signer_public_key(CertType::Host).await, self.signer.get_signer(CertType::Host)),
             _ => return Ok(create_response(RusticaServerError::BadCertOptions)),
         };
 

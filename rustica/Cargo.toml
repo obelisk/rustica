@@ -1,18 +1,19 @@
 [package]
 name = "rustica"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2018"
 
 [features]
 default = []
 
-all = ["influx", "splunk", "yubikey-support", "local-db"]
+all = ["amazon-kms", "influx", "splunk", "yubikey-support", "local-db"]
 
+amazon-kms = ["aws-config", "aws-sdk-kms", "aws-types"]
 influx = ["influx_db_client"]
+local-db = ["diesel"]
 splunk = ["reqwest", "serde_json"]
 yubikey-support = ["sshcerts/yubikey-support"]
-local-db = ["diesel"]
 
 [dependencies]
 base64 = "0.12.1"
@@ -28,14 +29,20 @@ ring = "0.16.20"
 serde = {version = "1.0", features = ["derive"]}
 sha2 = "0.9.2"
 # For Production
-sshcerts = { version = "0.8.1", default-features = false, features = ["x509-support"]}
+# sshcerts = { version = "0.8.1", default-features = false, features = ["x509-support"] }
 # For Development
-# sshcerts = {git = "https://github.com/obelisk/sshcerts", features = ["yubikey"]}
-# sshcerts = {path = "../../sshcerts", features = ["x509-support"]}
+# sshcerts = {git = "https://github.com/obelisk/sshcerts", features = ["yubikey-support"]}
+sshcerts = {path = "../../sshcerts", features = ["x509-support"]}
 tokio = { version = "1.0.0", features = ["full"] }
 toml = "0.5"
 tonic = { version = "0.4", features = ["tls"] }
 x509-parser = { version = "0.9", features = ["verify"] }
+
+# Dependencies for amazon-kms
+aws-config = { version = "*", optional = true }
+aws-sdk-kms = { version = "*", optional = true }
+aws-types = { version = "*", optional = true }
+
 
 # Dependencies for local-db
 diesel = { version = "1.4.4", features = ["sqlite"], optional = true }

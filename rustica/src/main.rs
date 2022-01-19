@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = Identity::from_pem(settings.server_cert, settings.server_key);
     let client_ca_cert = TonicCertificate::from_pem(settings.client_ca_cert);
 
-    let (user_ca_cert, host_ca_cert) = match (settings.server.signer.get_signer_public_key(CertType::User), settings.server.signer.get_signer_public_key(CertType::Host)) {
+    let (user_ca_cert, host_ca_cert) = match (settings.server.signer.get_signer_public_key(CertType::User).await, settings.server.signer.get_signer_public_key(CertType::Host).await) {
         (Ok(ucc), Ok(hcc)) => (ucc, hcc),
         (Err(e), _) => {
             error!("Could not fetch public key for user certificate signing: {:?}", e);
