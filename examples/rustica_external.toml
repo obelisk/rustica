@@ -49,8 +49,6 @@ listen_address = "0.0.0.0:50052"
 # be required.
 require_rustica_proof = false
 
-[signing]
-
 # Rustica has many ways it can sign SSH certificates which are sent to
 # clients. This method uses private keys embedded in the configuration
 # file. This will mean the hosts which you want to login to via Rustica

@@ -54,7 +54,6 @@ require_rustica_proof = false
 # clients. This method uses private keys embedded in the configuration
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
-[signing]
 [signing."file"]
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -78,9 +77,7 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
-[logging]
 [logging."stdout"]
 
-[authorization]
 [authorization."database"]
-path = "resources/example.db"
+path = "examples/example.db"

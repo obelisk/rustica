@@ -49,14 +49,11 @@ listen_address = "0.0.0.0:50052"
 # be required.
 require_rustica_proof = false
 
-[logging]
 [logging."stdout"]
 
-[signing]
 [signing."yubikey"]
 user_slot = "R2"
 host_slot = "R3"
 
-[authorization]
 [authorization."database"]
-path = "/tmp/rustica.db"
+path = "examples/example.db"

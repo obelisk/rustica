@@ -90,4 +90,4 @@ url = "https://http-inputs-examplecompany.splunkcloud.com/services/collector"
 timeout = 5
 
 [authorization."database"]
-path = "resources/example.db"
+path = "examples/example.db"

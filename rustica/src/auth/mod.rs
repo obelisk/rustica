@@ -82,8 +82,8 @@ impl AuthorizationMechanism {
     pub fn info(&self) -> String {
         match &self {
             #[cfg(feature = "local-db")]
-            AuthorizationMechanism::Local(local) => format!("Authorization handled by local database at: {}", &local.path),
-            AuthorizationMechanism::External(external) => format!("Authorization handled by remote service at: {}", &external.server),
+            AuthorizationMechanism::Local(local) => format!("Configured authorizer: Local DB at {}", &local.path),
+            AuthorizationMechanism::External(external) => format!("Configured authorizer: Remote Service at {}", &external.server),
         }
     }
 }

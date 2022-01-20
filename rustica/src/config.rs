@@ -118,7 +118,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         _ => return Err(ConfigurationError::AuthorizerError),
     };
 
-    let signer = match config.signing.try_into() {
+    let signer = match config.signing.convert_to_signing_mechanism().await {
         Ok(signer) => signer,
         Err(_) => return Err(ConfigurationError::SigningMechanismError),
     };

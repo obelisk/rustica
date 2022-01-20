@@ -1948,7 +1948,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sshcerts 0.8.2",
+ "sshcerts 0.9.0",
  "tokio",
  "toml",
  "tonic",
@@ -2289,7 +2289,7 @@ dependencies = [
 
 [[package]]
 name = "sshcerts"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "base64 0.13.0",
  "der-parser 5.1.2",

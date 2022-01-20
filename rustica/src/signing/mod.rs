@@ -1,6 +1,5 @@
-use sshcerts::ssh::{CertType, PublicKey, SigningFunction};
+use sshcerts::ssh::{CertType, Certificate, PublicKey};
 use serde::Deserialize;
-use std::convert::TryInto;
 
 #[cfg(feature = "amazon-kms")]
 mod amazon_kms;
@@ -15,7 +14,7 @@ pub struct SigningConfiguration {
     #[cfg(feature = "yubikey-support")]
     pub yubikey: Option<yubikey::YubikeySigner>,
     #[cfg(feature = "amazon-kms")]
-    pub amazonkms: Option<amazon_kms::AmazonKMSSigner>,
+    pub amazonkms: Option<amazon_kms::Config>,
 }
 
 pub enum SigningMechanism {
@@ -30,33 +29,78 @@ pub enum SigningMechanism {
 pub enum SigningError {
     #[allow(dead_code)]
     AccessError(String),
+    SigningFailure,
+}
+
+impl std::fmt::Display for SigningError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SigningError::AccessError(e) => write!(f, "Could access the private key material: {}", e),
+            SigningError::SigningFailure => write!(f, "The signing operation on the provided certificate failed"),
+        }
+    }
 }
 
 impl SigningMechanism {
-    pub fn get_signer(&self, cert_type: CertType) -> SigningFunction {
+    pub async fn sign_certificate(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         match self {
-            SigningMechanism::File(file) => file.get_signer(cert_type),
+            SigningMechanism::File(file) => {
+                let signer = file.get_signer(cert.cert_type);
+                match cert.sign(signer) {
+                    Ok(c) => Ok(c),
+                    Err(_) => Err(SigningError::SigningFailure)
+                }
+            },
             #[cfg(feature = "yubikey-support")]
-            SigningMechanism::Yubikey(yubikey) => yubikey.get_signer(cert_type),
+            SigningMechanism::Yubikey(yubikey) => {
+                let signer = yubikey.get_signer(cert.cert_type);
+                match cert.sign(signer) {
+                    Ok(c) => Ok(c),
+                    Err(_) => Err(SigningError::SigningFailure)
+                }
+            },
             #[cfg(feature = "amazon-kms")]
-            SigningMechanism::AmazonKMS(amazonkms) => amazonkms.get_signer(cert_type),
+            SigningMechanism::AmazonKMS(amazonkms) => {
+                amazonkms.sign_certificate(cert).await
+            },
         }
     }
 
-    pub async fn get_signer_public_key(&self, cert_type: CertType) -> Result<PublicKey, SigningError> {
+    pub fn get_signer_public_key(&self, cert_type: CertType) -> Result<PublicKey, SigningError> {
         match self {
             SigningMechanism::File(file) => Ok(file.get_signer_public_key(cert_type)),
             #[cfg(feature = "yubikey-support")]
             SigningMechanism::Yubikey(yubikey) => yubikey.get_signer_public_key(cert_type),
             #[cfg(feature = "amazon-kms")]
-            SigningMechanism::AmazonKMS(amazonkms) => Ok(amazonkms.get_signer_public_key(cert_type).await),
+            SigningMechanism::AmazonKMS(amazonkms) => Ok(amazonkms.get_signer_public_key(cert_type)),
+        }
+    }
+
+    pub fn print_signing_info(&self) {
+        match self {
+            SigningMechanism::File(file) => {
+                println!("User CA Fingerprint (SHA256): {}", file.get_signer_public_key(CertType::User).fingerprint().hash);
+                println!("Host CA Fingerprint (SHA256): {}", file.get_signer_public_key(CertType::Host).fingerprint().hash);
+                println!("Configured signer: file");
+            },
+            #[cfg(feature = "yubikey-support")]
+            SigningMechanism::Yubikey(yubikey) => {
+                println!("User CA Fingerprint (SHA256): {}", yubikey.get_signer_public_key(CertType::User).unwrap().fingerprint().hash);
+                println!("Host CA Fingerprint (SHA256): {}", yubikey.get_signer_public_key(CertType::Host).unwrap().fingerprint().hash);
+                println!("Configured signer: yubikey");
+            },
+            #[cfg(feature = "amazon-kms")]
+            SigningMechanism::AmazonKMS(amazonkms) => {
+                println!("User CA Fingerprint (SHA256): {}", amazonkms.get_signer_public_key(CertType::User).fingerprint().hash);
+                println!("Host CA Fingerprint (SHA256): {}", amazonkms.get_signer_public_key(CertType::Host).fingerprint().hash);
+                println!("Configured signer: amazon-kms");
+            },
         }
     }
 }
 
-impl TryInto<SigningMechanism> for SigningConfiguration {
-    type Error = ();
-    fn try_into(self) -> Result<SigningMechanism, ()> {
+impl SigningConfiguration {
+    pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, ()> {
         // Try and create a file based SigningMechanism
         let file_sm = match self.file {
             Some(file) => Some(SigningMechanism::File(file)),
@@ -78,7 +122,13 @@ impl TryInto<SigningMechanism> for SigningConfiguration {
         let amazonkms_sm = {
             #[cfg(feature = "amazon-kms")]
             match self.amazonkms {
-                Some(amazonkms) => Some(SigningMechanism::AmazonKMS(amazonkms)),
+                Some(config) => {
+                    if let Ok(amazonkms) = amazon_kms::AmazonKMSSigner::new(config).await {
+                        Some(SigningMechanism::AmazonKMS(amazonkms))
+                    } else {
+                        None
+                    }
+                },
                 _ => None,
             }
             #[cfg(not(feature = "amazon-kms"))]

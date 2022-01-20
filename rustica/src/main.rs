@@ -32,8 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = Identity::from_pem(settings.server_cert, settings.server_key);
     let client_ca_cert = TonicCertificate::from_pem(settings.client_ca_cert);
 
-    let (user_ca_cert, host_ca_cert) = match (settings.server.signer.get_signer_public_key(CertType::User).await, settings.server.signer.get_signer_public_key(CertType::Host).await) {
-        (Ok(ucc), Ok(hcc)) => (ucc, hcc),
+    match (settings.server.signer.get_signer_public_key(CertType::User), settings.server.signer.get_signer_public_key(CertType::Host)) {
+        (Ok(_), Ok(_)) => (),
         (Err(e), _) => {
             error!("Could not fetch public key for user certificate signing: {:?}", e);
             // Make this error
@@ -47,8 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     println!("Starting Rustica on: {}", settings.address);
-    println!("User CA Fingerprint (SHA256): {}", user_ca_cert.fingerprint().hash);
-    println!("Host CA Fingerprint (SHA256): {}", host_ca_cert.fingerprint().hash);
+    settings.server.signer.print_signing_info();
     println!("{}", settings.server.authorizer.info());
 
     let logging_configuration = settings.logging_configuration;
