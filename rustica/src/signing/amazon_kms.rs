@@ -126,36 +126,6 @@ impl AmazonKMSSigner {
 
         cert.add_signature(&signature).map_err(|_| SigningError::SigningFailure)
     }
- 
-    /*
-    fn create_signer(&self, handle: Handle, client: Client, key_id: String) -> AsyncSigningFunction {
-        Box::new(move |buf: &[u8]| async move {
-            println!("Inside the box closure");
-            let key_id = key_id.clone();
-            let buf = buf.to_vec();
-            let client = client.clone();
-            let handle = handle.clone();
-            println!("About to call KMS");
-            let result = client.sign().key_id(key_id).message(Blob::new(buf)).send().await;
-            println!("Finished calling KMS!");
-            match result {
-                Ok(result) => Some(result.signature.unwrap().into_inner()),
-                Err(_) => None,
-            }
-        })
-    }
-
-    pub fn get_signer(&self, cert_type: CertType) -> AsyncSigningFunction {
-        let signer_client = self.client.clone();
-        let signer_handle = self.handle.clone();
-        let key_id = match cert_type {
-            CertType::User => self.user_key_id.clone(),
-            CertType::Host => self.host_key_id.clone(),
-        };
-
-        self.create_signer(signer_handle, signer_client, key_id)
-    }
-    */
 
     pub fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {
         match cert_type {
