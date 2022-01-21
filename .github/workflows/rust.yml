@@ -41,3 +41,19 @@ jobs:
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=local-db
+
+  ubuntu-build-with-amazon-kms:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --package=rustica --features=amazon-kms
+
+  ubuntu-build-with-all:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --package=rustica --features=all
