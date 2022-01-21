@@ -1,4 +1,4 @@
-name: Check Rustica Compilation of All Features
+name: Feature Compilation Check
 
 on:
   push:
