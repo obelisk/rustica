@@ -8,7 +8,11 @@ WORKDIR /tmp/rustica
 
 RUN cargo build --features="splunk,amazon-kms" --release
 
+FROM alpine:3.6 as alpine
+RUN apk add -U --no-cache ca-certificates
+
 from scratch as runtime
+COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /tmp/rustica/target/aarch64-unknown-linux-musl/release/rustica /rustica
 USER 1000
 ENTRYPOINT [ "/rustica" ]
