@@ -1,3 +1,9 @@
+/// This is the signing module of the Rustica project. The module is designed
+/// to be easily extended, allowing the creation of new signing submodules with
+/// minimal code changes. The interfaces are also async with access to a tokio
+/// runtime (provided by the server module) so key signing occuring on remote
+/// systems can be simply implemented.
+
 use sshcerts::ssh::{CertType, Certificate, PublicKey};
 use serde::Deserialize;
 
@@ -7,28 +13,56 @@ mod file;
 #[cfg(feature = "yubikey-support")]
 mod yubikey;
 
-
+/// Represents the configuration of the signing module. Fields that introduce
+/// new dependencies are gated by features to help reduce final binary size as
+/// well as reducing attack surface.
 #[derive(Deserialize)]
 pub struct SigningConfiguration {
+    /// The file signer uses private keys stored inside the Rustica
+    /// configuration to sign certificate requests. This is currently the only
+    /// signer which is present regardless of the features enabled at build
+    /// time. It supports Ecdsa256, Ecdsa384, and Ed25519.
     pub file: Option<file::FileSigner>,
+    /// The Yubikey signer uses a connected Yubikey 4/5 to sign requests. It
+    /// currently only supports Ecdsa256 and Ecdsa384. To use the Yubikey
+    /// signer, the `yubikey-support` feature must be enabled.
     #[cfg(feature = "yubikey-support")]
     pub yubikey: Option<yubikey::YubikeySigner>,
+    /// The AmazonKMS signer uses customer managed keys stored in AWS to handle
+    /// signing operations. It supports Ecdsa256 and Ecdsa384. Ecdsa521 is not
+    /// currently supported due to a lack of support in the Ring crypto
+    /// dependency. This signer is also an example of how to write a signing
+    /// module that is async. To use the AmazonKMS signer, the `amazon-kms`
+    /// feature must be enabled.
     #[cfg(feature = "amazon-kms")]
     pub amazonkms: Option<amazon_kms::Config>,
 }
 
+/// A `SigningConfiguration` can be concerted into a `SigningMechanism` to
+/// handle the signing operations as well as other convenience functions
+/// such as fetching public keys or printing info about how signing is
+///configured.
 pub enum SigningMechanism {
+    /// The file configuration converted into a SigningMechanism
     File(file::FileSigner),
+    /// The Yubikey configuration converted into a SigningMechanism
     #[cfg(feature = "yubikey-support")]
     Yubikey(yubikey::YubikeySigner),
+    /// The AmazonKMS configuration converted into a SigningMechanism
     #[cfg(feature = "amazon-kms")]
     AmazonKMS(amazon_kms::AmazonKMSSigner),
 }
 
 #[derive(Debug)]
 pub enum SigningError {
+    /// Represents when there was an issue accessing the key material. This
+    /// could occur when AmazonKMS is unreachable or a Yubikey has been
+    /// disconnected during runtime.
     #[allow(dead_code)]
     AccessError(String),
+    /// SigningFailure represents the private key material being unable to
+    /// sign the provided certificate. This could be because of a key
+    /// incompatiblity or a corrupted private key.
     SigningFailure,
 }
 
@@ -42,6 +76,8 @@ impl std::fmt::Display for SigningError {
 }
 
 impl SigningMechanism {
+    /// Takes in a certificate and handles the getting a signature from the 
+    /// configured SigningMechanism.
     pub async fn sign_certificate(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         match self {
             SigningMechanism::File(file) => {
@@ -66,6 +102,8 @@ impl SigningMechanism {
         }
     }
 
+    /// Return an sshcerts::PublicKey type for the signing key asked for,
+    /// either User or Host
     pub fn get_signer_public_key(&self, cert_type: CertType) -> Result<PublicKey, SigningError> {
         match self {
             SigningMechanism::File(file) => Ok(file.get_signer_public_key(cert_type)),
@@ -76,6 +114,9 @@ impl SigningMechanism {
         }
     }
 
+    /// Print out information about the current configuration of the signing
+    /// system. This is generally only called once from main before starting
+    /// the main Rustica server.
     pub fn print_signing_info(&self) {
         match self {
             SigningMechanism::File(file) => {
@@ -100,6 +141,9 @@ impl SigningMechanism {
 }
 
 impl SigningConfiguration {
+    /// Convert the `SigningConfiguration` into a `SigningMechanism` bt calling
+    /// the appropriate initalizers then wrapping the returned object in the
+    /// `SigningMechanism` enum varient.
     pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, ()> {
         // Try and create a file based SigningMechanism
         let file_sm = match self.file {
@@ -135,6 +179,9 @@ impl SigningConfiguration {
             None
         };
 
+        // If a feature is not enabled, that type will always be None here
+        // making it easy to check that no two signing systems have been
+        // accidentally configured causing ambiguity on which should be used
         match (file_sm, yubikey_sm, amazonkms_sm) {
             (Some(file), None, None) => Ok(file),
             (None, Some(yubikey), None) => Ok(yubikey),

@@ -3,8 +3,10 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct FileSigner {
+    /// The private key used to sign user certificates
     #[serde(deserialize_with = "FileSigner::parse_private_key")]
     user_key: PrivateKey,
+    /// The private key used to sign host certificates
     #[serde(deserialize_with = "FileSigner::parse_private_key")]
     host_key: PrivateKey,
 }
