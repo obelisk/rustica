@@ -141,7 +141,7 @@ impl SigningMechanism {
 }
 
 impl SigningConfiguration {
-    /// Convert the `SigningConfiguration` into a `SigningMechanism` bt calling
+    /// Convert the `SigningConfiguration` into a `SigningMechanism` by calling
     /// the appropriate initalizers then wrapping the returned object in the
     /// `SigningMechanism` enum varient.
     pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, ()> {
