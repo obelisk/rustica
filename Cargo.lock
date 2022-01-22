@@ -2252,7 +2252,8 @@ dependencies = [
 [[package]]
 name = "sshcerts"
 version = "0.9.0"
-source = "git+https://github.com/obelisk/sshcerts?branch=more_versatile_certificate_signing#3697cb0ab2886266992bf535d5646e252200c116"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "703519489821e8d0c95f4616d03bff3ea0ab3499d1482d4edb83345cf5cd6255"
 dependencies = [
  "base64 0.13.0",
  "der-parser 5.1.2",
