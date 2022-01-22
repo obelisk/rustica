@@ -8,10 +8,15 @@ use super::SigningError;
 
 #[derive(Deserialize)]
 pub struct YubikeySigner {
+    /// The slot on the Yubikey to use for signing user certificates
     #[serde(deserialize_with = "YubikeySigner::parse_slot")]
     user_slot: SlotId,
+    /// The slot on the Yubikey to use for signing host certificates
     #[serde(deserialize_with = "YubikeySigner::parse_slot")]
     host_slot: SlotId,
+    /// A mutex to ensure there is no concurrent access to the Yubikey. Without
+    /// this, handling two requests at the same time would result in possibly
+    /// corrupted certificates for both.
     #[serde(skip_deserializing, default = "YubikeySigner::new_yubikey_mutex")]
     yubikey: Arc<Mutex<Yubikey>>
 }
