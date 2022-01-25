@@ -213,6 +213,35 @@ impl SshAgentHandler for Handler {
     }
 }
 
+pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], require_touch: bool) -> Option<KeyConfig> {
+    println!("Provisioning new NISTP384 key in slot: {:?}", &yubikey.slot);
+
+    let policy = if require_touch {
+        println!("You're creating a key that will require touch to use.");
+        TouchPolicy::Always
+    } else {
+        TouchPolicy::Never
+    };
+
+    if yubikey.yk.unlock(pin.as_bytes(), &mgm_key).is_err() {
+        println!("Could not unlock key");
+        return None
+    }
+
+    match yubikey.yk.provision(&yubikey.slot, subj, AlgorithmId::EccP384, policy, PinPolicy::Never) {
+        Ok(_) => {
+            let certificate = yubikey.yk.fetch_attestation(&yubikey.slot);
+            let intermediate = yubikey.yk.fetch_certificate(&SlotId::Attestation);
+
+            match (certificate, intermediate) {
+                (Ok(certificate), Ok(intermediate)) => Some(KeyConfig {certificate, intermediate}),
+                _ => None,
+            }
+        },
+        Err(_) => panic!("Could not provision device with new key"),
+    }
+}
+
 /// Fetch the list of serial numbers for the connected Yubikeys
 /// The return from this function must be freed by the caller because we can no longer track it
 /// once we return
