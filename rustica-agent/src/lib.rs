@@ -213,6 +213,34 @@ impl SshAgentHandler for Handler {
     }
 }
 
+/// Takes in a human readable slot descriptor and parses it into the Yubikey
+/// slot type.
+pub fn slot_parser(slot: &str) -> Option<SlotId> {
+    // If first character is R, then we need to parse the nice
+    // notation
+    if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
+        let slot_value = slot[1..].parse::<u8>();
+        match slot_value {
+            Ok(v) if v <= 20 => Some(SlotId::try_from(0x81_u8 + v).unwrap()),
+            _ => None,
+        }
+    } else if slot.len() == 4 && slot.starts_with("0x"){
+        let slot_value = hex::decode(&slot[2..]).unwrap()[0];
+        Some(SlotId::try_from(slot_value).unwrap())
+    } else {
+        None
+    }
+}
+
+/// Used to validate a string would parse to a valid Yubikey slot
+pub fn slot_validator(slot: &str) -> Result<(), String> {
+    match slot_parser(slot) {
+        Some(_) => Ok(()),
+        None => Err(String::from("Provided slot was not valid. Should be R1 - R20 or a raw hex identifier")),
+    }
+}
+
+/// Provisions a new keypair on the Yubikey with the given settings.
 pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], require_touch: bool) -> Option<KeyConfig> {
     println!("Provisioning new NISTP384 key in slot: {:?}", &yubikey.slot);
 

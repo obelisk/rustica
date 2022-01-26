@@ -64,30 +64,6 @@ pub enum RusticaAgentAction {
 }
 
 
-fn slot_parser(slot: &str) -> Option<SlotId> {
-    // If first character is R, then we need to parse the nice
-    // notation
-    if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
-        let slot_value = slot[1..].parse::<u8>();
-        match slot_value {
-            Ok(v) if v <= 20 => Some(SlotId::try_from(0x81_u8 + v).unwrap()),
-            _ => None,
-        }
-    } else if slot.len() == 4 && slot.starts_with("0x"){
-        let slot_value = hex::decode(&slot[2..]).unwrap()[0];
-        Some(SlotId::try_from(slot_value).unwrap())
-    } else {
-        None
-    }
-}
-
-fn slot_validator(slot: &str) -> Result<(), String> {
-    match slot_parser(slot) {
-        Some(_) => Ok(()),
-        None => Err(String::from("Provided slot was not valid. Should be R1 - R20 or a raw hex identifier")),
-    }
-}
-
 impl From<std::io::Error> for ConfigurationError {
     fn from(e: std::io::Error) -> Self {
         ConfigurationError::CannotReadFile(e.to_string())
