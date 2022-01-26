@@ -14,14 +14,17 @@ use std::process;
 
 #[derive(Debug)]
 pub enum ConfigurationError {
+    BadConfiguration,
     BadSlot,
     CannotAttestFileBasedKey,
     CannotProvisionFile,
+    CannotReadFile(String),
     MissingMTLSCertificate,
     MissingMTLSKey,
     MissingServerAddress,
     MissingServerCertificateAuthority,
     MissingSSHKey,
+    ParsingError,
     YubikeyManagementKeyInvalid,
     YubikeyNoKeypairFound,
 }
@@ -82,6 +85,18 @@ fn slot_validator(slot: &str) -> Result<(), String> {
     match slot_parser(slot) {
         Some(_) => Ok(()),
         None => Err(String::from("Provided slot was not valid. Should be R1 - R20 or a raw hex identifier")),
+    }
+}
+
+impl From<std::io::Error> for ConfigurationError {
+    fn from(e: std::io::Error) -> Self {
+        ConfigurationError::CannotReadFile(e.to_string())
+    }
+}
+
+impl From<sshcerts::error::Error> for ConfigurationError {
+    fn from(e: sshcerts::error::Error) -> Self {
+        ConfigurationError::ParsingError
     }
 }
 
@@ -235,8 +250,13 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     // will override values provided in the config.
     let config = fs::read_to_string(matches.value_of("config").unwrap());
     let config = match config {
-        // TODO @obelisk: Fix this unwrap
-        Ok(content) => toml::from_str(&content).unwrap(),
+        Ok(content) => {
+            if let Ok(t) = toml::from_str(&content) {
+                t
+            } else {
+                return Err(ConfigurationError::BadConfiguration)
+            }
+        },
         Err(_) => {
             Config {
                 server: None,
@@ -252,13 +272,13 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     };
 
     let mtls_cert = match (matches.value_of("mtlscert"), &config.mtls_cert) {
-        (Some(mtls_cert), _) => fs::read_to_string(mtls_cert).unwrap(),
+        (Some(mtls_cert), _) => fs::read_to_string(mtls_cert)?,
         (_, Some(mtls_cert)) => mtls_cert.to_owned(),
         (None, None) => return Err(ConfigurationError::MissingMTLSCertificate),
     };
 
     let mtls_key = match (matches.value_of("mtlskey"), &config.mtls_key) {
-        (Some(mtls_key), _) => fs::read_to_string(mtls_key).unwrap(),
+        (Some(mtls_key), _) => fs::read_to_string(mtls_key)?,
         (_, Some(mtls_key)) => mtls_key.to_owned(),
         (None, None) => return Err(ConfigurationError::MissingMTLSKey),
     };
@@ -272,7 +292,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     let ca = match (matches.value_of("capem"), &config.ca_pem) {
         (Some(v), _) => {
             let mut contents = String::new();
-            File::open(v).unwrap().read_to_string(&mut contents).unwrap();
+            File::open(v)?.read_to_string(&mut contents)?;
             contents
         },
         (_, Some(v)) => v.to_owned(),
@@ -309,39 +329,34 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 None => return Err(ConfigurationError::BadSlot)
             }
         },
-        (_, _, Some(file), _) => Signatory::Direct(PrivateKey::from_path(file).unwrap()),
+        (_, _, Some(file), _) => Signatory::Direct(PrivateKey::from_path(file)?),
         (_, Some(slot), _, _) => {
             match slot_parser(slot) {
                 Some(s) => Signatory::Yubikey(YubikeySigner {
                     yk: Yubikey::new().unwrap(),
                     slot: s,
                 }),
-                //error!("Chosen slot was invalid. Slot should be of the the form of: R# where # is between 1 and 20 inclusive");
                 None => return Err(ConfigurationError::BadSlot),
             }
         },
-        (_, _, _, Some(key_string)) => Signatory::Direct(PrivateKey::from_string(key_string).unwrap()),
-        (None, None, None, None) =>
-            //error!("A slot, file, or private key must be specified for identification");
-            return Err(ConfigurationError::MissingSSHKey)
+        (_, _, _, Some(key_string)) => Signatory::Direct(PrivateKey::from_string(key_string)?),
+        (None, None, None, None) => return Err(ConfigurationError::MissingSSHKey)
     };
 
     if let Some(ref matches) = matches.subcommand_matches("provision") {
         let yubikey = match signatory {
             Signatory::Yubikey(yk_sig) => yk_sig,
-            Signatory::Direct(_) =>
-                //println!("Cannot provision a file, requires a Yubikey slot");
-                return Err(ConfigurationError::CannotProvisionFile)
+            Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile)
         };
 
         let require_touch = matches.is_present("require-touch");
-        let subject = matches.value_of("subject").unwrap_or("RusticaAgentProvision").to_string();
-        let management_key = match matches.value_of("management-key") {
-            Some(mgm) => hex::decode(mgm).unwrap(),
-            None => return Err(ConfigurationError::YubikeyManagementKeyInvalid),
+        let subject = matches.value_of("subject").unwrap().to_string();
+        let management_key = match hex::decode(matches.value_of("management-key").unwrap()) {
+            Ok(mgm) => mgm,
+            Err(_) => return Err(ConfigurationError::YubikeyManagementKeyInvalid),
         };
 
-        let pin = matches.value_of("pin").unwrap_or("123456").to_string();
+        let pin = matches.value_of("pin").unwrap().to_string();
 
         let provision_config = ProvisionConfig {
             yubikey,
@@ -357,9 +372,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     let pubkey = match &mut signatory {
         Signatory::Yubikey(signer) => match signer.yk.ssh_cert_fetch_pubkey(&signer.slot) {
             Ok(cert) => cert,
-            Err(_) =>
-                //println!("There was no keypair found in slot {:?}. Provision one or use another slot.", &signer.slot);
-                return Err(ConfigurationError::YubikeyNoKeypairFound),
+            Err(_) => return Err(ConfigurationError::YubikeyNoKeypairFound),
         },
         Signatory::Direct(ref privkey) => privkey.pubkey.clone()
     };
