@@ -66,16 +66,16 @@ impl AuthorizationMechanism {
     pub async fn authorize(&self, auth_props: &AuthorizationRequestProperties) -> Result<Authorization, AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
-            AuthorizationMechanism::Local(local) => local.authorize(&auth_props),
-            AuthorizationMechanism::External(external) => external.authorize(&auth_props).await,
+            AuthorizationMechanism::Local(local) => local.authorize(auth_props),
+            AuthorizationMechanism::External(external) => external.authorize(auth_props).await,
         }
     }
 
     pub async fn register_key(&self, register_properties: &RegisterKeyRequestProperties) -> Result<bool, ()> {
         match &self {
             #[cfg(feature = "local-db")]
-            AuthorizationMechanism::Local(local) => local.register_key(&register_properties),
-            AuthorizationMechanism::External(external) => external.register_key(&register_properties).await,
+            AuthorizationMechanism::Local(local) => local.register_key(register_properties),
+            AuthorizationMechanism::External(external) => external.register_key(register_properties).await,
         }
     }
 
@@ -95,7 +95,7 @@ impl TryInto<AuthorizationMechanism> for AuthorizationConfiguration {
         match (self.database, self.external) {
             (Some(database), None) => Ok(AuthorizationMechanism::Local(database)),
             (None, Some(external)) => Ok(AuthorizationMechanism::External(external)),
-            _ => return Err(()),
+            _ => Err(()),
         }
 
         #[cfg(not(feature = "local-db"))]

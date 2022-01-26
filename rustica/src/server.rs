@@ -228,7 +228,7 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadRequest)),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, &challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Ok(create_response(e)),
         };
@@ -365,7 +365,7 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, &challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };

@@ -1,6 +1,6 @@
 [package]
 name = "rustica"
-version = "0.8.0"
+version = "0.9.0"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2018"
 
