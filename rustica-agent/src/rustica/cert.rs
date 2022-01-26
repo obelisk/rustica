@@ -8,8 +8,8 @@ use std::time::SystemTime;
 use tokio::runtime::Runtime;
 
 impl RusticaServer {
-    pub async fn refresh_certificate_async(&self, mut signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
-        let (mut client, challenge) = super::complete_rustica_challenge(&self, &mut signatory).await?;
+    pub async fn refresh_certificate_async(&self, signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
+        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await?;
 
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(ts) => ts.as_secs(),

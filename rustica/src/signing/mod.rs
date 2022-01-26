@@ -146,18 +146,12 @@ impl SigningConfiguration {
     /// `SigningMechanism` enum varient.
     pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, ()> {
         // Try and create a file based SigningMechanism
-        let file_sm = match self.file {
-            Some(file) => Some(SigningMechanism::File(file)),
-            _ => None,
-        };
+        let file_sm = self.file.map(SigningMechanism::File);
 
         // Try and create a yubikey based SigningMechanism
         let yubikey_sm = {
             #[cfg(feature = "yubikey-support")]
-            match self.yubikey {
-                Some(yubikey) => Some(SigningMechanism::Yubikey(yubikey)),
-                _ => None,
-            }
+            {self.yubikey.map(SigningMechanism::Yubikey)}
             #[cfg(not(feature = "yubikey-support"))]
             None
         };
@@ -186,7 +180,7 @@ impl SigningConfiguration {
             (Some(file), None, None) => Ok(file),
             (None, Some(yubikey), None) => Ok(yubikey),
             (None, None, Some(amazonkms)) => Ok(amazonkms),
-            _ => return Err(()),
+            _ => Err(()),
         }
     }
 }

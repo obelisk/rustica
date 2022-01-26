@@ -1,5 +1,5 @@
-server = "https://localhost:50055"
-socket = "/tmp/rustica_socket_dev2"
+server = "https://localhost:50052"
+socket = "/tmp/rustica_socket_dev3"
 ca_pem = '''
 -----BEGIN CERTIFICATE-----
 MIIBJDCBzAIJAJGDT3qxW0/TMAoGCCqGSM49BAMCMBsxGTAXBgNVBAMMEEVudGVy
