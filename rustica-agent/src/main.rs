@@ -12,7 +12,6 @@ use std::fs::File;
 use std::os::unix::net::{UnixListener};
 
 
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {  
     env_logger::init();
     match config::configure() {
@@ -63,7 +62,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Starting Rustica Agent");
             println!("Access Fingerprint: {}", config.pubkey.fingerprint().hash);
             println!("SSH_AUTH_SOCK={}; export SSH_AUTH_SOCK;", config.socket_path);
-        
         
             let socket = UnixListener::bind(config.socket_path)?;
             Agent::run(config.handler, socket);

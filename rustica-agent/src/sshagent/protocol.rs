@@ -9,8 +9,8 @@ use super::error::{ParsingError, WrittingError};
 #[derive(Debug)]
 #[derive(Copy, Clone)]
 enum MessageRequest {
-	RequestIdentities,
-	SignRequest,
+	Identities,
+	Sign,
 	AddIdentity,
 	RemoveIdentity,
 	RemoveAllIdentities,
@@ -27,8 +27,8 @@ enum MessageRequest {
 impl MessageRequest {
 	fn from_u8(value: u8) -> MessageRequest {
 		match value {
-            11 => MessageRequest::RequestIdentities,
-			13 => MessageRequest::SignRequest,
+            11 => MessageRequest::Identities,
+			13 => MessageRequest::Sign,
 			17 => MessageRequest::AddIdentity,
 			18 => MessageRequest::RemoveIdentity,
 			19 => MessageRequest::RemoveAllIdentities,
@@ -62,8 +62,8 @@ fn write_message<W: Write>(w: &mut W, string: &[u8]) -> WrittingError<()> {
 
 #[derive(Debug)]
 pub enum Request {
-	RequestIdentities,
-	SignRequest {
+	Identities,
+	Sign {
         // Blob of the public key
         // (encoded as per RFC4253 "6.6. Public Key Algorithms").
         pubkey_blob: Vec<u8>,
@@ -86,11 +86,11 @@ impl Request {
 
 		let msg = buf.read_u8()?;
 		match MessageRequest::from_u8(msg) {
-			MessageRequest::RequestIdentities => {
-				Ok(Request::RequestIdentities)
+			MessageRequest::Identities => {
+				Ok(Request::Identities)
 			}
-			MessageRequest::SignRequest => {
-				Ok(Request::SignRequest {
+			MessageRequest::Sign => {
+				Ok(Request::Sign {
 					pubkey_blob: read_message(&mut buf)?,
 					data: read_message(&mut buf)?,
 					flags: buf.read_u32::<BigEndian>()?,
@@ -99,7 +99,7 @@ impl Request {
 			MessageRequest::AddIdentity => {
 				match sshcerts::PrivateKey::from_bytes(buf) {
 					Ok(private_key) => {
-						Ok(Request::AddIdentity {private_key: private_key})
+						Ok(Request::AddIdentity {private_key})
 					},
 					Err(_) => Ok(Request::Unknown)
 				}
@@ -177,7 +177,7 @@ impl Response {
 
                 for identity in identities {
                     write_message(&mut buf, &identity.key_blob)?;
-                    write_message(&mut buf, &identity.key_comment.as_bytes())?;
+                    write_message(&mut buf, identity.key_comment.as_bytes())?;
                 }
             }
             Response::SignResponse { ref algo_name, ref signature } => {

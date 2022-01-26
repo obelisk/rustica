@@ -12,10 +12,10 @@ pub trait SshAgentHandler: Send + Sync {
 
 	fn handle_request(&mut self, request: Request) -> HandleResult<Response> {
 		match request {
-			Request::RequestIdentities => {
+			Request::Identities => {
 				self.identities()
 			}
-			Request::SignRequest {ref pubkey_blob, ref data, ref flags} => {
+			Request::Sign {ref pubkey_blob, ref data, ref flags} => {
 				self.sign_request(pubkey_blob.clone(), data.clone(), *flags)
 			}
 			Request::AddIdentity {private_key} => {

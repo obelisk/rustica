@@ -71,7 +71,7 @@ impl From<std::io::Error> for ConfigurationError {
 }
 
 impl From<sshcerts::error::Error> for ConfigurationError {
-    fn from(e: sshcerts::error::Error) -> Self {
+    fn from(_: sshcerts::error::Error) -> Self {
         ConfigurationError::ParsingError
     }
 }
@@ -282,10 +282,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         mtls_key,
     };
 
-    let cmd_slot = match matches.value_of("slot") {
-        Some(x) => Some(x.to_owned()),
-        None => None,
-    };
+    let cmd_slot = matches.value_of("slot").map(|x| x.to_owned());
 
     // Determine the signatory to be used. These match statements, execute in order,
     // create a hierarchy of which keys override others.
@@ -319,7 +316,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         (None, None, None, None) => return Err(ConfigurationError::MissingSSHKey)
     };
 
-    if let Some(ref matches) = matches.subcommand_matches("provision") {
+    if let Some(matches) = matches.subcommand_matches("provision") {
         let yubikey = match signatory {
             Signatory::Yubikey(yk_sig) => yk_sig,
             Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile)
@@ -350,10 +347,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             Ok(cert) => cert,
             Err(_) => return Err(ConfigurationError::YubikeyNoKeypairFound),
         },
-        Signatory::Direct(ref privkey) => privkey.pubkey.clone()
+        Signatory::Direct(privkey) => privkey.pubkey.clone()
     };
 
-    if let Some(ref matches) = matches.subcommand_matches("register") {
+    if let Some(matches) = matches.subcommand_matches("register") {
         let mut key_config = KeyConfig {
             certificate: vec![],
             intermediate: vec![],
@@ -399,10 +396,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     }
 
     if matches.is_present("immediate") {
-        let out = match matches.value_of("out") {
-            Some(outfile) => Some(outfile.to_string()),
-            None => None,
-        };
+        let out = matches.value_of("out").map(|outfile| outfile.to_string());
 
         return Ok(RusticaAgentAction::Immediate(ImmediateConfig {
             server,

@@ -104,7 +104,7 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
                     };
 
                     let key = if key.key[0] == 0x0_u8 {&key.key[1..]} else {&key.key};
-                    let key_pair = signature::EcdsaKeyPair::from_private_key_and_public_key(alg, &key, &pubkey)?;
+                    let key_pair = signature::EcdsaKeyPair::from_private_key_and_public_key(alg, key, pubkey)?;
 
                     hex::encode(key_pair.sign(&rng, &decoded_challenge)?)
                 },

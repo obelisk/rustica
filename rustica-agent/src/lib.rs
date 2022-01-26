@@ -81,7 +81,7 @@ pub struct Handler {
     pub stale_at: u64,
     pub certificate_options: CertificateConfig,
     pub identities: HashMap<Vec<u8>, PrivateKey>,
-    pub notification_function: Option<Box<dyn Fn() -> () + Send + Sync>>,
+    pub notification_function: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl std::fmt::Debug for Handler {
@@ -251,7 +251,7 @@ pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_
         TouchPolicy::Never
     };
 
-    if yubikey.yk.unlock(pin.as_bytes(), &mgm_key).is_err() {
+    if yubikey.yk.unlock(pin.as_bytes(), mgm_key).is_err() {
         println!("Could not unlock key");
         return None
     }
@@ -273,14 +273,17 @@ pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_
 /// Fetch the list of serial numbers for the connected Yubikeys
 /// The return from this function must be freed by the caller because we can no longer track it
 /// once we return
+/// 
+/// # Safety
+/// out_length must be a valid pointer to an 8 byte segment of memory
 #[no_mangle]
-pub extern fn list_yubikeys(out_length: *mut c_int) -> *mut c_long {
+pub unsafe extern fn list_yubikeys(out_length: *mut c_int) -> *mut c_long {
     match &mut yubikey::reader::Context::open() {
         Ok(readers) => {
             let mut serials: Vec<c_long> = vec![];
             for reader in readers.iter().unwrap().collect::<Vec<yubikey::reader::Reader>>() {
                 let reader = reader.open();
-                if let Err(_) = reader {
+                if reader.is_err() {
                     continue;
                 }
                 let reader = reader.unwrap();
@@ -291,9 +294,7 @@ pub extern fn list_yubikeys(out_length: *mut c_int) -> *mut c_long {
             let len = serials.len();
             let ptr = serials.as_mut_ptr();
             std::mem::forget(serials);
-            unsafe {
-                std::ptr::write(out_length, len as c_int);
-            }
+            std::ptr::write(out_length, len as c_int);
 
             ptr
         },
@@ -302,19 +303,26 @@ pub extern fn list_yubikeys(out_length: *mut c_int) -> *mut c_long {
 }
 
 /// Free the list of Yubikey Serial Numbers
+/// 
+/// # Safety
+/// This function must be passed the raw vector returned by `list_yubikeys`
+/// otherwise the behaviour is undefined and will result in a crash.
 #[no_mangle]
-pub extern fn free_list_yubikeys(length: c_int, yubikeys: *mut c_long) {
+pub unsafe extern fn free_list_yubikeys(length: c_int, yubikeys: *mut c_long) {
     let len = length as usize;
 
     // Get back our vector.
     // Previously we shrank to fit, so capacity == length.
-    let _ = unsafe {Vec::from_raw_parts(yubikeys, len, len)};
+    let _ = Vec::from_raw_parts(yubikeys, len, len);
 }
 
 /// The return from this function must be freed by the caller because we can no longer track it
 /// once we return
+/// 
+/// # Safety
+/// out_length must be a valid pointer to an 8 byte segment of memory
 #[no_mangle]
-pub extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *mut *mut c_char {
+pub unsafe extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *mut *mut c_char {
     match &mut Yubikey::open(yubikey_serial) {
         Ok(yk) => {
             let mut keys = vec![];
@@ -334,11 +342,7 @@ pub extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *mut *mu
             let len = out.len();
             let ptr = out.as_mut_ptr();
             std::mem::forget(out);
-
-            // Let's write back the length the caller can expect
-            unsafe {
-                std::ptr::write(out_length, len as c_int);
-            }
+            std::ptr::write(out_length, len as c_int);
             
             // Finally return the data
             ptr
@@ -348,6 +352,10 @@ pub extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *mut *mu
 }
 
 /// Free the list of Yubikey keys
+/// 
+/// # Safety
+/// This function must be passed the raw vector returned by `list_keys`
+/// otherwise the behaviour is undefined and will result in a crash.
 #[no_mangle]
 pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
     let len = length as usize;
@@ -364,21 +372,25 @@ pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
 }
 
 /// Generate and enroll a new key on the given yubikey in the given slot
+/// 
+/// # Safety
+/// Subject, config_data, and pin must all be valid, null terminated C strings
+/// or this functions behaviour is undefined and will result in a crash.
 #[no_mangle]
-pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_security: bool, subject: *const c_char, config_data: *const c_char, pin: *const c_char, management_key: *const c_char) -> bool {
+pub unsafe extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_security: bool, subject: *const c_char, config_data: *const c_char, pin: *const c_char, management_key: *const c_char) -> bool {
     println!("Generating and enrolling a new key!");
-    let cf = unsafe { CStr::from_ptr(config_data) };
+    let cf = CStr::from_ptr(config_data);
     let config_data = match cf.to_str() {
         Err(_) => return false,
         Ok(s) => s,
     };
 
-    let pin = unsafe { CStr::from_ptr(pin) };
-    let management_key = unsafe { CStr::from_ptr(management_key) };
+    let pin = CStr::from_ptr(pin);
+    let management_key = CStr::from_ptr(management_key);
     let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
-    let subject = unsafe { CStr::from_ptr(subject) };
+    let subject = CStr::from_ptr(subject);
 
-    let config: Config = toml::from_str(&config_data).unwrap();
+    let config: Config = toml::from_str(config_data).unwrap();
 
     let alg = AlgorithmId::EccP384;
     let slot = SlotId::try_from(slot).unwrap();
@@ -429,21 +441,24 @@ pub extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_security: 
 }
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
+/// # Safety
+/// `config_data` and `socket_path` must be a null terminated C strings
+/// or behaviour is undefined and will result in a crash.
 #[no_mangle]
-pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_data: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
+pub unsafe extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_data: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
         unsafe { notification_fn(); }
     };
 
-    let cf = unsafe { CStr::from_ptr(config_data) };
+    let cf = CStr::from_ptr(config_data);
     let config_data = match cf.to_str() {
         Err(_) => return false,
         Ok(s) => s,
     };
 
-    let config: Config = toml::from_str(&config_data).unwrap();
+    let config: Config = toml::from_str(config_data).unwrap();
 
     let certificate_options = CertificateConfig::from(config.options);
 
@@ -467,7 +482,7 @@ pub extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_
 
     println!("Slot: {:?}", SlotId::try_from(slot));
 
-    let sp = unsafe { CStr::from_ptr(socket_path) };
+    let sp = CStr::from_ptr(socket_path);
     let socket_path = match sp.to_str() {
         Err(_) => return false,
         Ok(s) => s,
