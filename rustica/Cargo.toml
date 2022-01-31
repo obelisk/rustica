@@ -1,6 +1,6 @@
 [package]
 name = "rustica"
-version = "0.8.1"
+version = "0.8.2"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2018"
 
@@ -10,7 +10,7 @@ default = []
 all = ["amazon-kms", "influx", "splunk", "yubikey-support", "local-db"]
 
 amazon-kms = ["aws-config", "aws-sdk-kms", "aws-types"]
-influx = ["influx_db_client"]
+influx = ["influxdb"]
 local-db = ["diesel"]
 splunk = ["reqwest", "serde_json"]
 yubikey-support = ["sshcerts/yubikey-support"]
@@ -43,12 +43,11 @@ aws-config = { version = "0.5", optional = true }
 aws-sdk-kms = { version = "0.5", optional = true }
 aws-types = { version = "0.5", optional = true }
 
-
 # Dependencies for local-db
 diesel = { version = "1.4.4", features = ["sqlite"], optional = true }
 
 # Dependencies for Influx
-influx_db_client = { version = "0.5.0", optional = true }
+influxdb = { version = "0.5.1", optional = true }
 
 # Dependencies for Splunk
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"], optional = true }

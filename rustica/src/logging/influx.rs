@@ -1,12 +1,13 @@
 use super::{Log, LoggingError, RusticaLogger, WrappedLog};
 
-use influx_db_client::{
-    Client, Point, Points, Precision, points
-};
+use influxdb::{Client, Timestamp};
+use influxdb::InfluxDbWriteable;
 
 use tokio::runtime::Runtime;
 
 use serde::Deserialize;
+
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Deserialize)]
 pub struct Config {
@@ -23,11 +24,12 @@ pub struct InfluxLogger {
     dataset: String,
 }
 
+
 impl InfluxLogger {
     /// Create a new InfluxDB logger from the provided configuration
     pub fn new(config: Config) -> Self {
         Self {
-            client: Client::new(config.address.parse().unwrap(), config.database).set_authentication(config.user, config.password),
+            client: Client::new(config.address, config.database).with_auth(config.user, config.password),
             runtime: Runtime::new().unwrap(),
             dataset: config.dataset,
         }
@@ -43,16 +45,22 @@ impl RusticaLogger for InfluxLogger {
     fn send_log(&self, log: &WrappedLog) -> Result<(), LoggingError> {
         match &log.log {
             Log::CertificateIssued(ci) => {
-                let point = Point::new(&self.dataset)
-                .add_tag("fingerprint", ci.fingerprint.clone())
-                .add_tag("mtls_identities", ci.mtls_identities.join(","))
-                .add_field("principals", ci.principals.join(","));
+                let start = SystemTime::now();
+                let timestamp = start
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Time went backwards");
+
+                let point_query = Timestamp::Seconds(timestamp.as_secs().into()).into_query(&self.dataset)
+                    .add_tag("fingerprint", ci.fingerprint.clone())
+                    .add_tag("mtls_identities", ci.mtls_identities.join(","))
+                    .add_field("principals", ci.principals.join(","));
 
                 let client = self.client.clone();
+
                 self.runtime.spawn(async move {
-                    if let Err(e) = client.write_points(points!(point), Some(Precision::Seconds), None).await {
-                        error!("Could not log to influx DB: {}", e);
-                    }
+                    if let Err(e) = client.query(point_query).await {
+                        error!("Could not send log to Influx: {}", e);
+                    }                
                 });  
             }
             Log::KeyRegistered(_kr) => (),

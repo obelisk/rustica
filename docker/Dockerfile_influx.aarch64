@@ -1,0 +1,18 @@
+FROM messense/rust-musl-cross:aarch64-musl as builder
+
+RUN rustup component add rustfmt
+RUN mkdir /rustica
+COPY proto /tmp/proto
+COPY rustica /tmp/rustica
+WORKDIR /tmp/rustica
+
+RUN cargo build --features="influx" --release
+
+FROM alpine:3.6 as alpine
+RUN apk add -U --no-cache ca-certificates
+
+from scratch as runtime
+COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /tmp/rustica/target/aarch64-unknown-linux-musl/release/rustica /rustica
+USER 1000
+ENTRYPOINT [ "/rustica" ]
