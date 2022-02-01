@@ -4,7 +4,6 @@ use author::{AuthorizeRequest, AddIdentityDataRequest};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 use serde::Deserialize;
-use sshcerts::ssh::Extensions;
 use super::{
     Authorization,
     AuthorizationError,
@@ -81,8 +80,6 @@ impl AuthServer {
             .filter(|x| x.starts_with("extension."))
             .map(|ext| (ext.strip_prefix("extension.").unwrap().to_string(), approval_response[ext].clone()))
             .collect();
-
-        let extensions = Extensions::Custom(extensions);
 
         let force_command = if approval_response.contains_key("force_command") {
             Some(approval_response["force_command"].clone())

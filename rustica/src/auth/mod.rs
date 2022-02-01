@@ -4,9 +4,10 @@ pub mod external;
 
 pub use super::key::KeyAttestation;
 
-use sshcerts::ssh::{CertType, Extensions};
+use sshcerts::ssh::CertType;
 
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::convert::TryInto;
 
 #[derive(Debug)]
@@ -31,7 +32,7 @@ pub struct Authorization {
     pub valid_after: u64,
     pub principals: Vec<String>,
     pub hosts: Option<Vec<String>>,
-    pub extensions: Extensions,
+    pub extensions: HashMap<String, String>,
     pub force_command: Option<String>,
     pub force_source_ip: bool,
 }

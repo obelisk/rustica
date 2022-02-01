@@ -14,7 +14,7 @@ use super::{
     RegisterKeyRequestProperties,
 };
 
-use sshcerts::ssh::{CertType, Extensions};
+use sshcerts::ssh::{Certificate, CertType};
 
 #[derive(Deserialize)]
 pub struct LocalDatabase {
@@ -82,7 +82,7 @@ impl LocalDatabase {
                     principals: if results[0].principal_unrestricted {req.principals.clone()} else {principals},
                     // When host is unrestricted we return None
                     hosts: if results[0].host_unrestricted {None} else {hosts},
-                    extensions: Extensions::Standard,
+                    extensions: Certificate::standard_extensions(),
                     force_command: None,
                     force_source_ip: false,
                     valid_after: req.valid_after,
