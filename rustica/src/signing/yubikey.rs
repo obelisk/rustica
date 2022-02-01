@@ -1,4 +1,4 @@
-use sshcerts::{PublicKey, ssh::CertType, ssh::SigningFunction};
+use sshcerts::{Certificate, PublicKey, ssh::CertType};
 use sshcerts::yubikey::piv::{SlotId, Yubikey};
 use serde::Deserialize;
 use std::convert::TryFrom;
@@ -23,35 +23,25 @@ pub struct YubikeySigner {
 
 
 impl YubikeySigner {
-    fn create_signer(&self, slot: SlotId) -> SigningFunction {
-        let yk = self.yubikey.clone();
-        Box::new(move |buf: &[u8]| {
-            match yk.lock() {
-                Ok(_) => {
-                    // Unfortunatly we need to create a new Yubikey here because otherwise
-                    // everything will have to be mutable which causes an issue
-                    // for the RusticaServer struct
-                    let mut yk = Yubikey::new().unwrap();
-                    match yk.ssh_cert_signer(buf, &slot) {
-                        Ok(sig) => Some(sig),
-                        Err(_) => None,
-                    }
-                },
-                Err(e) => {
-                    error!("Error in acquiring mutex for yubikey signing: {}", e);
-                    None
-                }
-            }
-        })
-    }
-
-    pub fn get_signer(&self, cert_type: CertType) -> SigningFunction {
-        let slot = match cert_type {
+    pub fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
+        let slot = match cert.cert_type {
             CertType::User => self.user_slot,
             CertType::Host => self.host_slot,
         };
 
-        self.create_signer(slot)
+        match self.yubikey.lock() {
+            Ok(_) => {
+                // Unfortunatly we need to create a new Yubikey here because otherwise
+                // everything will have to be mutable which causes an issue
+                // for the RusticaServer struct
+                let mut yk = Yubikey::new().unwrap();
+                match yk.ssh_cert_signer(&cert.tbs_certificate(), &slot) {
+                    Ok(sig) => cert.add_signature(&sig).map_err(|_| SigningError::SigningFailure),
+                    Err(_) => Err(SigningError::SigningFailure),
+                }
+            },
+            Err(e) => Err(SigningError::AccessError(e.to_string())),
+        }
     }
 
     pub fn get_signer_public_key(&self, cert_type: CertType) -> Result<PublicKey, SigningError> {

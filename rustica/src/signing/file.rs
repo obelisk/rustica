@@ -1,5 +1,7 @@
-use sshcerts::{PublicKey, PrivateKey, ssh::CertType, ssh::SigningFunction};
+use sshcerts::{Certificate, PublicKey, PrivateKey, ssh::CertType};
 use serde::Deserialize;
+
+use super::SigningError;
 
 #[derive(Deserialize)]
 pub struct FileSigner {
@@ -12,11 +14,13 @@ pub struct FileSigner {
 }
 
 impl FileSigner {
-    pub fn get_signer(&self, cert_type: CertType) -> SigningFunction {
-        match cert_type {
-            CertType::User => self.user_key.clone().into(),
-            CertType::Host => self.host_key.clone().into(),
-        }
+    pub fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
+        let final_cert = match cert.cert_type {
+            CertType::User => cert.sign(&self.user_key),
+            CertType::Host => cert.sign(&self.host_key),
+        };
+
+        final_cert.map_err(|_| SigningError::SigningFailure)
     }
 
     pub fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {

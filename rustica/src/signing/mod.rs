@@ -78,27 +78,13 @@ impl std::fmt::Display for SigningError {
 impl SigningMechanism {
     /// Takes in a certificate and handles the getting a signature from the 
     /// configured SigningMechanism.
-    pub async fn sign_certificate(&self, cert: Certificate) -> Result<Certificate, SigningError> {
+    pub async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         match self {
-            SigningMechanism::File(file) => {
-                let signer = file.get_signer(cert.cert_type);
-                match cert.sign(signer) {
-                    Ok(c) => Ok(c),
-                    Err(_) => Err(SigningError::SigningFailure)
-                }
-            },
+            SigningMechanism::File(file) => file.sign(cert),
             #[cfg(feature = "yubikey-support")]
-            SigningMechanism::Yubikey(yubikey) => {
-                let signer = yubikey.get_signer(cert.cert_type);
-                match cert.sign(signer) {
-                    Ok(c) => Ok(c),
-                    Err(_) => Err(SigningError::SigningFailure)
-                }
-            },
+            SigningMechanism::Yubikey(yubikey) => yubikey.sign(cert),
             #[cfg(feature = "amazon-kms")]
-            SigningMechanism::AmazonKMS(amazonkms) => {
-                amazonkms.sign_certificate(cert).await
-            },
+            SigningMechanism::AmazonKMS(amazonkms) => amazonkms.sign(cert).await,
         }
     }
 

@@ -1802,7 +1802,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sshcerts",
+ "sshcerts 0.10.0",
  "tokio",
  "toml",
  "tonic",
@@ -1828,7 +1828,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha2",
- "sshcerts",
+ "sshcerts 0.9.1",
  "tokio",
  "toml",
  "tonic",
@@ -2128,6 +2128,21 @@ name = "sshcerts"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1998030dbf62c4395095559c47fcbf32e1c2bea1dc2fec737a86730f0de86fc7"
+dependencies = [
+ "base64 0.13.0",
+ "der-parser 5.1.2",
+ "num-bigint",
+ "rcgen",
+ "ring",
+ "simple_asn1",
+ "x509",
+ "x509-parser 0.11.0",
+ "yubikey",
+]
+
+[[package]]
+name = "sshcerts"
+version = "0.10.0"
 dependencies = [
  "base64 0.13.0",
  "der-parser 5.1.2",

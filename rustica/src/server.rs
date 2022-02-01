@@ -310,7 +310,7 @@ impl Rustica for RusticaServer {
             .set_critical_options(critical_options.clone())
             .set_extensions(authorization.extensions.clone());
 
-        let cert = self.signer.sign_certificate(cert).await;
+        let cert = self.signer.sign(cert).await;
 
         let serialized_cert = match cert {
             Ok(cert) => {
