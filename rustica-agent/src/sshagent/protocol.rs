@@ -160,7 +160,6 @@ pub enum Response {
     Failure,
     Identities(Vec<Identity>),
 	SignResponse {
-        algo_name: String,
         signature: Vec<u8>,
     },
 }
@@ -180,14 +179,10 @@ impl Response {
                     write_message(&mut buf, identity.key_comment.as_bytes())?;
                 }
             }
-            Response::SignResponse { ref algo_name, ref signature } => {
+            Response::SignResponse { ref signature } => {
                 buf.write_u8(AgentMessageResponse::SignResponse as u8)?;
 
-                let mut full_sig = Vec::new();
-                write_message(&mut full_sig, algo_name.as_bytes())?;
-                write_message(&mut full_sig, signature)?;
-
-                write_message(&mut buf, full_sig.as_slice())?;
+                write_message(&mut buf, signature.as_slice())?;
             }
         }
         stream.write_u32::<BigEndian>(buf.len() as u32)?;

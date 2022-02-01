@@ -1812,7 +1812,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent"
-version = "0.8.1"
+version = "0.8.3"
 dependencies = [
  "base64 0.12.3",
  "byteorder",
@@ -2125,9 +2125,9 @@ dependencies = [
 
 [[package]]
 name = "sshcerts"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1591acb2cf5cd22c6193ea33dc3ce2362ba327de9822de97f3171ec2e701c3c7"
+checksum = "c3d170d1d0f2749220d73126609cd3b6e6179f0d5ed677d24cf4061dbfd2fb27"
 dependencies = [
  "base64 0.13.0",
  "der-parser 5.1.2",
