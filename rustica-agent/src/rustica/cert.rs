@@ -1,7 +1,7 @@
 use super::error::{RefreshError, ServerError};
 use super::{CertificateRequest, Signatory, RusticaCert};
 use crate::{CertificateConfig, RusticaServer};
-use sshcerts::ssh::{CriticalOptions, Extensions};
+use sshcerts::Certificate;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -19,8 +19,8 @@ impl RusticaServer {
         let request = tonic::Request::new(CertificateRequest {
             cert_type: options.cert_type as u32,
             key_id: String::from(""),           // Rustica Server ignores this field
-            critical_options: HashMap::from(CriticalOptions::None),
-            extensions: HashMap::from(Extensions::Standard),
+            critical_options: HashMap::new(),
+            extensions: Certificate::standard_extensions(),
             servers: options.hosts.clone(),
             principals: options.principals.clone(),
             valid_before: current_timestamp + options.duration,

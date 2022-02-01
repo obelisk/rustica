@@ -12,7 +12,8 @@ pub use rustica::{
     RefreshError::{ConfigurationError, SigningError}
 };
 
-use sshcerts::ssh::{Certificate, CertType, PrivateKey, SigningFunction};
+
+use sshcerts::ssh::{Certificate, CertType, PrivateKey, SSHCertificateSigner};
 use sshcerts::yubikey::piv::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy, Yubikey};
 
 use std::collections::HashMap;
@@ -171,7 +172,7 @@ impl SshAgentHandler for Handler {
         // key is the same process as keys added afterwards, we do this to prevent duplication
         // of the private key based signing code.
         // TODO: @obelisk make this better
-        let signer: Option<SigningFunction> = if self.identities.contains_key(&pubkey) {
+        let private_key: Option<PrivateKey> = if self.identities.contains_key(&pubkey) {
             Some(self.identities[&pubkey].clone().into())
         } else if let Signatory::Direct(privkey) = &mut self.signatory {
             Some(privkey.clone().into())
@@ -195,9 +196,9 @@ impl SshAgentHandler for Handler {
             None
         };
 
-        match signer {
-            Some(signer) => {
-                let sig = match signer(&data) {
+        match private_key {
+            Some(key) => {
+                let sig = match key.sign(&data) {
                     None => return Err(AgentError::from("Signing Error")),
                     Some(signature) => signature.to_vec(),
                 };
