@@ -175,7 +175,7 @@ impl SshAgentHandler for Handler {
         // TODO: @obelisk make this better
         let private_key: Option<&PrivateKey> = if self.identities.contains_key(&pubkey) {
             Some(&self.identities[&pubkey])
-        } else if let Signatory::Direct(privkey) = &mut self.signatory {
+        } else if let Signatory::Direct(privkey) = &self.signatory {
             Some(privkey)
         } else if let Signatory::Yubikey(signer) = &mut self.signatory {
             // If using long lived certificates you might need to tap again here because you didn't have to

@@ -1,0 +1,83 @@
+# The certificate presented to connecting clients
+server_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBqjCCAVCgAwIBAgIJAOI2FtcQeixVMAoGCCqGSM49BAMCMBsxGTAXBgNVBAMM
+EEVudGVycHJpc2VSb290Q0EwHhcNMjIwMTIwMDQwMjA2WhcNMjQwNDI0MDQwMjA2
+WjAxMRAwDgYDVQQDDAdydXN0aWNhMRAwDgYDVQQKDAdSdXN0aWNhMQswCQYDVQQG
+EwJDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAINhoFW/5twPqAHLxjFjmns
+lE1jJMJQXmijymZTJxR0DsNZlwvUgNH+WYQFfq4IVMwypVHgyTYJO+lAAPEeyPOj
+ZzBlMDUGA1UdIwQuMCyhH6QdMBsxGTAXBgNVBAMMEEVudGVycHJpc2VSb290Q0GC
+CQCRg096sVtP0zAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DAUBgNVHREEDTALggls
+b2NhbGhvc3QwCgYIKoZIzj0EAwIDSAAwRQIhAMfjW/PMrA9/cCg6O835sr22ZrNk
+k/lFOODLqAJPbh3+AiAzeCUyrmxT5VTf6uyFoNT8zMoWSi79rudcdgl+32RqMg==
+-----END CERTIFICATE-----
+'''
+
+# The key for the certificate presented to clients
+server_key = '''
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgkTd0C69xWFX9PmVf
+BeD0ySfG+O0e7p7SXR9xo/enbvahRANCAAQCDYaBVv+bcD6gBy8YxY5p7JRNYyTC
+UF5oo8pmUycUdA7DWZcL1IDR/lmEBX6uCFTMMqVR4Mk2CTvpQADxHsjz
+-----END PRIVATE KEY-----
+'''
+
+# The CA certificate clients must have their identities signed by
+client_ca_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBMTCB2AIJAL3yJUJ7ShOJMAoGCCqGSM49BAMCMCExHzAdBgNVBAMMFkVudGVy
+cHJpc2VDbGllbnRSb290Q0EwHhcNMjIwMTIwMDQwMjA2WhcNMzIwMTE4MDQwMjA2
+WjAhMR8wHQYDVQQDDBZFbnRlcnByaXNlQ2xpZW50Um9vdENBMFkwEwYHKoZIzj0C
+AQYIKoZIzj0DAQcDQgAEmZbAXHUQEXKB/NmHCG0AcjQA0IsBph+jmcFbw9Na58Cv
+PNZtmm8jQ3Q9R8e3faG6gZuXNe60q/Ea6a6jR5UryDAKBggqhkjOPQQDAgNIADBF
+AiA7H67T6QVZq1pBs6MU6+f/4mxYbVkPi/aCqMthRin7qQIhAP3cYrcO8QibwSjx
+QCYQlNrEWT9OVP/akN0OyFDQIYIU
+-----END CERTIFICATE-----
+'''
+
+# This is the listen address that will be used for the Rustica service
+listen_address = "0.0.0.0:50052"
+
+# This setting controls if the agent has to prove that it
+# controls the private key to Rustica. Setting this to true means a user needs
+# to generate two signatures (one to Rustica, and one to the host). The
+# advantage of using this, is a compromised host cannot get certificates
+# from the server without physical interaction.
+#
+# A client will always need to sign the challenge from the host they
+# are attempting to connect to however so a physical tap will always
+# be required.
+require_rustica_proof = false
+
+
+# Rustica has many ways it can sign SSH certificates which are sent to
+# clients. This method uses private keys embedded in the configuration
+# file. This will mean the hosts which you want to login to via Rustica
+# must respect the public portion of the user key variable below.
+[signing."file"]
+user_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAipVtvuI/JPxiyNkRWEjiBE/JtQi8iGjz4sSeLmBMz/wAAAKhiepqoYnqa
+qAAAAAtzc2gtZWQyNTUxOQAAACAipVtvuI/JPxiyNkRWEjiBE/JtQi8iGjz4sSeLmBMz/w
+AAAEBHwGHZTQ6oGSiiz7kB6/g5g2mNWSX3U4e5WnVZFCv8jSKlW2+4j8k/GLI2RFYSOIET
+8m1CLyIaPPixJ4uYEzP/AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+host_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnewAAAKhQSP5+UEj+
+fgAAAAtzc2gtZWQyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnew
+AAAEAevZOed5UnsVdAASUn+sJ+dUfUnG1kQ1wRH9L758mSCxcC2QuSbJKphPaKx0fRxE52
+sDNPZwaD2kv14ulnBCd7AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+[logging."stdout"]
+
+[authorization."database"]
+path = "examples/example.db"
