@@ -63,5 +63,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Install libpcsc
+      run: apt install -y libpcsclite-dev
     - name: Run Integration Tests
       run: ./tests/build.sh

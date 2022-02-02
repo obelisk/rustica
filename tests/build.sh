@@ -8,7 +8,7 @@ cleanup_and_exit () {
 }
 
 # Build Rustica and RusticaAgent
-cargo build --features="splunk,influx,local-db,amazon-kms"
+cargo build --features=all
 
 # Build test SSH Server
 cd tests/ssh_server
