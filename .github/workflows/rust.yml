@@ -57,13 +57,3 @@ jobs:
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features="splunk,influx,local-db,amazon-kms"
-
-  ubuntu-integration-test:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v2
-    - name: Install libpcsc
-      run: sudo apt install -y libpcsclite-dev
-    - name: Run Integration Tests
-      run: ./tests/build.sh
