@@ -76,7 +76,7 @@ sleep 2
 SSH_AUTH_SOCK="$SOCKET_PATH"
 export SSH_AUTH_SOCK;
 
-if ssh-add tests/test_ec256 > /dev/null 2>&1; then
+if ssh-add tests/test_ec256; then
     echo "PASS: Added EC256 private key to RusticaAgent"
 else
     echo "FAIL: Could not add EC256 private key to RusticaAgent"
