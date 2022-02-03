@@ -111,7 +111,7 @@ impl AmazonKMSSigner {
         })
     }
 
-    pub async fn sign_certificate(&self, cert: Certificate) -> Result<Certificate, SigningError> {
+    pub async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         let data = cert.tbs_certificate();
         let (key_id, key_algo) = match &cert.cert_type {
             CertType::User => (&self.user_key_id, &self.user_key_signing_algorithm),

@@ -12,7 +12,9 @@ pub use rustica::{
     RefreshError::{ConfigurationError, SigningError}
 };
 
-use sshcerts::ssh::{Certificate, CertType, PrivateKey, SigningFunction};
+
+use sshcerts::ssh::{Certificate, CertType, PrivateKey, SSHCertificateSigner};
+use sshcerts::utils::format_signature_for_ssh;
 use sshcerts::yubikey::piv::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy, Yubikey};
 
 use std::collections::HashMap;
@@ -171,10 +173,10 @@ impl SshAgentHandler for Handler {
         // key is the same process as keys added afterwards, we do this to prevent duplication
         // of the private key based signing code.
         // TODO: @obelisk make this better
-        let signer: Option<SigningFunction> = if self.identities.contains_key(&pubkey) {
-            Some(self.identities[&pubkey].clone().into())
-        } else if let Signatory::Direct(privkey) = &mut self.signatory {
-            Some(privkey.clone().into())
+        let private_key: Option<&PrivateKey> = if self.identities.contains_key(&pubkey) {
+            Some(&self.identities[&pubkey])
+        } else if let Signatory::Direct(privkey) = &self.signatory {
+            Some(privkey)
         } else if let Signatory::Yubikey(signer) = &mut self.signatory {
             // If using long lived certificates you might need to tap again here because you didn't have to
             // to get the certificate the first time
@@ -182,30 +184,35 @@ impl SshAgentHandler for Handler {
                 f()
             }
 
-            let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).unwrap();
-                // TODO: @obelisk Why is this magic value here
-                let signature = (&signature[27..]).to_vec();
-                let pubkey = signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap();
+            let pubkey = signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap();
+            let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).map_err(|_| AgentError::from("Yubikey signing error"))?;
+        
+            let signature = match format_signature_for_ssh(&pubkey, &signature) {
+                Some(s) => s,
+                None => return Err(AgentError::from("Signature could not be converted to SSH format")), 
+            };
 
-                return Ok(Response::SignResponse {
-                    algo_name: String::from(pubkey.key_type.name),
-                    signature,
-                });
+            return Ok(Response::SignResponse {
+                signature,
+            });
         } else {
             None
         };
 
-        match signer {
-            Some(signer) => {
-                let sig = match signer(&data) {
+        match private_key {
+            Some(key) => {
+                let signature = match key.sign(&data) {
                     None => return Err(AgentError::from("Signing Error")),
-                    Some(signature) => signature.to_vec(),
+                    Some(signature) => format_signature_for_ssh(&key.pubkey, &signature),
                 };
 
-                let mut reader = sshcerts::ssh::Reader::new(&sig);
+                let signature = match signature {
+                    Some(s) => s,
+                    None => return Err(AgentError::from("Signature could not be converted to SSH format"))
+                };
+
                 Ok(Response::SignResponse {
-                    algo_name: reader.read_string().unwrap(),
-                    signature: reader.read_bytes().unwrap(),
+                    signature,
                 })
             }
             None => Err(AgentError::from("Signing Error: No Valid Keys"))

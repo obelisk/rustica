@@ -18,7 +18,7 @@ use crate::yubikey::verify_certificate_chain;
 use crossbeam_channel::Sender;
 
 use sshcerts::ssh::{
-    CertType, Certificate, CurveKind, CriticalOptions, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind
+    CertType, Certificate, CurveKind, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind
 };
 
 use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1, ED25519};
@@ -296,7 +296,7 @@ impl Rustica for RusticaServer {
                     co.insert(String::from("source-address"), remote_addr.ip().to_string());
                 }
 
-                CriticalOptions::Custom(co)
+                co
             },
             Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
         };
@@ -310,7 +310,7 @@ impl Rustica for RusticaServer {
             .set_critical_options(critical_options.clone())
             .set_extensions(authorization.extensions.clone());
 
-        let cert = self.signer.sign_certificate(cert).await;
+        let cert = self.signer.sign(cert).await;
 
         let serialized_cert = match cert {
             Ok(cert) => {

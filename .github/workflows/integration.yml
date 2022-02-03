@@ -1,0 +1,21 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ubuntu-integration-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install libpcsc
+      run: sudo apt install -y libpcsclite-dev
+    - name: Run Integration Tests
+      run: ./tests/integration.sh
