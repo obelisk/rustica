@@ -87,7 +87,9 @@ else
     cleanup_and_exit 1
 fi
 
-if ssh testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
+docker ps
+
+if ssh testuser@localhost -p2424 -t 'exit'; then
     echo "PASS: RusticaAgent used manually added EC256 to connect to SSH Server"
 else
     echo "Fail: RusticaAgent failed using manually added EC256 to connect to SSH Server"
