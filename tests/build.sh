@@ -1,4 +1,9 @@
 #!/bin/bash
+# Run integration tests for Rustica
+#
+# This works by setting up a Rustica server and RusticaAgent client then trying
+# testing certificate pull functionality as well as SSH signing for logging
+# into remote system.
 
 cleanup_and_exit () {
     rm $SSH_AUTH_SOCK
@@ -7,10 +12,13 @@ cleanup_and_exit () {
     exit $1
 }
 
+
 # Build Rustica and RusticaAgent
 cargo build --features=all
 
-# Build test SSH Server
+# Build test SSH Server. This server trusts all the test keys in this folder as
+# as well as the user key in rustica_local_file.toml. The reason we start up alt
+# first is to run other tests on the manual key add functionality.
 cd tests/ssh_server
 docker build -t rustica_test_ssh_server:latest .
 cd ../..
@@ -55,8 +63,10 @@ else
 fi
 
 # Generate random socket
-SOCKET_RND=$(head -n 5 /dev/urandom | shasum | head -c 20)
+SOCKET_RND=$(head -n 5 /dev/urandom | md5 | head -c 10)
 SOCKET_PATH="/tmp/rustica_agent_$SOCKET_RND"
+
+echo "PASS: Using the following socket path for this test run: $SOCKET_PATH"
 
 # Start RusticaAgent
 ./target/debug/rustica-agent --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
