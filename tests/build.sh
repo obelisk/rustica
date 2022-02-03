@@ -63,7 +63,7 @@ else
 fi
 
 # Generate random socket
-SOCKET_RND=$(head -n 5 /dev/urandom | md5 | head -c 10)
+SOCKET_RND=$(head -n 5 /dev/urandom | shasum | head -c 10)
 SOCKET_PATH="/tmp/rustica_agent_$SOCKET_RND"
 
 echo "PASS: Using the following socket path for this test run: $SOCKET_PATH"
