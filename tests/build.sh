@@ -69,14 +69,18 @@ SOCKET_PATH="/tmp/rustica_agent_$SOCKET_RND"
 echo "PASS: Using the following socket path for this test run: $SOCKET_PATH"
 
 # Start RusticaAgent
-./target/debug/rustica-agent --config examples/rustica_agent_local.toml --socket $SOCKET_PATH &
+./target/debug/rustica-agent --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
 AGENT_PID=$!
 sleep 2
+
+chmod 600 tests/test_ec256
+chmod 600 tests/test_ec384
+chmod 600 tests/test_ed25519
 
 SSH_AUTH_SOCK="$SOCKET_PATH"
 export SSH_AUTH_SOCK;
 
-if ssh-add tests/test_ec256; then
+if ssh-add tests/test_ec256 > /dev/null 2>&1; then
     echo "PASS: Added EC256 private key to RusticaAgent"
 else
     echo "FAIL: Could not add EC256 private key to RusticaAgent"
