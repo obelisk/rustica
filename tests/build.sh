@@ -69,7 +69,7 @@ SOCKET_PATH="/tmp/rustica_agent_$SOCKET_RND"
 echo "PASS: Using the following socket path for this test run: $SOCKET_PATH"
 
 # Start RusticaAgent
-./target/debug/rustica-agent --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
+./target/debug/rustica-agent --config examples/rustica_agent_local.toml --socket $SOCKET_PATH &
 AGENT_PID=$!
 sleep 2
 
