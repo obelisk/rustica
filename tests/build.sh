@@ -89,7 +89,7 @@ fi
 
 docker ps
 
-if ssh testuser@localhost -p2424 -t 'exit'; then
+if ssh -o StrictHostKeyChecking=no testuser@localhost -p2424 -t 'exit'; then
     echo "PASS: RusticaAgent used manually added EC256 to connect to SSH Server"
 else
     echo "Fail: RusticaAgent failed using manually added EC256 to connect to SSH Server"
@@ -115,7 +115,7 @@ else
     cleanup_and_exit 1
 fi
 
-if ssh testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
+if ssh -o StrictHostKeyChecking=no testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
     echo "PASS: RusticaAgent used manually added EC384 to connect to SSH Server"
 else
     echo "Fail: RusticaAgent failed using manually added EC384 to connect to SSH Server"
@@ -141,7 +141,7 @@ else
     cleanup_and_exit 1
 fi
 
-if ssh testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
+if ssh -o StrictHostKeyChecking=no testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
     echo "PASS: RusticaAgent used manually added Ed25519 to connect to SSH Server"
 else
     echo "Fail: RusticaAgent failed using manually added Ed25519 to connect to SSH Server"
@@ -163,7 +163,7 @@ sleep 2
 AGENT_PID=$!
 sleep 2
 
-if ssh testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
+if ssh -o StrictHostKeyChecking=no testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
     echo "PASS: RusticaAgent used Rustica server to connect to SSH Server"
 else
     echo "Fail: RusticaAgent failed using Rustica server to connect to SSH Server"
