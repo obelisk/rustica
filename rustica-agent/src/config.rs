@@ -187,7 +187,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         )
         .subcommand(
             App::new("provision")
-                .about("Provision this slot with a new private key. The pin number must be passed as parameter here")
+                .about("Provision this slot with a new private key")
                 .arg(
                     Arg::new("management-key")
                         .help("Specify the management key")
@@ -208,7 +208,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 )
                 .arg(
                     Arg::new("require-touch")
-                        .help("Newly provisioned key requires touch for signing operations (touch cached for 15 seconds)")
+                        .help("Require the key to always be tapped. If this is not selected, a tap will be required if not tapped in the last 15 seconds.")
                         .long("require-touch")
                         .short('r')
                 )

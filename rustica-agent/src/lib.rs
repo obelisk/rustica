@@ -255,7 +255,7 @@ pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_
         println!("You're creating a key that will require touch to use.");
         TouchPolicy::Always
     } else {
-        TouchPolicy::Never
+        TouchPolicy::Cached
     };
 
     if yubikey.yk.unlock(pin.as_bytes(), mgm_key).is_err() {

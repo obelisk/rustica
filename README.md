@@ -1,26 +1,45 @@
 # Rustica
 
-Rustica is a Yubikey backed SSHCA written in Rust. It is designed to be used with the accompanying `rustica-agent` tool for certificate handling but speaks gRPC so other integrations are possible. Rustica may use a Yubikey to store its private keys but also supports unencrypted OpenSSH format private key files.
+Rustica is a Yubikey backed SSHCA written in Rust. It is designed to be used with the accompanying `rustica-agent` tool for certificate handling but speaks gRPC so other integrations are possible.
 
 ## Features
-- Yubikey backed private keys
+- Multiple Ways To Secure Private Keys
+    - File
+    - Yubikey 4/5 (non HSM)
+    - AmazonKMS
+- Multiple Ways To Store Permissions
+    - Built in SQLite Database
+    - External Authorization Server
+- Multiple Supported Logging Systems
+    - Stdout
+    - InfluxDB
+    - Splunk
 - Just In Time Certificate Generation
-- Local or remote decision engine support
-- InfluxDB logging support
-- Ability to use different CAs for user and host certs
-- gRPC over TLS with required mTLS
+- Use Different Keys For User and Hosts
+- gRPC With mTLS
+- Docker Scratch Container Support
+- Extensive Feature Support 
 
-### JITC
-The default for Rustica is to use Just In Time Certificate Generation meaning certificates are generated with a TTL of 10s (though this is adjustable on a key by key basis when using local authentication).
+### Protected Key Material
+Malicious access to the Rustica private key would result in serious compromise and thus Rustica provides two ways to mitigate this risk with Yubikey and AmazonKMS support. These signing modules use keys that cannot be exported resulting in more control over how the private key is being used. If using AmazonKMS, Amazon logs can be compared with Rustica logs to provide assurance no misuse has occured.
 
-### Host Restriction
+### Just-In-Time Certificate Generation
+Rustica and RusticaAgent work together to use short lived certificates that are generated on the fly only when needed. In effect this means your deployment will never need to deal with revocation because after ten seconds (the default) all issued certificates will have expired.
+
+### Multiple Supported Logging Systems
+All certificate issues can be logged to InfluxDB or Splunk if desired. See the logging submodule and the examples in `examples/` for more information.
+
+### gRPC With mTLS
+Rustica requires all connections be made using mutually authenticated TLS. This provides an extra level of authentication to the service and allows the tying of x509 certificates to SSH logins.
+
+### Docker Scratch Container
+When using either AmazonKMS or file based keys, Rustica can be compiled to a statically linked binary capable of running in a docker container with no external dependencies. The `docker/` folder contains `Dockerfile`s to compile Rustica this way for both amd64 (standard x86_64 architectures) and aarch64 (capable of running on Amazon Graviton servers).
+
+### Extensive Feature Support
+Compile in only what you need to reduce binary size and dependency bloat. If you're planning on using AmazonKMS for storing your keys, Rustica can be compiled without Yubikey dependencies and vice versa. The same is also true for authorization, if using a remote authorization service, Rustica can be compiled without Diesel and SQLite.
+
+### EXPERIMENTAL: Host Restriction
 It is possible to grant a principal to a user that is only valid for certain hostnames. This is achieved by setting the restricted host permission in the database. When in use, the certificate generated will have the `force-command` CriticalOption enabled. This will force the user to run a bash script, loaded inside the cert, that contains all hostnames she is allowed to log in to. If the hostname name of the remote host does not match any in the list, the connection is closed.
-
-### InfluxDB Logging
-All certificate issues are logged to InfluxDB under the table `rustica_logs`. The log contains the fingerprint and some other metadata about the key used. 
-
-### gRPC over TLS
-There is a script in the resources folder to generate a self signed CA, along with the server cert. Rustica also requires mTLS for connections so an example client cert is also generated.
 
 ## Key Support
 The following key types have Yubikey support:
@@ -35,40 +54,20 @@ The following key types have file support:
 The following key types have no support:
 - ECDSA 521
 
-## Quickstart with Local Authorization
-Create an example set of all required keys and certs:
-`cd resources && ./create_certs.sh && cd ..`
+## Running An Example Deployment
+This repository comes with a set of configuration files and database to be used as an example. New certificates can be easily generated using the scripts in `resources/`. 
 
-Read the documentation in migrations/*/up.sql. It explains how the authorization system works in much more detail and how to authorize keys via database inserts. You may modify that file directly to build your example authorization db.
-> Key IDs are the SHA256 hashes of the public portion of an SSH key. To show the fingerprint of an existing SSH key use:
-> `ssh-keygen -lf <path to key>`
+### Start Rustica
+`rustica --config examples/rustica_local_file.toml`
 
-To build the db: `diesel migration run` from the rustica directory
-This will create a authorization database and is specified to Rustica via environment variable `DATABASE_URL`.
-> If you have issues running diesel you may need to install it with:
-> `cargo install diesel_cli --no-default-features --features sqlite`
+### Pull a certificate with RusticaAgent
+`rustica-agent --config examples/rustica_agent_local.toml -i`
 
-Create a configuration based on `resources/rustica_example_local.toml` that contains the keys you generated with `create_certs.sh`.
+The details of the certificate will be printed to the screen.
 
-Run Rustica (from the root the repository):
-```
-cargo run --bin rustica -- --config /path/to/your/config
-```
+## Running Tests
+Rustica ships with a small suite of integration tests aimed at ensuring some of the lesser known features do not get broken with updates. They require docker to be installed and can be run with the script in `tests/integration.sh`
 
-Finally run rustica-agent:
-```
-cargo run --bin rustica-agent -- \
---mtlscert resources/testhost.pem \
---mtlskey resources/testhost.key \
---server "https://localhost:50051" \
---capem resources/ca.pem \
--f resources/example_user_key \
--i
-```
-
-If all has gone according to plan, you will see your certificate details print out on the screen (as well as the traditional encoding below)
-
-  
 ## Security Warning
 No review has been done. I built it because I thought people could find it useful. Be wary about using this in production without doing a thorough code review. If you find mistakes, please open a pull request or if it's a security bug, email me.
 
