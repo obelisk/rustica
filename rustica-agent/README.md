@@ -25,7 +25,7 @@ This command:
 - Loads all the settings from the config file (server, mTLS, TLS, etc)
 - Overrides the key to use with the key in Yubikey slot R1
 - Overrides the socket path to be used
-- Starts listening for requests from that unix socket
+- Starts listening for requests on that unix socket
 
 ### Immiediate Mode
 `rustica-agent --config ../examples/rustica_agent_local.toml -i`
