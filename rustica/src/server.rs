@@ -318,6 +318,7 @@ impl Rustica for RusticaServer {
 
                 // Sanity check that we can parse the cert we just generated
                 if let Err(e) = Certificate::from_string(&serialized) {
+                    debug!("Offending certificate: {}", serialized);
                     rustica_error!(self, format!("Couldn't deserialize certificate: {}", e));
                     return Ok(create_response(RusticaServerError::BadCertOptions));
                 }
