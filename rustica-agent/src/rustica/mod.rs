@@ -121,6 +121,9 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
 
                     hex::encode(key_pair.sign(&decoded_challenge))
                 },
+                _ => {
+                    unimplemented!("You cannot prove to ownership to Rustica server yet");
+                }
             }
         },
     };

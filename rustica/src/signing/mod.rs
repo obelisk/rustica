@@ -64,6 +64,10 @@ pub enum SigningError {
     /// sign the provided certificate. This could be because of a key
     /// incompatiblity or a corrupted private key.
     SigningFailure,
+    /// ParsingError represents any error that occurs from unexpected data
+    /// not being able to be parsed correctly, or code that fails to parse
+    /// expected data
+    ParsingError,
 }
 
 impl std::fmt::Display for SigningError {
@@ -71,6 +75,7 @@ impl std::fmt::Display for SigningError {
         match self {
             SigningError::AccessError(e) => write!(f, "Could access the private key material: {}", e),
             SigningError::SigningFailure => write!(f, "The signing operation on the provided certificate failed"),
+            SigningError::ParsingError => write!(f, "The signature could not be parsed"),
         }
     }
 }

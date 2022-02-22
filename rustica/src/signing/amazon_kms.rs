@@ -1,4 +1,9 @@
-use sshcerts::{Certificate, PublicKey, ssh::CertType};
+use sshcerts::{
+    Certificate,
+    PublicKey,
+    ssh::CertType,
+    utils::format_signature_for_ssh,
+};
 use serde::Deserialize;
 
 use aws_sdk_kms::{Blob, Client, Credentials, Region};
@@ -113,15 +118,20 @@ impl AmazonKMSSigner {
 
     pub async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         let data = cert.tbs_certificate();
-        let (key_id, key_algo) = match &cert.cert_type {
-            CertType::User => (&self.user_key_id, &self.user_key_signing_algorithm),
-            CertType::Host => (&self.host_key_id, &self.host_key_signing_algorithm),
+        let (pubkey, key_id, key_algo) = match &cert.cert_type {
+            CertType::User => (&self.user_public_key, &self.user_key_id, &self.user_key_signing_algorithm),
+            CertType::Host => (&self.host_public_key, &self.host_key_id, &self.host_key_signing_algorithm),
         };
         let result = self.client.sign().key_id(key_id).signing_algorithm(key_algo.clone()).message(Blob::new(data)).send().await;
 
         let signature = match result {
             Ok(result) => result.signature.unwrap().into_inner(),
             Err(e) => return Err(SigningError::AccessError(e.to_string())),
+        };
+
+        let signature = match format_signature_for_ssh(pubkey, &signature) {
+            Some(s) => s,
+            None => return Err(SigningError::ParsingError),
         };
 
         cert.add_signature(&signature).map_err(|_| SigningError::SigningFailure)
