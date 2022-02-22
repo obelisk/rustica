@@ -1962,7 +1962,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "sshcerts",
+ "sshcerts 0.11.0 (git+https://github.com/obelisk/sshcerts?branch=new_fido2)",
  "tokio",
  "toml",
  "tonic",
@@ -1988,7 +1988,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha2",
- "sshcerts",
+ "sshcerts 0.11.0",
  "tokio",
  "toml",
  "tonic",
@@ -2304,6 +2304,20 @@ dependencies = [
  "rcgen",
  "ring",
  "simple_asn1",
+ "x509",
+ "x509-parser 0.11.0",
+ "yubikey",
+]
+
+[[package]]
+name = "sshcerts"
+version = "0.11.0"
+source = "git+https://github.com/obelisk/sshcerts?branch=new_fido2#9c3d8c5ffbfdb916b89d5d8bb59b5a46a1ff7a1e"
+dependencies = [
+ "base64 0.13.0",
+ "der-parser 5.1.2",
+ "rcgen",
+ "ring",
  "x509",
  "x509-parser 0.11.0",
  "yubikey",
