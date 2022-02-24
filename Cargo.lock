@@ -2572,7 +2572,7 @@ dependencies = [
 [[package]]
 name = "sshcerts"
 version = "0.11.0"
-source = "git+https://github.com/obelisk/sshcerts?branch=new_fido2#a5eba8bd62764bac689d9b3ccdcad41380fbab30"
+source = "git+https://github.com/obelisk/sshcerts?branch=new_fido2#1af348067e447e959b703069c71f7bda45c2ebd7"
 dependencies = [
  "base64 0.13.0",
  "ctap-hid-fido2",

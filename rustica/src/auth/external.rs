@@ -130,6 +130,7 @@ impl AuthServer {
                 identity_data.insert(String::from("challenge"), hex::encode(&attestation.challenge));
                 identity_data.insert(String::from("application"), hex::encode(&attestation.application));
                 identity_data.insert(String::from("alg"), attestation.alg.to_string());
+                identity_data.insert(String::from("aaguid"), attestation.aaguid.clone());
             },
             None => {
                 identity_data.insert(String::from("type"), String::from("ssh_key"));

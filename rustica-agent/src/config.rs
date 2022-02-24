@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{App, Arg, ArgMatches};
 
 use sshcerts::{CertType, PublicKey, PrivateKey};
 use sshcerts::yubikey::piv::{SlotId, Yubikey};
@@ -87,6 +87,45 @@ impl From<std::io::Error> for ConfigurationError {
 impl From<sshcerts::error::Error> for ConfigurationError {
     fn from(_: sshcerts::error::Error) -> Self {
         ConfigurationError::ParsingError
+    }
+}
+
+fn get_signatory(cmd_slot: &Option<String>, config_slot: &Option<String>, matches: &ArgMatches, config_key: &Option<String>) -> Result<Signatory, ConfigurationError> {
+    // Determine the signatory to be used. These match statements, execute in order,
+    // create a hierarchy of which keys override others.
+    // If a file is specified at the command line, that overrides everything else.
+    // If there is no file, check for a key in the config file.
+    // If there is no key in the config, check if a slot has been passed.
+    // If there is a slot both on the command line and config file, prefer the command line
+    // Otherwise use the slot in the config
+    // If none of these, error.
+    match (cmd_slot, config_slot, matches.value_of("file"), &config_key) {
+        (Some(slot), _, _, _) => {
+            match slot_parser(slot) {
+                Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
+                    yk: Yubikey::new().unwrap(),
+                    slot: s,
+                })),
+                None => Err(ConfigurationError::BadSlot)
+            }
+        },
+        (_, _, Some(file), _) => {
+            match PrivateKey::from_path(file) {
+                Ok(p) => Ok(Signatory::Direct(p)),
+                Err(e) => Err(ConfigurationError::CannotReadFile(format!("{}: {}", e.to_string(), file))),
+            }
+        },
+        (_, Some(slot), _, _) => {
+            match slot_parser(slot) {
+                Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
+                    yk: Yubikey::new().unwrap(),
+                    slot: s,
+                })),
+                None => Err(ConfigurationError::BadSlot),
+            }
+        },
+        (_, _, _, Some(key_string)) => Ok(Signatory::Direct(PrivateKey::from_string(key_string)?)),
+        (None, None, None, None) => Err(ConfigurationError::MissingSSHKey)
     }
 }
 
@@ -267,6 +306,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                         .help("Relative path to write your new private key handle to")
                         .required(false)
                         .long("out")
+                        .takes_value(true)
                         .short('o')
                 )
         )
@@ -334,44 +374,8 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     let cmd_slot = matches.value_of("slot").map(|x| x.to_owned());
 
-    // Determine the signatory to be used. These match statements, execute in order,
-    // create a hierarchy of which keys override others.
-    // If a file is specified at the command line, that overrides everything else.
-    // If there is no file, check for a key in the config file.
-    // If there is no key in the config, check if a slot has been passed.
-    // If there is a slot both on the command line and config file, prefer the command line
-    // Otherwise use the slot in the config
-    // If none of these, error.
-    let mut signatory = match (&cmd_slot, &config.slot, matches.value_of("file"), &config.key) {
-        (Some(slot), _, _, _) => {
-            match slot_parser(slot) {
-                Some(s) => Signatory::Yubikey(YubikeySigner {
-                    yk: Yubikey::new().unwrap(),
-                    slot: s,
-                }),
-                None => return Err(ConfigurationError::BadSlot)
-            }
-        },
-        (_, _, Some(file), _) => {
-            match PrivateKey::from_path(file) {
-                Ok(p) => Signatory::Direct(p),
-                Err(e) => return Err(ConfigurationError::CannotReadFile(format!("{}: {}", e.to_string(), file))),
-            }
-        },
-        (_, Some(slot), _, _) => {
-            match slot_parser(slot) {
-                Some(s) => Signatory::Yubikey(YubikeySigner {
-                    yk: Yubikey::new().unwrap(),
-                    slot: s,
-                }),
-                None => return Err(ConfigurationError::BadSlot),
-            }
-        },
-        (_, _, _, Some(key_string)) => Signatory::Direct(PrivateKey::from_string(key_string)?),
-        (None, None, None, None) => return Err(ConfigurationError::MissingSSHKey)
-    };
-
     if let Some(matches) = matches.subcommand_matches("provision-piv") {
+        let signatory = get_signatory(&cmd_slot, &config.slot, &matches, &config.key)?;
         let yubikey = match signatory {
             Signatory::Yubikey(yk_sig) => yk_sig,
             Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile)
@@ -421,6 +425,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         return Ok(RusticaAgentAction::ProvisionAndRegisterFido(provision_config));
     }
 
+    let mut signatory = get_signatory(&cmd_slot, &config.slot, &matches, &config.key)?;
     let pubkey = match &mut signatory {
         Signatory::Yubikey(signer) => match signer.yk.ssh_cert_fetch_pubkey(&signer.slot) {
             Ok(cert) => cert,
