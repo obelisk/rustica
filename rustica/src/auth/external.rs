@@ -8,6 +8,7 @@ use super::{
     Authorization,
     AuthorizationError,
     AuthorizationRequestProperties,
+    KeyAttestation,
     RegisterKeyRequestProperties,
 };
 use std::collections::HashMap;
@@ -114,11 +115,23 @@ impl AuthServer {
         identities.insert(String::from("mtls_identities"), req.mtls_identities.join(","));
 
         let mut identity_data = HashMap::new();
-        identity_data.insert(String::from("type"), String::from("ssh_key"));
-        if let Some(attestation) = &req.attestation {
-            identity_data.insert(String::from("certificate"), hex::encode(&attestation.certificate));
-            identity_data.insert(String::from("intermediate_certificate"), hex::encode(&attestation.intermediate));
-        }
+
+        match &req.attestation {
+            Some(KeyAttestation::Piv(attestation)) => {
+                identity_data.insert(String::from("type"), String::from("ssh_key"));
+                identity_data.insert(String::from("certificate"), hex::encode(&attestation.certificate));
+                identity_data.insert(String::from("intermediate_certificate"), hex::encode(&attestation.intermediate));
+            },
+            Some(KeyAttestation::U2f(attestation)) => {
+                identity_data.insert(String::from("type"), String::from("u2f_ssh_key"));
+                identity_data.insert(String::from("auth_data"), hex::encode(&attestation.auth_data));
+                identity_data.insert(String::from("auth_data_signature"), hex::encode(&attestation.auth_data_signature));
+                identity_data.insert(String::from("intermediate_certificate"), hex::encode(&attestation.intermediate));
+            },
+            None => {
+                identity_data.insert(String::from("type"), String::from("ssh_key"));
+            },
+        };
 
         let request = tonic::Request::new(AddIdentityDataRequest {
             identities,

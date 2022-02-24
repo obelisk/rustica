@@ -35,7 +35,7 @@ pub struct RunConfig {
     pub handler: Handler,
 }
 
-pub struct ProvisionConfig {
+pub struct ProvisionPIVConfig {
     pub yubikey: YubikeySigner,
     pub pin: String,
     pub management_key: Vec<u8>,
@@ -43,10 +43,23 @@ pub struct ProvisionConfig {
     pub subject: String,
 }
 
+pub enum SKType {
+    Ed25519,
+    Ecdsa,
+}
+
+pub struct ProvisionAndRegisterFidoConfig {
+    pub server: RusticaServer,
+    pub app_name: String,
+    pub comment: String,
+    pub key_type: SKType,
+    pub out: Option<String>,
+}
+
 pub struct RegisterConfig {
     pub server: RusticaServer,
     pub signatory: Signatory,
-    pub key_config: KeyConfig,
+    pub attestation: PIVAttestation,
 }
 
 pub struct ImmediateConfig {
@@ -59,8 +72,9 @@ pub struct ImmediateConfig {
 pub enum RusticaAgentAction {
     Run(RunConfig),
     Immediate(ImmediateConfig),
-    Provision(ProvisionConfig),
+    ProvisionPIV(ProvisionPIVConfig),
     Register(RegisterConfig),
+    ProvisionAndRegisterFido(ProvisionAndRegisterFidoConfig),
 }
 
 
@@ -186,7 +200,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 )
         )
         .subcommand(
-            App::new("provision")
+            App::new("provision-piv")
                 .about("Provision this slot with a new private key")
                 .arg(
                     Arg::new("management-key")
@@ -218,6 +232,42 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                         .default_value("Rustica-AgentQuickProvision")
                         .long("subj")
                         .short('j')
+                )
+        )
+        .subcommand(
+            App::new("fido-setup")
+                .about("Provision and register a new FIDO/U2F key")
+                .arg(
+                    Arg::new("application")
+                        .help("Specify application you are creating the key for")
+                        .default_value("Rustica")
+                        .long("application")
+                        .short('a')
+                        .required(false)
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::new("comment")
+                        .help("A comment about what this SSH key will be for")
+                        .long("comment")
+                        .short('c')
+                        .required(false)
+                        .default_value("RusticaAgentProvisionedKey")
+                )
+                .arg(
+                    Arg::new("kind")
+                        .help("Whether you'd like an Ed25519 or ECDSA P256 key")
+                        .possible_values(vec!["ed25519", "ecdsa"])
+                        .default_value("ed25519")
+                        .long("kind")
+                        .short('k')
+                )
+                .arg(
+                    Arg::new("out")
+                        .help("Relative path to write your new private key handle to")
+                        .required(false)
+                        .long("out")
+                        .short('o')
                 )
         )
         .get_matches();
@@ -302,7 +352,12 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 None => return Err(ConfigurationError::BadSlot)
             }
         },
-        (_, _, Some(file), _) => Signatory::Direct(PrivateKey::from_path(file)?),
+        (_, _, Some(file), _) => {
+            match PrivateKey::from_path(file) {
+                Ok(p) => Signatory::Direct(p),
+                Err(e) => return Err(ConfigurationError::CannotReadFile(format!("{}: {}", e.to_string(), file))),
+            }
+        },
         (_, Some(slot), _, _) => {
             match slot_parser(slot) {
                 Some(s) => Signatory::Yubikey(YubikeySigner {
@@ -316,7 +371,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         (None, None, None, None) => return Err(ConfigurationError::MissingSSHKey)
     };
 
-    if let Some(matches) = matches.subcommand_matches("provision") {
+    if let Some(matches) = matches.subcommand_matches("provision-piv") {
         let yubikey = match signatory {
             Signatory::Yubikey(yk_sig) => yk_sig,
             Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile)
@@ -331,7 +386,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
         let pin = matches.value_of("pin").unwrap().to_string();
 
-        let provision_config = ProvisionConfig {
+        let provision_config = ProvisionPIVConfig {
             yubikey,
             pin,
             management_key,
@@ -339,7 +394,31 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             require_touch,
         };
 
-        return Ok(RusticaAgentAction::Provision(provision_config));
+        return Ok(RusticaAgentAction::ProvisionPIV(provision_config));
+    }
+
+    if let Some(matches) = matches.subcommand_matches("fido-setup") {
+        let app_name = matches.value_of("application").unwrap().to_string();
+        let comment = matches.value_of("comment").unwrap().to_string();
+        let out = match matches.value_of("out") {
+            Some(o) => Some(String::from(o)),
+            None => None,
+        };
+
+        let key_type = match matches.value_of("kind") {
+            Some("ecdsa") => SKType::Ecdsa,
+            _ => SKType::Ed25519,
+        };
+
+        let provision_config = ProvisionAndRegisterFidoConfig {
+            server,
+            app_name,
+            comment,
+            key_type,
+            out,
+        };
+
+        return Ok(RusticaAgentAction::ProvisionAndRegisterFido(provision_config));
     }
 
     let pubkey = match &mut signatory {
@@ -351,7 +430,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     };
 
     if let Some(matches) = matches.subcommand_matches("register") {
-        let mut key_config = KeyConfig {
+        let mut attestation = PIVAttestation {
             certificate: vec![],
             intermediate: vec![],
         };
@@ -362,10 +441,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 Signatory::Direct(_) => return Err(ConfigurationError::CannotAttestFileBasedKey),
             };
 
-            key_config.certificate = signer.yk.fetch_attestation(&signer.slot).unwrap_or_default();
-            key_config.intermediate = signer.yk.fetch_certificate(&SlotId::Attestation).unwrap_or_default();
+            attestation.certificate = signer.yk.fetch_attestation(&signer.slot).unwrap_or_default();
+            attestation.intermediate = signer.yk.fetch_certificate(&SlotId::Attestation).unwrap_or_default();
 
-            if key_config.certificate.is_empty() || key_config.intermediate.is_empty() {
+            if attestation.certificate.is_empty() || attestation.intermediate.is_empty() {
                 error!("Part of the attestation could not be generated. Registration may fail");
             }
         }
@@ -373,7 +452,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         return Ok(RusticaAgentAction::Register(RegisterConfig {
             server,
             signatory,
-            key_config,
+            attestation,
         }))
     }
 

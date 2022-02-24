@@ -60,6 +60,9 @@ table! {
         firmware -> Nullable<Text>,
         attestation_certificate -> Nullable<Text>,
         attestation_intermediate -> Nullable<Text>,
+        auth_data -> Nullable<Text>,
+        auth_data_signature -> Nullable<Text>,
+        aaguid -> Nullable<Text>,
     }
 }
 

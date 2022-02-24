@@ -12,6 +12,7 @@ use super::{
     AuthorizationError,
     AuthorizationRequestProperties,
     RegisterKeyRequestProperties,
+    KeyAttestation,
 };
 
 use sshcerts::ssh::{Certificate, CertType};
@@ -105,16 +106,29 @@ impl LocalDatabase {
             pin_policy: None,
             attestation_certificate: None,
             attestation_intermediate: None,
+            auth_data: None,
+            auth_data_signature: None,
+            aaguid: None,
         };
 
-        if let Some(attestation) = &req.attestation {
-            registered_key.firmware = Some(attestation.firmware.clone());
-            registered_key.hsm_serial = Some(attestation.serial.to_string());
-            registered_key.touch_policy = Some(attestation.touch_policy.to_string());
-            registered_key.pin_policy = Some(attestation.pin_policy.to_string());
-            registered_key.attestation_certificate = Some(hex::encode(&attestation.certificate));
-            registered_key.attestation_intermediate = Some(hex::encode(&attestation.intermediate));
-        }
+        match &req.attestation {
+            Some(KeyAttestation::Piv(attestation)) => {
+                registered_key.firmware = Some(attestation.firmware.clone());
+                registered_key.hsm_serial = Some(attestation.serial.to_string());
+                registered_key.touch_policy = Some(attestation.touch_policy.to_string());
+                registered_key.pin_policy = Some(attestation.pin_policy.to_string());
+                registered_key.attestation_certificate = Some(hex::encode(&attestation.certificate));
+                registered_key.attestation_intermediate = Some(hex::encode(&attestation.intermediate));
+            },
+            Some(KeyAttestation::U2f(attestation)) => {
+                registered_key.firmware = Some(attestation.firmware.clone());
+                registered_key.attestation_intermediate = Some(hex::encode(&attestation.intermediate));
+                registered_key.auth_data = Some(hex::encode(&attestation.auth_data));
+                registered_key.auth_data_signature = Some(hex::encode(&attestation.auth_data_signature));
+                registered_key.aaguid = Some(hex::encode(&attestation.aaguid));
+            }
+            _ => {},
+        };
 
         let result = {
             use schema::registered_keys::dsl::*;

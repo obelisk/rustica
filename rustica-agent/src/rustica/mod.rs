@@ -11,6 +11,7 @@ pub use rustica_proto::{
     Challenge,
     ChallengeRequest,
     RegisterKeyRequest,
+    RegisterU2fKeyRequest,
 };
 
 use sshcerts::ssh::{CurveKind, PublicKeyKind, PrivateKeyKind};

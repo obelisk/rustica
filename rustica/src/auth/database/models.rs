@@ -41,4 +41,7 @@ pub struct RegisteredKey {
     pub firmware: Option<String>,
     pub attestation_certificate: Option<String>,
     pub attestation_intermediate: Option<String>,
+    pub auth_data: Option<String>,
+    pub auth_data_signature: Option<String>,
+    pub aaguid: Option<String>,
 }

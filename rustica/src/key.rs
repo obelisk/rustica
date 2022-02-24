@@ -8,13 +8,28 @@ pub struct Key {
 }
 
 #[derive(Debug)]
-pub struct KeyAttestation {
+pub struct PIVAttestation {
     pub pin_policy: PinPolicy,
     pub touch_policy: TouchPolicy,
     pub serial: u64,
     pub firmware: String,
     pub certificate: Vec<u8>,
     pub intermediate: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct U2fAttestation {
+    pub aaguid: String,
+    pub firmware: String,
+    pub auth_data: Vec<u8>,
+    pub auth_data_signature: Vec<u8>,
+    pub intermediate: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub enum KeyAttestation {
+    Piv(PIVAttestation),
+    U2f(U2fAttestation),
 }
 
 #[derive(Debug, PartialEq)]

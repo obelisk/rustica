@@ -9,11 +9,16 @@ use crate::rustica::{
     ChallengeResponse,
     RegisterKeyRequest,
     RegisterKeyResponse,
+    RegisterU2fKeyRequest,
+    RegisterU2fKeyResponse,
     rustica_server::Rustica,
 };
 use crate::signing::{SigningMechanism};
 use crate::utils::build_login_script;
-use crate::yubikey::verify_certificate_chain;
+use crate::yubikey::{
+    verify_piv_certificate_chain,
+    verify_u2f_certificate_chain,
+};
 
 use crossbeam_channel::Sender;
 
@@ -318,6 +323,7 @@ impl Rustica for RusticaServer {
 
                 // Sanity check that we can parse the cert we just generated
                 if let Err(e) = Certificate::from_string(&serialized) {
+                    debug!("Offending Public Key: {}", ssh_pubkey);
                     debug!("Offending certificate: {}", serialized);
                     rustica_error!(self, format!("Couldn't deserialize certificate: {}", e));
                     return Ok(create_response(RusticaServerError::BadCertOptions));
@@ -352,7 +358,6 @@ impl Rustica for RusticaServer {
     }
 
     async fn register_key(&self, request: Request<RegisterKeyRequest>) -> Result<Response<RegisterKeyResponse>, Status> {
-        debug!("Received register key request: {:?}", request);
         let requester_ip = match request.remote_addr() {
             Some(x) => x.to_string(),
             None => String::new(),
@@ -371,7 +376,7 @@ impl Rustica for RusticaServer {
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };
 
-        let (fingerprint, attestation) = match verify_certificate_chain(&request.certificate, &request.intermediate) {
+        let (fingerprint, attestation) = match verify_piv_certificate_chain(&request.certificate, &request.intermediate) {
             Ok(key) => (key.fingerprint, key.attestation),
             _ => (ssh_pubkey.fingerprint().hash, None),
         };
@@ -392,6 +397,58 @@ impl Rustica for RusticaServer {
                     mtls_identities,
                 })).unwrap();
                 return Ok(Response::new(RegisterKeyResponse{}))
+            },
+            Ok(false) => {
+                rustica_warning!(self, format!("[{}] could not be registered with the authorizer. Identities: [{}]", fingerprint, mtls_identities.join(", ")));
+                return Err(Status::unavailable("Could not register new key"))
+            },
+            Err(_) => {
+                rustica_error!(self, format!("Authorizer threw error registering fingerprint: [{}] with identities: [{}]", fingerprint, mtls_identities.join(", ")));
+                return Err(Status::unavailable("Could not register new key"))
+            },
+        }
+    }
+
+    async fn register_u2f_key(&self, request: Request<RegisterU2fKeyRequest>) -> Result<Response<RegisterU2fKeyResponse>, Status> {
+        let requester_ip = match request.remote_addr() {
+            Some(x) => x.to_string(),
+            None => String::new(),
+        };
+
+        let peer = request.peer_certs();
+        let request = request.into_inner();
+
+        let (challenge, peer) = match (&request.challenge, peer) {
+            (Some(challenge), Some(peer)) => (challenge, peer),
+            _ => return Err(Status::permission_denied("")),
+        };
+
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+            Ok((ssh_pk, idents)) => (ssh_pk, idents),
+            Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
+        };
+
+        let (fingerprint, attestation) = match verify_u2f_certificate_chain(&request.auth_data, &request.auth_data_signature, &request.intermediate, request.alg, &request.u2f_challenge, &request.sk_application) {
+            Ok(key) => (key.fingerprint, key.attestation),
+            _ => (ssh_pubkey.fingerprint().hash, None),
+        };
+
+        let register_properties = RegisterKeyRequestProperties {
+            fingerprint: fingerprint.clone(),
+            mtls_identities: mtls_identities.clone(),
+            requester_ip,
+            attestation,
+        };
+
+        let response = self.authorizer.register_key(&register_properties).await;
+
+        match response {
+            Ok(true) => {
+                self.log_sender.send(Log::KeyRegistered(KeyRegistered {
+                    fingerprint,
+                    mtls_identities,
+                })).unwrap();
+                return Ok(Response::new(RegisterU2fKeyResponse{}))
             },
             Ok(false) => {
                 rustica_warning!(self, format!("[{}] could not be registered with the authorizer. Identities: [{}]", fingerprint, mtls_identities.join(", ")));

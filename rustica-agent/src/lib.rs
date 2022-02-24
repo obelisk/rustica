@@ -8,7 +8,9 @@ use serde_derive::Deserialize;
 pub use sshagent::{Agent, error::Error as AgentError, Identity, SshAgentHandler, Response};
 
 pub use rustica::{
-    key::KeyConfig,
+    key::{
+        PIVAttestation,
+    },
     RefreshError::{ConfigurationError, SigningError}
 };
 
@@ -203,12 +205,7 @@ impl SshAgentHandler for Handler {
             Some(key) => {
                 let signature = match key.sign(&data) {
                     None => return Err(AgentError::from("Signing Error")),
-                    Some(signature) => format_signature_for_ssh(&key.pubkey, &signature),
-                };
-
-                let signature = match signature {
-                    Some(s) => s,
-                    None => return Err(AgentError::from("Signature could not be converted to SSH format"))
+                    Some(signature) => signature,
                 };
 
                 Ok(Response::SignResponse {
@@ -248,7 +245,7 @@ pub fn slot_validator(slot: &str) -> Result<(), String> {
 }
 
 /// Provisions a new keypair on the Yubikey with the given settings.
-pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], require_touch: bool) -> Option<KeyConfig> {
+pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], require_touch: bool) -> Option<PIVAttestation> {
     println!("Provisioning new NISTP384 key in slot: {:?}", &yubikey.slot);
 
     let policy = if require_touch {
@@ -269,7 +266,7 @@ pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_
             let intermediate = yubikey.yk.fetch_certificate(&SlotId::Attestation);
 
             match (certificate, intermediate) {
-                (Ok(certificate), Ok(intermediate)) => Some(KeyConfig {certificate, intermediate}),
+                (Ok(certificate), Ok(intermediate)) => Some(PIVAttestation{certificate, intermediate}),
                 _ => None,
             }
         },
@@ -416,7 +413,7 @@ pub unsafe extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_sec
             let intermediate = yk.fetch_certificate(&SlotId::Attestation);
 
             match (certificate, intermediate) {
-                (Ok(certificate), Ok(intermediate)) => KeyConfig {certificate, intermediate},
+                (Ok(certificate), Ok(intermediate)) => PIVAttestation{certificate, intermediate},
                 _ => return false,
             }
         },
