@@ -651,28 +651,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ctap-hid-fido2"
-version = "2.2.1"
-source = "git+https://github.com/gebogebogebo/ctap-hid-fido2#39e3ff95486e1a3e1838d690c2c490533e3e0102"
-dependencies = [
- "anyhow",
- "base64 0.13.0",
- "byteorder",
- "hex",
- "hidapi",
- "hmac 0.12.1",
- "num",
- "pad",
- "ring",
- "rust-crypto",
- "serde",
- "serde_cbor",
- "strum",
- "strum_macros",
- "x509-parser 0.13.0",
-]
-
-[[package]]
 name = "data-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2274,7 +2252,7 @@ dependencies = [
  "base64 0.12.3",
  "byteorder",
  "clap",
- "ctap-hid-fido2 2.2.1 (git+https://github.com/obelisk/ctap-hid-fido2?branch=remove_pi)",
+ "ctap-hid-fido2",
  "env_logger",
  "futures-core",
  "futures-util",
@@ -2594,10 +2572,10 @@ dependencies = [
 [[package]]
 name = "sshcerts"
 version = "0.11.0"
-source = "git+https://github.com/obelisk/sshcerts?branch=new_fido2#569f30c44208701729006af8fb98e2268b5d05af"
+source = "git+https://github.com/obelisk/sshcerts?branch=new_fido2#a5eba8bd62764bac689d9b3ccdcad41380fbab30"
 dependencies = [
  "base64 0.13.0",
- "ctap-hid-fido2 2.2.1 (git+https://github.com/gebogebogebo/ctap-hid-fido2)",
+ "ctap-hid-fido2",
  "der-parser 5.1.2",
  "num-bigint",
  "rcgen",
