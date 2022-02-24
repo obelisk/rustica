@@ -631,27 +631,6 @@ dependencies = [
 [[package]]
 name = "ctap-hid-fido2"
 version = "2.2.1"
-dependencies = [
- "anyhow",
- "base64 0.13.0",
- "byteorder",
- "hex",
- "hidapi",
- "hmac 0.12.1",
- "num",
- "pad",
- "ring",
- "rust-crypto",
- "serde",
- "serde_cbor",
- "strum",
- "strum_macros",
- "x509-parser 0.13.0",
-]
-
-[[package]]
-name = "ctap-hid-fido2"
-version = "2.2.1"
 source = "git+https://github.com/gebogebogebo/ctap-hid-fido2#39e3ff95486e1a3e1838d690c2c490533e3e0102"
 dependencies = [
  "anyhow",
@@ -2273,7 +2252,7 @@ dependencies = [
  "base64 0.12.3",
  "byteorder",
  "clap",
- "ctap-hid-fido2 2.2.1",
+ "ctap-hid-fido2",
  "env_logger",
  "futures-core",
  "futures-util",
@@ -2596,7 +2575,7 @@ version = "0.11.0"
 source = "git+https://github.com/obelisk/sshcerts?branch=new_fido2#6fec75991529ea9040783340e0f0327e286bd577"
 dependencies = [
  "base64 0.13.0",
- "ctap-hid-fido2 2.2.1 (git+https://github.com/gebogebogebo/ctap-hid-fido2)",
+ "ctap-hid-fido2",
  "der-parser 5.1.2",
  "num-bigint",
  "rcgen",
