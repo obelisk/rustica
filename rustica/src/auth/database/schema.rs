@@ -63,6 +63,9 @@ table! {
         auth_data -> Nullable<Text>,
         auth_data_signature -> Nullable<Text>,
         aaguid -> Nullable<Text>,
+        challenge -> Nullable<Text>,
+        alg -> Nullable<Integer>,
+        application -> Nullable<Text>,
     }
 }
 

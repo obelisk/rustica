@@ -109,6 +109,9 @@ impl LocalDatabase {
             auth_data: None,
             auth_data_signature: None,
             aaguid: None,
+            challenge: None,
+            alg: None,
+            application: None,
         };
 
         match &req.attestation {
@@ -126,6 +129,10 @@ impl LocalDatabase {
                 registered_key.auth_data = Some(hex::encode(&attestation.auth_data));
                 registered_key.auth_data_signature = Some(hex::encode(&attestation.auth_data_signature));
                 registered_key.aaguid = Some(hex::encode(&attestation.aaguid));
+                registered_key.challenge = Some(hex::encode(&attestation.challenge));
+                registered_key.alg = Some(attestation.alg);
+                registered_key.application = Some(hex::encode(&attestation.application));
+
             }
             _ => {},
         };

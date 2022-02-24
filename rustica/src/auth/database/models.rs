@@ -44,4 +44,7 @@ pub struct RegisteredKey {
     pub auth_data: Option<String>,
     pub auth_data_signature: Option<String>,
     pub aaguid: Option<String>,
+    pub challenge: Option<String>,
+    pub alg: Option<i32>,
+    pub application: Option<String>,
 }

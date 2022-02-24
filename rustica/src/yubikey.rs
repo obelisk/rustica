@@ -353,6 +353,9 @@ pub fn verify_u2f_certificate_chain(auth_data: &[u8], auth_data_signature: &[u8]
                     auth_data: auth_data.to_vec(),
                     auth_data_signature: auth_data_signature.to_vec(),
                     intermediate: intermediate.to_vec(),
+                    challenge: challenge.to_vec(),
+                    alg,
+                    application: application.to_vec(),
                 })),
             })
         },

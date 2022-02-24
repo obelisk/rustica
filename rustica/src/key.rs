@@ -24,6 +24,9 @@ pub struct U2fAttestation {
     pub auth_data: Vec<u8>,
     pub auth_data_signature: Vec<u8>,
     pub intermediate: Vec<u8>,
+    pub challenge: Vec<u8>,
+    pub application: Vec<u8>,
+    pub alg: i32,
 }
 
 #[derive(Debug)]
