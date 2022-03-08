@@ -188,11 +188,6 @@ impl SshAgentHandler for Handler {
 
             let pubkey = signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap();
             let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).map_err(|_| AgentError::from("Yubikey signing error"))?;
-        
-            let signature = match format_signature_for_ssh(&pubkey, &signature) {
-                Some(s) => s,
-                None => return Err(AgentError::from("Signature could not be converted to SSH format")), 
-            };
 
             return Ok(Response::SignResponse {
                 signature,
