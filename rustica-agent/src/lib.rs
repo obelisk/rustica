@@ -144,6 +144,7 @@ impl SshAgentHandler for Handler {
                 return Ok(Response::Identities(vec![cert.clone()]));
             }
         }
+
         if let Some(f) = &self.notification_function {
             f()
         }
@@ -151,14 +152,19 @@ impl SshAgentHandler for Handler {
         // Grab a new certificate from the server because we don't have a valid one
         match self.server.get_custom_certificate(&mut self.signatory, &self.certificate_options) {
             Ok(response) => {
-                info!("{:#}", Certificate::from_string(&response.cert).unwrap());
+                let parsed_cert = Certificate::from_string(&response.cert).map_err(|e| 
+                    AgentError {
+                        details: e.to_string(),
+                    })?;
+                info!("{:#}", parsed_cert);
                 let cert: Vec<&str> = response.cert.split(' ').collect();
                 let raw_cert = base64::decode(cert[1]).unwrap_or_default();
                 let ident = Identity {
                     key_blob: raw_cert,
-                    key_comment: response.comment,
+                    key_comment: response.comment.clone(),
                 };
                 self.cert = Some(ident.clone());
+
                 identities.push(ident);
                 Ok(Response::Identities(identities))
             },
@@ -180,13 +186,14 @@ impl SshAgentHandler for Handler {
         } else if let Signatory::Direct(privkey) = &self.signatory {
             Some(privkey)
         } else if let Signatory::Yubikey(signer) = &mut self.signatory {
-            // If using long lived certificates you might need to tap again here because you didn't have to
-            // to get the certificate the first time
+            // Since we are using the Yubikey for a signing operation the only time they
+            // won't have to tap here is if they are using cached keys and this is right after
+            // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be 
+            // spurious.
             if let Some(f) = &self.notification_function {
                 f()
             }
 
-            let pubkey = signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap();
             let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).map_err(|_| AgentError::from("Yubikey signing error"))?;
 
             return Ok(Response::SignResponse {

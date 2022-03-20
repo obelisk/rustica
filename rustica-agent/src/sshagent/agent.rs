@@ -13,7 +13,6 @@ pub struct Agent;
 
 impl Agent {
 	fn handle_client<T: SshAgentHandler>(handler: Arc<Mutex<T>>, mut stream: UnixStream) -> HandleResult<()> {
-		debug!("handling new connection");
 		loop {
 			let req = Request::read(&mut stream)?;
 			trace!("request: {:?}", req);
