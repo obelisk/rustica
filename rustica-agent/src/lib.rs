@@ -16,7 +16,6 @@ pub use rustica::{
 
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey, SSHCertificateSigner};
-use sshcerts::utils::format_signature_for_ssh;
 use sshcerts::yubikey::piv::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy, Yubikey};
 
 use std::collections::HashMap;
@@ -132,7 +131,7 @@ impl SshAgentHandler for Handler {
         // Build identities from the private keys we have loaded
         let mut identities: Vec<Identity> = self.identities.iter().map(|x| Identity {
                 key_blob: x.1.pubkey.encode().to_vec(),
-                key_comment: x.1.comment.as_ref().unwrap_or(&String::new()).to_string(),
+                key_comment: x.1.comment.clone(),
             }).collect();
 
         // If the time hasn't expired on our certificate, we don't need to fetch a new one

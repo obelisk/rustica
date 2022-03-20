@@ -10,8 +10,6 @@ edition = "2018"
 base64 = "0.12.1"
 byteorder = "1.4.2"
 clap = "3.0.5"
-# Move to upstream when released
-ctap-hid-fido2 = {git = "https://github.com/obelisk/ctap-hid-fido2", branch="remove_pi"}
 env_logger = "0.8.2"
 futures-core = "0.3"
 futures-util = "0.3"
