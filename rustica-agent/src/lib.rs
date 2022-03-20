@@ -14,12 +14,16 @@ pub use rustica::{
     RefreshError::{ConfigurationError, SigningError}
 };
 
+use rustica::key::U2FAttestation;
+
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey, SSHCertificateSigner};
+use sshcerts::fido::generate::generate_new_ssh_key;
 use sshcerts::yubikey::piv::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy, Yubikey};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fs::File;
 
 use std::time::SystemTime;
 
@@ -376,6 +380,95 @@ pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
     }
 }
 
+#[no_mangle]
+pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *const c_char, comment: *const c_char, pin: *const c_char) -> bool {
+    let cf = CStr::from_ptr(config_data);
+    let config: Config = match cf.to_str() {
+        Err(_) => return false,
+        Ok(s) => {
+            if let Ok(c) = toml::from_str(s) {
+                c
+            } else {
+                return false
+            }
+        },
+    };
+
+    let out = CStr::from_ptr(out);
+    let out = match out.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let comment = if comment != std::ptr::null() {
+        let comment = CStr::from_ptr(comment);
+        let comment = match comment.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+        comment.to_string()
+    } else {
+        format!("FFI-RusticaAgent-Generated-Key")
+    };
+
+    let pin = if pin != std::ptr::null() {
+        let pin = CStr::from_ptr(pin);
+        let pin = match pin.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+        Some(pin.to_string())
+    } else {
+        None
+    };
+
+    let new_fido_key = if let Ok(nfk) = generate_new_ssh_key("ssh:RusticaAgentFIDOKey", &comment, pin) {
+        nfk
+    } else {
+        return false;
+    };
+
+    let server = RusticaServer {
+        address: config.server.unwrap(),
+        ca: config.ca_pem.unwrap(),
+        mtls_cert: config.mtls_cert.unwrap(),
+        mtls_key: config.mtls_key.unwrap(),
+    };
+
+    let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
+    let u2f_attestation = U2FAttestation {
+        auth_data: new_fido_key.attestation.auth_data,
+        auth_data_sig: new_fido_key.attestation.auth_data_sig,
+        intermediate: new_fido_key.attestation.intermediate,
+        challenge: new_fido_key.attestation.challenge,
+        alg: new_fido_key.attestation.alg,
+    };
+
+    let mut out_file = match File::create(out) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    match new_fido_key.private_key.write(&mut out_file) {
+        Err(_) => {
+            std::fs::remove_file(out).unwrap();
+            return false
+        },
+        _ => (),
+    };
+
+    match server.register_u2f_key(&mut signatory, "ssh:RusticaAgent", &u2f_attestation) {
+        Ok(_) => {
+            println!("Key was successfully registered");
+            true
+        },
+        Err(e) => {
+            error!("Key could not be registered. Server said: {}", e);
+            std::fs::remove_file(out).unwrap();
+            false
+        },
+    }
+}
+
 /// Generate and enroll a new key on the given yubikey in the given slot
 /// 
 /// # Safety
@@ -444,6 +537,68 @@ pub unsafe extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_sec
         },
     }
 }
+
+/// Start a new Rustica instance. Does not return unless Rustica exits.
+/// # Safety
+/// `config_data` and `socket_path` must be a null terminated C strings
+/// or behaviour is undefined and will result in a crash.
+#[no_mangle]
+pub unsafe extern fn start_file_rustica_agent(private_key: *const c_char, config_data: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
+    println!("Starting a new Rustica instance!");
+
+    let notification_f = move || {
+        unsafe { notification_fn(); }
+    };
+
+    let cf = CStr::from_ptr(config_data);
+    let config_data = match cf.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let sp = CStr::from_ptr(socket_path);
+    let socket_path = match sp.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let private_key = CStr::from_ptr(private_key);
+    let private_key = match private_key.to_str() {
+        Err(_) => return false,
+        Ok(s) => {
+            if let Ok(p) = PrivateKey::from_string(s) {
+                p
+            } else {
+                return false
+            }
+        },
+    };
+    println!("Fingerprint: {:?}", private_key.pubkey.fingerprint().hash);
+
+    let config: Config = toml::from_str(config_data).unwrap();
+    let certificate_options = CertificateConfig::from(config.options);
+    let handler = Handler {
+        cert: None,
+        stale_at: 0,
+        certificate_options,
+        server: RusticaServer {
+            address: config.server.unwrap(),
+            ca: config.ca_pem.unwrap(),
+            mtls_cert: config.mtls_cert.unwrap(),
+            mtls_key: config.mtls_key.unwrap(),
+        },
+        signatory: Signatory::Direct(private_key),
+        identities: HashMap::new(),
+        notification_function: Some(Box::new(notification_f)),
+    };
+
+
+    let socket = UnixListener::bind(socket_path).unwrap();
+    Agent::run(handler, socket);
+
+    true
+}
+
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
 /// # Safety
