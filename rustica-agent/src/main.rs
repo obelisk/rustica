@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // This is done in one step instead of two because there is no way (that I know of) to get an attestation
         // for a previously generated FIDO key. So we have to send the attestation data at generation time.
         Ok(RusticaAgentAction::ProvisionAndRegisterFido(prf)) => {
-            let new_fido_key = generate_new_ssh_key("ssh:RusticaAgentFIDOKey", &prf.comment, None)?;
+            let new_fido_key = generate_new_ssh_key("ssh:RusticaAgentFIDOKey", &prf.comment, None, None)?;
             let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
             let u2f_attestation = U2FAttestation {
                 auth_data: new_fido_key.attestation.auth_data,

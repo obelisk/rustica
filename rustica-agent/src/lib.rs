@@ -360,6 +360,21 @@ pub unsafe extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *
     }
 }
 
+/// The return from this function must be freed by the caller because we can no longer track it
+/// once we return
+#[no_mangle]
+pub unsafe extern fn check_yubikey_slot_provisioned(yubikey_serial: u32, slot_id: u8) -> bool {
+    match &mut Yubikey::open(yubikey_serial) {
+        Ok(yk) => {
+            match SlotId::try_from(slot_id) {
+                Ok(slot) => yk.fetch_subject(&slot).is_ok(),
+                Err(_) => false,
+            }
+        },
+        Err(_) => false
+    }
+}
+
 /// Free the list of Yubikey keys
 /// 
 /// # Safety
@@ -381,15 +396,17 @@ pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
 }
 
 #[no_mangle]
-pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *const c_char, comment: *const c_char, pin: *const c_char) -> bool {
+pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *const c_char, comment: *const c_char, pin: *const c_char, device: *const c_char) -> bool {
     let cf = CStr::from_ptr(config_data);
     let config: Config = match cf.to_str() {
         Err(_) => return false,
         Ok(s) => {
-            if let Ok(c) = toml::from_str(s) {
-                c
-            } else {
-                return false
+            match toml::from_str(s) {
+                Ok(c) => c,
+                Err(e) => {
+                    println!("Error: Could not parse the configuration data: {}", e);
+                    return false
+                }
             }
         },
     };
@@ -422,10 +439,23 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
         None
     };
 
-    let new_fido_key = if let Ok(nfk) = generate_new_ssh_key("ssh:RusticaAgentFIDOKey", &comment, pin) {
-        nfk
+    let device = if device != std::ptr::null() {
+        let device = CStr::from_ptr(device);
+        let device = match device.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+        Some(device.to_string())
     } else {
-        return false;
+        None
+    };
+
+    let new_fido_key = match generate_new_ssh_key("ssh:RusticaAgentFIDOKey", &comment, pin, device) {
+        Ok(nfk) => nfk,
+        Err(e) => {
+            println!("Error: {}", e);
+            return false;
+        }
     };
 
     let server = RusticaServer {
@@ -446,11 +476,15 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
 
     let mut out_file = match File::create(out) {
         Ok(f) => f,
-        Err(_) => return false,
+        Err(e) => {
+            println!("Error: Could not create keyfile at {}: {}", out, e);
+            return false
+        },
     };
     match new_fido_key.private_key.write(&mut out_file) {
         Err(_) => {
-            std::fs::remove_file(out).unwrap();
+            std::fs::remove_file(out).unwrap_or_default();
+            println!("Error: Could not write to file. Basically should never happen");
             return false
         },
         _ => (),
@@ -543,7 +577,7 @@ pub unsafe extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_sec
 /// `config_data` and `socket_path` must be a null terminated C strings
 /// or behaviour is undefined and will result in a crash.
 #[no_mangle]
-pub unsafe extern fn start_file_rustica_agent(private_key: *const c_char, config_data: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
+pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, config_data: *const c_char, socket_path: *const c_char, pin: *const c_char, device: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
@@ -563,7 +597,7 @@ pub unsafe extern fn start_file_rustica_agent(private_key: *const c_char, config
     };
 
     let private_key = CStr::from_ptr(private_key);
-    let private_key = match private_key.to_str() {
+    let mut private_key = match private_key.to_str() {
         Err(_) => return false,
         Ok(s) => {
             if let Ok(p) = PrivateKey::from_string(s) {
@@ -573,6 +607,26 @@ pub unsafe extern fn start_file_rustica_agent(private_key: *const c_char, config
             }
         },
     };
+
+    if pin != std::ptr::null() {
+        let pin = CStr::from_ptr(pin);
+        let pin = match pin.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+        private_key.set_pin(pin);
+    }
+
+    if device != std::ptr::null() {
+        let device = CStr::from_ptr(device);
+        let device = match device.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+
+        private_key.set_device_path(device);
+    }
+
     println!("Fingerprint: {:?}", private_key.pubkey.fingerprint().hash);
 
     let config: Config = toml::from_str(config_data).unwrap();
