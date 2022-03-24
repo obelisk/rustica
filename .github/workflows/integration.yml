@@ -16,6 +16,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install libpcsc
-      run: sudo apt install -y libpcsclite-dev libusb-1.0-0-dev
+      run: sudo apt install -y libpcsclite-dev libusb-1.0-0-dev libudev-dev
     - name: Run Integration Tests
       run: ./tests/integration.sh
