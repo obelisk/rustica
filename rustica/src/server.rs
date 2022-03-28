@@ -23,10 +23,12 @@ use crate::yubikey::{
 use crossbeam_channel::Sender;
 
 use sshcerts::ssh::{
-    CertType, Certificate, CurveKind, PublicKey as SSHPublicKey, PublicKeyKind as SSHPublicKeyKind
+    CertType,
+    Certificate,
+    PrivateKey,
+    PublicKey,
 };
 
-use ring::signature::{UnparsedPublicKey, ECDSA_P256_SHA256_ASN1, ECDSA_P384_SHA384_ASN1, ED25519};
 use ring::hmac;
 use std::{
     sync::Arc,
@@ -42,6 +44,7 @@ use x509_parser::der_parser::oid;
 pub struct RusticaServer {
     pub log_sender: Sender<Log>,
     pub hmac_key: hmac::Key,
+    pub challenge_key: PrivateKey,
     pub authorizer: AuthorizationMechanism,
     pub signer: SigningMechanism,
     pub require_rustica_proof: bool,
@@ -114,9 +117,10 @@ fn extract_certificate_identities(peer_certs: &Arc<Vec<TonicCertificate>>) -> Re
 /// Validates a request passes all the following checks in this order:
 /// - Validate the peer certs are the way we expect
 /// - Validate Time is not expired
-/// - Validate Mac
 /// - Validate Signature
-fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertificate>>, challenge: &Challenge, check_signature: bool) -> Result<(SSHPublicKey, Vec<String>), RusticaServerError> {
+/// - Validate HMAC
+/// - Validate certificate parameters
+fn validate_request(srv: &RusticaServer, hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertificate>>, challenge: &Challenge, check_signature: bool) -> Result<(PublicKey, Vec<String>), RusticaServerError> {
     let mtls_identities = extract_certificate_identities(peer_certs)?;
 
     // Get request time, and current time. Any issue causes request to fail
@@ -125,62 +129,92 @@ fn validate_request(hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertif
         _ => return Err(RusticaServerError::Unknown)
     };
 
+    // This is our operational window. A user must confirm they control the
+    // the private key within this window or else we will kick out and make 
+    // them start again. This is so short because we don't want people to
+    // be able to "buffer" requests, where they presign them and then use
+    // them later. Admittedly, the period set here is exceedingly short but in
+    // practice it has not been too much of an issue.
     if (time - request_time) > 5 {
+        rustica_warning!(srv, format!("Expired challenge received from: {}", mtls_identities.join(",")));
         return Err(RusticaServerError::TimeExpired);
     }
 
+    // Since we need to parse a certificate which is not signed by us, we
+    // cannot validate integrity before taking an expensive parsing step.
+    // To prevent a malicious host serving us an enormous certificate that
+    // takes significant time to parse, we immiediately bail if it's much
+    // larger than we expect.
+    if challenge.challenge.len() > 1024 {
+        rustica_warning!(srv, format!("Received a certificate that is far too large from from: {}", mtls_identities.join(",")));
+        return Err(RusticaServerError::Unknown);
+    }
+
+    // This step validates the signature on the certificate. If a user tries
+    // a malicious certificate which contains the correct public key but an
+    // invalid signature, that is caught here.
+    let parsed_certificate = Certificate::from_string(&challenge.challenge).map_err(|_| {
+        rustica_warning!(srv, format!("Received a bad certificate from: {}", mtls_identities.join(",")));
+        RusticaServerError::BadChallenge
+    })?;
+
+    let hmac_challenge = &parsed_certificate.key_id;
     let hmac_verification = format!("{}-{}", request_time, challenge.pubkey);
-    let decoded_challenge = match hex::decode(&challenge.challenge) {
-        Ok(dc) => dc,
-        Err(_) => return Err(RusticaServerError::BadChallenge),
-    };
+    let decoded_challenge = hex::decode(&hmac_challenge).map_err(|_| RusticaServerError::BadChallenge)?;
 
     if hmac::verify(hmac_key, hmac_verification.as_bytes(), &decoded_challenge).is_err() {
-        error!("Received a bad challenge from: {}", mtls_identities.join(","));
+        rustica_warning!(srv, format!("Received a bad challenge from: {}", mtls_identities.join(",")));
         return Err(RusticaServerError::BadChallenge);
     }
 
-    // Request integrity confirmed, continue parsing knowing it has
-    // not been replayed significantly in time or its data tampered with since
-    // the initial request.
-    let ssh_pubkey = match SSHPublicKey::from_string(&challenge.pubkey) {
-        Ok(sshpk) => sshpk,
-        Err(_) => return Err(RusticaServerError::InvalidKey),
-    };
+    // This should never fail as the HMAC has passed so this cannot have been
+    // tampered with. It could only fail if we gave it a bad public key to
+    // start with. We check it for completeness.
+    let hmac_ssh_pubkey = PublicKey::from_string(&challenge.pubkey).map_err(|_| {
+        rustica_error!(srv, format!("Public key was invalid when negotiating with [{}]. Public key: [{}]", mtls_identities.join(","), &challenge.pubkey));
+        RusticaServerError::BadChallenge
+    })?;
 
+    // This functionality exists because when user certificates are FIDO or
+    // Yubikey PIV backed, SSHing into a remote host requires two taps: the
+    // first for this check, and then a second for the server being connected
+    // to. This check was made optional because in the event a user is
+    // compromised, there is still a requirement for physical interaction
+    // during the final step of the connection. The double tap is also
+    // confusing and annoying to some users.
+    //
+    // The benefit of enabling this is that a compromised host cannot fetch
+    // certificates to see what permissions they might be able to use after
+    // waiting for a user to initiate a connection themselves.
     if !check_signature {
-        return Ok((ssh_pubkey, mtls_identities))
+        return Ok((hmac_ssh_pubkey, mtls_identities))
     }
 
-    let result = match &ssh_pubkey.kind {
-        SSHPublicKeyKind::Ecdsa(key) => {
-            let (pubkey, alg) = match key.curve.kind {
-                CurveKind::Nistp256 => (key, &ECDSA_P256_SHA256_ASN1),
-                CurveKind::Nistp384 => (key, &ECDSA_P384_SHA384_ASN1),
-                _ => return Err(RusticaServerError::UnsupportedKeyType),
-            };
+    // We now know the request has not been replayed significantly in time.
+    // We also know the certificate is valid as it parsed. Now we need to
+    // check that the signature on the certificate is from the key we
+    // expect.
 
-            UnparsedPublicKey::new(alg, &pubkey.key).verify(
-                &hex::decode(&challenge.challenge).unwrap(),
-                &hex::decode(&challenge.challenge_signature).unwrap(),
-            )
-        },
-        SSHPublicKeyKind::Ed25519(key) => {
-            let peer_public_key = UnparsedPublicKey::new(&ED25519, &key.key);
-            peer_public_key.verify(
-                &hex::decode(&challenge.challenge).unwrap(),
-                &hex::decode(&challenge.challenge_signature).unwrap()
-            )
-        },
-        _ => return Err(RusticaServerError::UnsupportedKeyType),
-    };
-
-    if result.is_err() {
-        error!("Could not verify signature on challenge: {}", mtls_identities.join(","));
-        return Err(RusticaServerError::BadChallenge)
+    // We expect the client to resign the certificate we sent it with the
+    // key they are proving ownership of.
+    if parsed_certificate.key.fingerprint().hash != parsed_certificate.signature_key.fingerprint().hash {
+        rustica_warning!(srv, format!("User key did not equal CA key when talking to: {}", mtls_identities.join(",")));
+        return Err(RusticaServerError::BadChallenge);
     }
 
-    Ok((ssh_pubkey, mtls_identities))
+    // We check that the user key in the certificate is the key that they
+    // should be proving ownership of. This is valid because the challenge
+    // pubkey was proved to be untamped with using the hmac.
+    if parsed_certificate.key.fingerprint().hash != hmac_ssh_pubkey.fingerprint().hash {
+        rustica_warning!(srv, format!("User key did not equal HMAC validated public key: {}", mtls_identities.join(",")));
+        return Err(RusticaServerError::BadChallenge);
+    }
+
+    // We've proven user_fp == signing_fp == hmac_validated_fp. To get to
+    // this point the user must have received our challenge certificate
+    // containing our HMAC challenge, resigned it with their key, and
+    // sent it back for which it passed all checks.
+    Ok((parsed_certificate.key, mtls_identities))
 }
 
 #[tonic::async_trait]
@@ -197,7 +231,7 @@ impl Rustica for RusticaServer {
             Err(_) => return Err(Status::permission_denied("")),
         };
 
-        let ssh_pubkey = match SSHPublicKey::from_string(&request.pubkey) {
+        let ssh_pubkey = match PublicKey::from_string(&request.pubkey) {
             Ok(sshpk) => sshpk,
             Err(_) => return Err(Status::permission_denied("")),
         };
@@ -213,9 +247,17 @@ impl Rustica for RusticaServer {
         let challenge = format!("{}-{}", timestamp, pubkey);
         let tag = hmac::sign(&self.hmac_key, challenge.as_bytes());
 
+        // Build an SSHCertificate as a challenge
+        let cert = Certificate::builder(&ssh_pubkey, CertType::Host, &self.challenge_key.pubkey).unwrap()
+            .serial(0xFEFEFEFEFEFEFEFE)
+            .key_id(hex::encode(tag))
+            .valid_after(0)
+            .valid_before(0)
+            .sign(&self.challenge_key).unwrap();
+
         let reply = ChallengeResponse {
             time: timestamp,
-            challenge: hex::encode(tag),
+            challenge: format!("{}", cert),
             no_signature_required: !self.require_rustica_proof,
         };
 
@@ -233,7 +275,7 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadRequest)),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Ok(create_response(e)),
         };
@@ -371,7 +413,7 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };
@@ -423,7 +465,7 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(&self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };

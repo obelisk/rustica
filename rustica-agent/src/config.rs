@@ -1,4 +1,8 @@
-use clap::{App, Arg, ArgMatches};
+use clap::{
+    Arg,
+    ArgMatches,
+    Command,
+};
 
 use sshcerts::{CertType, PublicKey, PrivateKey};
 use sshcerts::yubikey::piv::{SlotId, Yubikey};
@@ -131,7 +135,7 @@ fn get_signatory(cmd_slot: &Option<String>, config_slot: &Option<String>, matche
 
 
 pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
-    let matches = App::new("rustica-agent")
+    let matches = Command::new("rustica-agent")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Mitchell Grenier <mitchell@confurious.io>")
         .about("The SSH Agent component of Rustica")
@@ -230,7 +234,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 .takes_value(true)
         )
         .subcommand(
-            App::new("register")
+            Command::new("register")
                 .about("Take your key and register with the backend. If a hardware key, proof of providence will be sent to the backend")
                 .arg(
                     Arg::new("no-attest")
@@ -239,7 +243,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 )
         )
         .subcommand(
-            App::new("provision-piv")
+            Command::new("provision-piv")
                 .about("Provision this slot with a new private key")
                 .arg(
                     Arg::new("management-key")
@@ -274,7 +278,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 )
         )
         .subcommand(
-            App::new("fido-setup")
+            Command::new("fido-setup")
                 .about("Provision and register a new FIDO/U2F key")
                 .arg(
                     Arg::new("application")
