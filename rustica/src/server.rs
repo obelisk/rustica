@@ -187,6 +187,11 @@ fn validate_request(srv: &RusticaServer, hmac_key: &ring::hmac::Key, peer_certs:
     // certificates to see what permissions they might be able to use after
     // waiting for a user to initiate a connection themselves.
     if !check_signature {
+        // Do an extra sanity check here that the certificate we received was signed by us
+        if parsed_certificate.signature_key.fingerprint().hash != srv.challenge_key.pubkey.fingerprint().hash {
+            rustica_warning!(srv, format!("Received an incorrect certificate from {}", mtls_identities.join(",")));
+            return Err(RusticaServerError::BadChallenge);
+        }
         return Ok((hmac_ssh_pubkey, mtls_identities))
     }
 
@@ -214,7 +219,7 @@ fn validate_request(srv: &RusticaServer, hmac_key: &ring::hmac::Key, peer_certs:
     // this point the user must have received our challenge certificate
     // containing our HMAC challenge, resigned it with their key, and
     // sent it back for which it passed all checks.
-    Ok((parsed_certificate.key, mtls_identities))
+    return Ok((hmac_ssh_pubkey, mtls_identities))
 }
 
 #[tonic::async_trait]

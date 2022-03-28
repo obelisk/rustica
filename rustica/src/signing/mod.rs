@@ -67,6 +67,7 @@ pub enum SigningError {
     /// ParsingError represents any error that occurs from unexpected data
     /// not being able to be parsed correctly, or code that fails to parse
     /// expected data
+    #[allow(dead_code)]
     ParsingError,
 }
 
