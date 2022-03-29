@@ -31,6 +31,7 @@ pub enum ConfigurationError {
     ParsingError,
     YubikeyManagementKeyInvalid,
     YubikeyNoKeypairFound,
+    InvalidFidoKeyName,
 }
 
 pub struct RunConfig {
@@ -283,7 +284,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 .arg(
                     Arg::new("application")
                         .help("Specify application you are creating the key for")
-                        .default_value("Rustica")
+                        .default_value("ssh:RusticaAgent")
                         .long("application")
                         .short('a')
                         .required(false)
@@ -407,6 +408,11 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     if let Some(matches) = matches.subcommand_matches("fido-setup") {
         let app_name = matches.value_of("application").unwrap().to_string();
+
+        if !app_name.starts_with("ssh:") {
+            return Err(ConfigurationError::InvalidFidoKeyName);
+        }
+
         let comment = matches.value_of("comment").unwrap().to_string();
         let out = match matches.value_of("out") {
             Some(o) => Some(String::from(o)),

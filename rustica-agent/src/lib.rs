@@ -490,7 +490,7 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
         _ => (),
     };
 
-    match server.register_u2f_key(&mut signatory, "ssh:RusticaAgent", &u2f_attestation) {
+    match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation) {
         Ok(_) => {
             println!("Key was successfully registered");
             true

@@ -197,8 +197,11 @@ fn parse_auth_data(auth_data_raw: &[u8], application: &[u8]) -> Result<AuthData,
     if auth_data.read_exact(&mut rpid_hash).is_err() {
         return Err(YubikeyValidationError::ParseError)
     }
+    
     let verify_rpid_hash = digest::digest(&digest::SHA256, &application).as_ref().to_vec();
     if rpid_hash.to_vec() != verify_rpid_hash {
+        println!(" RPID Hash: {:02x?}", rpid_hash);
+        println!("VRPID Hash: {:02x?}", verify_rpid_hash);
         return Err(YubikeyValidationError::ParseError)
     }
 
@@ -324,7 +327,7 @@ pub fn verify_u2f_certificate_chain(auth_data: &[u8], auth_data_signature: &[u8]
             // Parse the U2F root CA. This should never fail
             let (_, root_ca) = parse_x509_pem(U2F_ROOT_CA).unwrap();
             let root_ca = Pem::parse_x509(&root_ca).unwrap();
-
+            
             let (_, parsed_intermediate) = x509_parser::parse_x509_certificate(intermediate).map_err(|_| YubikeyValidationError::ParseError)?;
 
             // Check the root CA has signed the intermediate, return error if not
