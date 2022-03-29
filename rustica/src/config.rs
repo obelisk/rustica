@@ -31,6 +31,7 @@ pub struct Configuration {
     pub authorization: AuthorizationConfiguration,
     pub signing: SigningConfiguration,
     pub require_rustica_proof: bool,
+    pub require_attestation_chain: bool,
     pub logging: LoggingConfiguration,
 }
 
@@ -142,6 +143,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         authorizer,
         signer,
         require_rustica_proof: config.require_rustica_proof,
+        require_attestation_chain: config.require_attestation_chain,
     };
     
     Ok(RusticaSettings {

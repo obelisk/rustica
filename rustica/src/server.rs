@@ -48,6 +48,7 @@ pub struct RusticaServer {
     pub authorizer: AuthorizationMechanism,
     pub signer: SigningMechanism,
     pub require_rustica_proof: bool,
+    pub require_attestation_chain: bool,
 }
 
 /// Macro for simplifying sending error logs to the Rustica logging system.
@@ -425,7 +426,12 @@ impl Rustica for RusticaServer {
 
         let (fingerprint, attestation) = match verify_piv_certificate_chain(&request.certificate, &request.intermediate) {
             Ok(key) => (key.fingerprint, key.attestation),
-            _ => (ssh_pubkey.fingerprint().hash, None),
+            Err(_) => if !self.require_attestation_chain {
+                (ssh_pubkey.fingerprint().hash, None)
+            } else {
+                rustica_warning!(srv, format!("[{}] tried to register a key with an invalid attestation chain", mtls_identities.join(",")));
+                return Err(Status::unavailable("Could not register new key"))
+            },
         };
 
         let register_properties = RegisterKeyRequestProperties {
@@ -477,7 +483,12 @@ impl Rustica for RusticaServer {
 
         let (fingerprint, attestation) = match verify_u2f_certificate_chain(&request.auth_data, &request.auth_data_signature, &request.intermediate, request.alg, &request.u2f_challenge, &request.sk_application) {
             Ok(key) => (key.fingerprint, key.attestation),
-            _ => (ssh_pubkey.fingerprint().hash, None),
+            Err(_) => if !self.require_attestation_chain {
+                (ssh_pubkey.fingerprint().hash, None)
+            } else {
+                rustica_warning!(srv, format!("[{}] tried to register a key with an invalid attestation chain", mtls_identities.join(",")));
+                return Err(Status::unavailable("Could not register new key"))
+            },
         };
 
         let register_properties = RegisterKeyRequestProperties {
