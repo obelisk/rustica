@@ -429,7 +429,7 @@ impl Rustica for RusticaServer {
             Err(_) => if !self.require_attestation_chain {
                 (ssh_pubkey.fingerprint().hash, None)
             } else {
-                rustica_warning!(srv, format!("[{}] tried to register a key with an invalid attestation chain", mtls_identities.join(",")));
+                rustica_warning!(self, format!("[{}] tried to register a key with an invalid attestation chain", mtls_identities.join(",")));
                 return Err(Status::unavailable("Could not register new key"))
             },
         };
@@ -486,7 +486,7 @@ impl Rustica for RusticaServer {
             Err(_) => if !self.require_attestation_chain {
                 (ssh_pubkey.fingerprint().hash, None)
             } else {
-                rustica_warning!(srv, format!("[{}] tried to register a key with an invalid attestation chain", mtls_identities.join(",")));
+                rustica_warning!(self, format!("[{}] tried to register a key with an invalid attestation chain", mtls_identities.join(",")));
                 return Err(Status::unavailable("Could not register new key"))
             },
         };
