@@ -14,7 +14,6 @@ use std::convert::TryFrom;
 /// certificate are valid against the Yubico attestation Root CA.
 pub fn verify_piv_certificate_chain(client: &[u8], intermediate: &[u8]) -> Result<Key, RusticaServerError> {
     // Extract the certificate public key and convert to an sshcerts PublicKey
-    //let ssh_pubkey = extract_ssh_pubkey_from_x509_certificate(client).map_err(|_| RusticaServerError::InvalidKey)?;
     let validated_piv_data = verify_certificate_chain(client, intermediate, None).map_err(|_| RusticaServerError::InvalidKey)?;
 
     Ok(Key {

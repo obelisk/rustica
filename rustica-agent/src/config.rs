@@ -379,21 +379,21 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     let cmd_slot = matches.value_of("slot").map(|x| x.to_owned());
 
-    if let Some(matches) = matches.subcommand_matches("provision-piv") {
+    if let Some(cmd_matches) = matches.subcommand_matches("provision-piv") {
         let signatory = get_signatory(&cmd_slot, &config.slot, &matches, &config.key)?;
         let yubikey = match signatory {
             Signatory::Yubikey(yk_sig) => yk_sig,
             Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile)
         };
 
-        let require_touch = matches.is_present("require-touch");
-        let subject = matches.value_of("subject").unwrap().to_string();
-        let management_key = match hex::decode(matches.value_of("management-key").unwrap()) {
+        let require_touch = cmd_matches.is_present("require-touch");
+        let subject = cmd_matches.value_of("subject").unwrap().to_string();
+        let management_key = match hex::decode(cmd_matches.value_of("management-key").unwrap()) {
             Ok(mgm) => mgm,
             Err(_) => return Err(ConfigurationError::YubikeyManagementKeyInvalid),
         };
 
-        let pin = matches.value_of("pin").unwrap().to_string();
+        let pin = cmd_matches.value_of("pin").unwrap().to_string();
 
         let provision_config = ProvisionPIVConfig {
             yubikey,
