@@ -15,7 +15,7 @@ use crate::rustica::{
 };
 use crate::signing::{SigningMechanism};
 use crate::utils::build_login_script;
-use crate::yubikey::{
+use crate::verification::{
     verify_piv_certificate_chain,
     verify_u2f_certificate_chain,
 };
