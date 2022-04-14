@@ -640,7 +640,7 @@ dependencies = [
 [[package]]
 name = "ctap-hid-fido2"
 version = "3.0.0"
-source = "git+https://github.com/gebogebogebo/ctap-hid-fido2?branch=develop#a7b108e1fcafd38a10f990cf28a41fc06b27cd15"
+source = "git+https://github.com/gebogebogebo/ctap-hid-fido2?branch=master#e4ee4c3328fa73b3c7e0055757ca6cc27ebf83e7"
 dependencies = [
  "aes",
  "anyhow",
@@ -656,7 +656,7 @@ dependencies = [
  "serde_cbor",
  "strum",
  "strum_macros",
- "x509-parser 0.13.1",
+ "x509-parser 0.13.2",
 ]
 
 [[package]]
@@ -1047,9 +1047,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hidapi"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "253bfb01a7a31d71212dc3e920540546fa4a4fe08e2d87fc3299c42bae7ee2f9"
+checksum = "38b1717343691998deb81766bfcd1dce6df0d5d6c37070b5a3de2bb6d39f7822"
 dependencies = [
  "cc",
  "libc",
@@ -1090,9 +1090,9 @@ dependencies = [
 
 [[package]]
 name = "httparse"
-version = "1.6.0"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9100414882e15fb7feccb4897e5f0ff0ff1ca7d1a86a23208ada4d7a18e6c6c4"
+checksum = "6330e8a36bd8c859f3fa6d9382911fbb7147ec39807f63b923933a247240b9ba"
 
 [[package]]
 name = "httpdate"
@@ -1346,9 +1346,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.122"
+version = "0.2.123"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec647867e2bf0772e28c8bcde4f0d19a9216916e890543b5a03ed8ef27b8f259"
+checksum = "cb691a747a7ab48abc15c5b42066eaafde10dc427e3b6ee2a1cf43db04c763bd"
 
 [[package]]
 name = "libm"
@@ -1952,9 +1952,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.17"
+version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "632d02bff7f874a36f33ea8bb416cd484b90cc66c1194b1a1110d067a7013f58"
+checksum = "a1feb54ed693b93a84e14094943b84b7c4eae204c512b7ccb95ab0c66d278ad1"
 dependencies = [
  "proc-macro2",
 ]
@@ -2483,7 +2483,7 @@ dependencies = [
 [[package]]
 name = "sshcerts"
 version = "0.11.0"
-source = "git+https://github.com/obelisk/sshcerts?branch=new_fido2#71ab79fd2afb98c7c1ede0219c7549ecd377a1bd"
+source = "git+https://github.com/obelisk/sshcerts?branch=new_fido2#8b8fbea30737f2ec0920c37ce5239d290f09154a"
 dependencies = [
  "base64 0.13.0",
  "ctap-hid-fido2",
@@ -2494,7 +2494,7 @@ dependencies = [
  "ring",
  "simple_asn1",
  "x509",
- "x509-parser 0.13.1",
+ "x509-parser 0.13.2",
  "yubikey",
  "zeroize",
 ]
@@ -2897,9 +2897,9 @@ checksum = "360dfd1d6d30e05fda32ace2c8c70e9c0a9da713275777f5a4dbb8a1893930c6"
 
 [[package]]
 name = "tracing"
-version = "0.1.32"
+version = "0.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a1bdf54a7c28a2bbf701e1d2233f6c77f473486b94bee4f9678da5a148dca7f"
+checksum = "80b9fa4360528139bc96100c160b7ae879f5567f49f1782b0b02035b0358ebf3"
 dependencies = [
  "cfg-if",
  "log",
@@ -2921,9 +2921,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.24"
+version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90442985ee2f57c9e1b548ee72ae842f4a9a20e3f417cc38dbc5dc684d9bb4ee"
+checksum = "6dfce9f3241b150f36e8e54bb561a742d5daa1a47b5dd9a5ce369fd4a4db2210"
 dependencies = [
  "lazy_static",
 ]
@@ -3303,9 +3303,9 @@ dependencies = [
 
 [[package]]
 name = "x509-parser"
-version = "0.13.1"
+version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e64bcfe6a33d9a2d5451de520881469863bd05a095f6b6f7f2ad1a5cd8d4ea2f"
+checksum = "9fb9bace5b5589ffead1afb76e43e34cff39cd0f3ce7e170ae0c29e53b88eb1c"
 dependencies = [
  "asn1-rs",
  "base64 0.13.0",

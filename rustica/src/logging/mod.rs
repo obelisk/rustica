@@ -2,11 +2,15 @@
 mod influx;
 #[cfg(feature = "splunk")]
 mod splunk;
+#[cfg(feature = "webhook")]
+mod webhook;
+
 mod stdout;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 
 use serde::{Deserialize, Serialize};
+use tokio::runtime::Runtime;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -111,7 +115,7 @@ pub struct LoggingConfiguration {
     /// that there are multiple Rustica instances in a single logging
     /// environment.
     identifier: Option<String>,
-    /// If logs are received after this many seconds, the system will send an
+    /// If logs aren't received after this many seconds, the system will send an
     /// empty heartbeat log to the logging systems to signal it is still up
     /// and healthy.
     heartbeat_interval: Option<u64>,
@@ -128,6 +132,11 @@ pub struct LoggingConfiguration {
     /// information on configuring this logger.
     #[cfg(feature = "splunk")]
     splunk: Option<splunk::Config>,
+    /// Log JSON to a POST endpoint. This is used for generic logging systems
+    /// so it's easy to operate on Rustica events. It's likely in future the
+    /// Splunk logger code will be a specific instantiation of this.
+    #[cfg(feature = "webhook")]
+    webhook: Option<webhook::Config>,
 }
 
 #[derive(Debug)]
@@ -154,6 +163,8 @@ trait RusticaLogger {
 /// a noop and will not actually be sent to the backend (or logged to the
 /// screen).
 pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver<Log>) {
+    #[cfg(any(feature = "influx", feature = "splunk", feature = "webhook"))]
+    let runtime = Runtime::new().unwrap();
     let heartbeat_interval = config.heartbeat_interval.unwrap_or(300);
     // Configure the different loggers
     let stdout_logger = match config.stdout {
@@ -171,7 +182,7 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
     let influx_logger = match config.influx {
         Some(config) => {
             println!("Configured logger: influx");
-            Some(influx::InfluxLogger::new(config))
+            Some(influx::InfluxLogger::new(config, runtime.handle().clone()))
         },
         None => None,
     };
@@ -180,7 +191,16 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
     let splunk_logger = match config.splunk {
         Some(config) => {
             println!("Configured logger: splunk");
-            Some(splunk::SplunkLogger::new(config))
+            Some(splunk::SplunkLogger::new(config, runtime.handle().clone()))
+        },
+        None => None,
+    };
+
+    #[cfg(feature = "webhook")]
+    let webhook_logger = match config.webhook {
+        Some(config) => {
+            println!("Configured logger: webhook");
+            Some(webhook::WebhookLogger::new(config, runtime.handle().clone()))
         },
         None => None,
     };
@@ -213,6 +233,13 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
         if let Some(logger) = &splunk_logger {
             if let Err(_) = logger.send_log(&log) {
                 error!("Could not send logs to Splunk");
+            }
+        }
+
+        #[cfg(feature = "webhook")]
+        if let Some(logger) = &webhook_logger {
+            if let Err(_) = logger.send_log(&log) {
+                error!("Could not send logs to webhook");
             }
         }
     }

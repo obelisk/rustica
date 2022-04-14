@@ -3,7 +3,7 @@ use super::{Log, LoggingError, RusticaLogger, WrappedLog};
 use influxdb::{Client, Timestamp};
 use influxdb::InfluxDbWriteable;
 
-use tokio::runtime::Runtime;
+use tokio::runtime::Handle;
 
 use serde::Deserialize;
 
@@ -20,17 +20,17 @@ pub struct Config {
 
 pub struct InfluxLogger {
     client: Client,
-    runtime: Runtime,
+    runtime: Handle,
     dataset: String,
 }
 
 
 impl InfluxLogger {
     /// Create a new InfluxDB logger from the provided configuration
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, handle: Handle) -> Self {
         Self {
             client: Client::new(config.address, config.database).with_auth(config.user, config.password),
-            runtime: Runtime::new().unwrap(),
+            runtime: handle,
             dataset: config.dataset,
         }
     }

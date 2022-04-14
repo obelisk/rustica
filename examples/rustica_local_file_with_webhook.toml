@@ -1,0 +1,99 @@
+# The certificate presented to connecting clients
+server_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBqjCCAVCgAwIBAgIJAOI2FtcQeixVMAoGCCqGSM49BAMCMBsxGTAXBgNVBAMM
+EEVudGVycHJpc2VSb290Q0EwHhcNMjIwMTIwMDQwMjA2WhcNMjQwNDI0MDQwMjA2
+WjAxMRAwDgYDVQQDDAdydXN0aWNhMRAwDgYDVQQKDAdSdXN0aWNhMQswCQYDVQQG
+EwJDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAINhoFW/5twPqAHLxjFjmns
+lE1jJMJQXmijymZTJxR0DsNZlwvUgNH+WYQFfq4IVMwypVHgyTYJO+lAAPEeyPOj
+ZzBlMDUGA1UdIwQuMCyhH6QdMBsxGTAXBgNVBAMMEEVudGVycHJpc2VSb290Q0GC
+CQCRg096sVtP0zAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DAUBgNVHREEDTALggls
+b2NhbGhvc3QwCgYIKoZIzj0EAwIDSAAwRQIhAMfjW/PMrA9/cCg6O835sr22ZrNk
+k/lFOODLqAJPbh3+AiAzeCUyrmxT5VTf6uyFoNT8zMoWSi79rudcdgl+32RqMg==
+-----END CERTIFICATE-----
+'''
+
+# The key for the certificate presented to clients
+server_key = '''
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgkTd0C69xWFX9PmVf
+BeD0ySfG+O0e7p7SXR9xo/enbvahRANCAAQCDYaBVv+bcD6gBy8YxY5p7JRNYyTC
+UF5oo8pmUycUdA7DWZcL1IDR/lmEBX6uCFTMMqVR4Mk2CTvpQADxHsjz
+-----END PRIVATE KEY-----
+'''
+
+# The CA certificate clients must have their identities signed by
+client_ca_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBMTCB2AIJAL3yJUJ7ShOJMAoGCCqGSM49BAMCMCExHzAdBgNVBAMMFkVudGVy
+cHJpc2VDbGllbnRSb290Q0EwHhcNMjIwMTIwMDQwMjA2WhcNMzIwMTE4MDQwMjA2
+WjAhMR8wHQYDVQQDDBZFbnRlcnByaXNlQ2xpZW50Um9vdENBMFkwEwYHKoZIzj0C
+AQYIKoZIzj0DAQcDQgAEmZbAXHUQEXKB/NmHCG0AcjQA0IsBph+jmcFbw9Na58Cv
+PNZtmm8jQ3Q9R8e3faG6gZuXNe60q/Ea6a6jR5UryDAKBggqhkjOPQQDAgNIADBF
+AiA7H67T6QVZq1pBs6MU6+f/4mxYbVkPi/aCqMthRin7qQIhAP3cYrcO8QibwSjx
+QCYQlNrEWT9OVP/akN0OyFDQIYIU
+-----END CERTIFICATE-----
+'''
+
+# This is the listen address that will be used for the Rustica service
+listen_address = "0.0.0.0:50052"
+
+# This setting controls if the agent has to prove that it
+# controls the private key to Rustica. Setting this to true means a user needs
+# to generate two signatures (one to Rustica, and one to the host). The
+# advantage of using this, is a compromised host cannot get certificates
+# from the server without physical interaction.
+#
+# A client will always need to sign the challenge from the host they
+# are attempting to connect to however so a physical tap will always
+# be required.
+require_rustica_proof = false
+
+# This setting controls if Rustica will allow users to register keys that
+# cannot have their providence validated. If set to true, if a registration
+# either does not provide an attestation or the attestation fails, the key
+# will be rejected and the API call will fail. In the case of using an
+# external authorizer, a call will not be made to inform it of this event.
+require_attestation_chain = true
+
+# Rustica has many ways it can sign SSH certificates which are sent to
+# clients. This method uses private keys embedded in the configuration
+# file. This will mean the hosts which you want to login to via Rustica
+# must respect the public portion of the user key variable below.
+[signing."file"]
+user_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+gAAAKhxqRWZcakV
+mQAAAAtzc2gtZWQyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+g
+AAAEA8yRG/XWtjlY007gj8tNflVX9fnHPDcQYH2HTImTKvPeGrtTSBxbrqYk1amwv/gAM1
+eg5Qwsddhszw8gduo9P6AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+host_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnewAAAKhQSP5+UEj+
+fgAAAAtzc2gtZWQyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnew
+AAAEAevZOed5UnsVdAASUn+sJ+dUfUnG1kQ1wRH9L758mSCxcC2QuSbJKphPaKx0fRxE52
+sDNPZwaD2kv14ulnBCd7AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+[logging]
+identifier = "Some Instance"
+heartbeat_interval = 240
+
+[logging."stdout"]
+
+# This is not a real token, I randomly generated a UUID
+[logging."webhook"]
+auth_header = "Basic c46d7213-19ea-4a66-b83b-e4b06188d197"
+url = "http://localhost:4554/some/webhook/another_long_string_that_can_act_as_a_webhook_secret"
+timeout = 5
+
+[authorization."database"]
+path = "examples/example.db"

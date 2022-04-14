@@ -7,12 +7,13 @@ edition = "2018"
 [features]
 default = []
 
-all = ["amazon-kms", "influx", "splunk", "yubikey-support", "local-db"]
+all = ["amazon-kms", "influx", "splunk", "yubikey-support", "local-db", "webhook"]
 
 amazon-kms = ["aws-config", "aws-sdk-kms", "aws-types"]
 influx = ["influxdb"]
 local-db = ["diesel"]
-splunk = ["reqwest", "serde_json"]
+splunk = ["webhook"]
+webhook = ["reqwest", "serde_json"]
 yubikey-support = ["sshcerts/yubikey-support"]
 
 [dependencies]
@@ -51,7 +52,7 @@ diesel = { version = "1.4.4", features = ["sqlite"], optional = true }
 # Dependencies for Influx
 influxdb = { version = "0.5.1", optional = true }
 
-# Dependencies for Splunk
+# Dependencies for Splunk/Webhook
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"], optional = true }
 serde_json = { version = "1.0", optional = true }
 
