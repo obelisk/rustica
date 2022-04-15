@@ -58,8 +58,10 @@ impl AuthServer {
                 error!("Could not open a channel to the authorization server: {}", e);
                 return Err(AuthorizationError::AuthorizerError);
             },
-        // TODO: @obelisk handle these TLS unwraps
-        }.tls_config(tls).unwrap().connect().await.unwrap();
+        }.tls_config(tls)
+        .map_err(|_| AuthorizationError::ConnectionFailure)?
+        .connect().await
+        .map_err(|_| AuthorizationError::ConnectionFailure)?;
 
         let mut client = AuthorClient::new(channel);
         let response = client.authorize(request).await;
@@ -108,7 +110,7 @@ impl AuthServer {
         })
     }
 
-    pub async fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<bool, ()> {
+    pub async fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<(), AuthorizationError> {
         let mut identities = HashMap::new();
         identities.insert(String::from("requester_ip"), req.requester_ip.clone());
         identities.insert(String::from("key_fingerprint"), req.fingerprint.clone());
@@ -152,19 +154,21 @@ impl AuthServer {
             Ok(c) => c,
             Err(e) => {
                 error!("Could not open a channel to the authorization server: {}", e);
-                return Err(());
+                return Err(AuthorizationError::ConnectionFailure);
             },
-        // TODO: @obelisk handle these TLS unwraps
-        }.tls_config(tls).unwrap().connect().await.unwrap();
+        }.tls_config(tls)
+        .map_err(|_| AuthorizationError::ConnectionFailure)?
+        .connect().await
+        .map_err(|_| AuthorizationError::ConnectionFailure)?;
 
         let mut client = AuthorClient::new(channel);
         let response = client.add_identity_data(request).await;
 
         match response {
-            Ok(_) => Ok(true),
+            Ok(_) => Ok(()),
             Err(e) => {
                 error!("Server returned error: {}", e);
-                Ok(false)
+                Err(AuthorizationError::ExternalError(format!("{}", e)))
             },
         }
     }

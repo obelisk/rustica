@@ -95,7 +95,7 @@ impl LocalDatabase {
         }
     }
     
-    pub fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<bool, ()> {
+    pub fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<(), AuthorizationError> {
         let connection = establish_connection(&self.path);
         let mut registered_key = models::RegisteredKey {
             fingerprint: req.fingerprint.clone(),
@@ -145,8 +145,8 @@ impl LocalDatabase {
         };
 
         match result {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
+            Ok(_) => Ok(()),
+            Err(e) => Err(AuthorizationError::DatabaseError(format!("{}", e))),
         }
     }
 }

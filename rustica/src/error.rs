@@ -20,7 +20,7 @@ impl From<AuthorizationError> for RusticaServerError {
         match e {
             AuthorizationError::CertType => RusticaServerError::BadCertOptions,
             AuthorizationError::NotAuthorized => RusticaServerError::NotAuthorized,
-            AuthorizationError::AuthorizerError => RusticaServerError::Unknown,
+            _ => RusticaServerError::Unknown,
         }
     }
 }

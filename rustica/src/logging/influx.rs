@@ -64,6 +64,7 @@ impl RusticaLogger for InfluxLogger {
                 });  
             }
             Log::KeyRegistered(_kr) => (),
+            Log::KeyRegistrationFailure(_krf) => (),
             Log::InternalMessage(_im) => (),
             Log::Heartbeat(_) => (),
         }

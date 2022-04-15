@@ -10,6 +10,7 @@ mod stdout;
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 
 use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "influx", feature = "splunk", feature = "webhook"))]
 use tokio::runtime::Runtime;
 
 use std::collections::HashMap;
@@ -58,11 +59,18 @@ pub struct CertificateIssued {
 
 /// Issued when a new key is registered with the service
 #[derive(Serialize)]
-pub struct KeyRegistered {
+pub struct KeyInfo {
     /// The fingerprint of a related key
     pub fingerprint: String,
     /// The MTLS identities of registree
     pub mtls_identities: Vec<String>,
+}
+
+/// Issued when a new key is registered with the service
+#[derive(Serialize)]
+pub struct KeyRegistrationFailure {
+    pub key_info: KeyInfo,
+    pub message: String,
 }
 
 /// Issued when errors or notable events occur within the system
@@ -84,7 +92,11 @@ pub enum Log {
     /// A user has registered a new key with the Rustica system. This is
     /// emitted even if Rustica is not storing these keys locally and is
     /// only forwarding them on to an authorization service.
-    KeyRegistered(KeyRegistered),
+    KeyRegistered(KeyInfo),
+    /// When a user tries to register a new key but it fails for any reason.
+    /// This could be due to an external authorizor denying (again for any reason
+    /// it sees fit) or attestation/database errors.
+    KeyRegistrationFailure(KeyRegistrationFailure),
     /// Used for relaying status messages to a logging backend. Rustica errors
     /// or failures send messages of this type.
     InternalMessage(InternalMessage),

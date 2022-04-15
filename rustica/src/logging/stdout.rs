@@ -29,7 +29,8 @@ impl RusticaLogger for StdoutLogger {
                     ci.valid_before,
                 )
             }
-            Log::KeyRegistered(kr) => info!("Key registered with fingerprint: [{}] Identified by: [{}]", kr.fingerprint, kr.mtls_identities.join(", ")),
+            Log::KeyRegistered(kr) => info!("Key registered: [{}] Identified by: [{}]", kr.fingerprint, kr.mtls_identities.join(", ")),
+            Log::KeyRegistrationFailure(krf) => info!("Failed to register key: [{}] Identified by: [{}]", krf.key_info.fingerprint, krf.key_info.mtls_identities.join(", ")),
             Log::InternalMessage(im) => match im.severity {
                 Severity::Error => error!("{}", im.message),
                 Severity::Warning => warn!("{}", im.message),

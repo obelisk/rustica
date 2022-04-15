@@ -1,6 +1,6 @@
 use crate::auth::{AuthorizationMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties};
 use crate::error::RusticaServerError;
-use crate::logging::{CertificateIssued, KeyRegistered, InternalMessage, Log, Severity};
+use crate::logging::{CertificateIssued, KeyInfo, KeyRegistrationFailure, InternalMessage, Log, Severity};
 use crate::rustica::{
     CertificateRequest,
     CertificateResponse,
@@ -429,7 +429,15 @@ impl Rustica for RusticaServer {
             Err(_) => if !self.require_attestation_chain {
                 (ssh_pubkey.fingerprint().hash, None)
             } else {
-                rustica_warning!(self, format!("[{}] tried to register a key with an invalid attestation chain", mtls_identities.join(",")));
+                let key_info = KeyInfo {
+                    fingerprint: ssh_pubkey.fingerprint().hash,
+                    mtls_identities,
+                };
+                
+                self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
+                    key_info,
+                    message: format!("Attempt to register a key with an invalid attestation chain"),
+                })).unwrap();
                 return Err(Status::unavailable("Could not register a key without valid attestation data"))
             },
         };
@@ -444,19 +452,23 @@ impl Rustica for RusticaServer {
         let response = self.authorizer.register_key(&register_properties).await;
 
         match response {
-            Ok(true) => {
-                self.log_sender.send(Log::KeyRegistered(KeyRegistered {
+            Ok(_) => {
+                self.log_sender.send(Log::KeyRegistered(KeyInfo {
                     fingerprint,
                     mtls_identities,
                 })).unwrap();
                 return Ok(Response::new(RegisterKeyResponse{}))
             },
-            Ok(false) => {
-                rustica_warning!(self, format!("[{}] could not be registered with the authorizer. Identities: [{}]", fingerprint, mtls_identities.join(", ")));
-                return Err(Status::unavailable("Could not register new key"))
-            },
-            Err(_) => {
-                rustica_error!(self, format!("Authorizer threw error registering fingerprint: [{}] with identities: [{}]", fingerprint, mtls_identities.join(", ")));
+            Err(e) => {
+                let key_info = KeyInfo {
+                    fingerprint,
+                    mtls_identities,
+                };
+
+                self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
+                    key_info,
+                    message: e.to_string(),
+                })).unwrap();
                 return Err(Status::unavailable("Could not register new key"))
             },
         }
@@ -486,7 +498,15 @@ impl Rustica for RusticaServer {
             Err(_) => if !self.require_attestation_chain {
                 (ssh_pubkey.fingerprint().hash, None)
             } else {
-                rustica_warning!(self, format!("[{}] tried to register a key with an invalid attestation chain", mtls_identities.join(",")));
+                let key_info = KeyInfo {
+                    fingerprint: ssh_pubkey.fingerprint().hash,
+                    mtls_identities,
+                };
+                
+                self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
+                    key_info,
+                    message: format!("Attempt to register a key with an invalid attestation chain"),
+                })).unwrap();
                 return Err(Status::unavailable("Could not register a key without valid attestation data"))
             },
         };
@@ -501,19 +521,23 @@ impl Rustica for RusticaServer {
         let response = self.authorizer.register_key(&register_properties).await;
 
         match response {
-            Ok(true) => {
-                self.log_sender.send(Log::KeyRegistered(KeyRegistered {
+            Ok(_) => {
+                self.log_sender.send(Log::KeyRegistered(KeyInfo {
                     fingerprint,
                     mtls_identities,
                 })).unwrap();
                 return Ok(Response::new(RegisterU2fKeyResponse{}))
             },
-            Ok(false) => {
-                rustica_warning!(self, format!("[{}] could not be registered with the authorizer. Identities: [{}]", fingerprint, mtls_identities.join(", ")));
-                return Err(Status::unavailable("Could not register new key"))
-            },
-            Err(_) => {
-                rustica_error!(self, format!("Authorizer threw error registering fingerprint: [{}] with identities: [{}]", fingerprint, mtls_identities.join(", ")));
+            Err(e) => {
+                let key_info = KeyInfo {
+                    fingerprint,
+                    mtls_identities,
+                };
+                
+                self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
+                    key_info,
+                    message: e.to_string(),
+                })).unwrap();
                 return Err(Status::unavailable("Could not register new key"))
             },
         }
