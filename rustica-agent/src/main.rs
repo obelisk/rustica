@@ -4,11 +4,17 @@ mod config;
 
 use crate::config::RusticaAgentAction;
 use rustica_agent::*;
+use rustica_agent::rustica::key::{
+    U2FAttestation
+};
 
-use sshcerts::Certificate;
+use sshcerts::{
+    Certificate,
+    fido::generate::generate_new_ssh_key,
+};
 
-use std::io::Write;
 use std::fs::File;
+use std::io::Write;
 use std::os::unix::net::{UnixListener};
 
 
@@ -17,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match config::configure() {
         // Generates a new hardware backed key in a Yubikey then exits.
         // This always generates a NISTP384 key.
-        Ok(RusticaAgentAction::Provision(config)) => {
+        Ok(RusticaAgentAction::ProvisionPIV(config)) => {
             match provision_new_key(config.yubikey, &config.pin, &config.subject, &config.management_key, config.require_touch) {
                 Some(_) => (),
                 None => {
@@ -26,8 +32,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
             };
         },
+        // This is done in one step instead of two because there is no way (that I know of) to get an attestation
+        // for a previously generated FIDO key. So we have to send the attestation data at generation time.
+        Ok(RusticaAgentAction::ProvisionAndRegisterFido(prf)) => {
+            let new_fido_key = generate_new_ssh_key(&prf.app_name, &prf.comment, None, None)?;
+
+            let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
+            let u2f_attestation = U2FAttestation {
+                auth_data: new_fido_key.attestation.auth_data,
+                auth_data_sig: new_fido_key.attestation.auth_data_sig,
+                intermediate: new_fido_key.attestation.intermediate,
+                challenge: new_fido_key.attestation.challenge,
+                alg: new_fido_key.attestation.alg,
+            };
+
+            match prf.server.register_u2f_key(&mut signatory, &prf.app_name, &u2f_attestation) {
+                Ok(_) => {
+                    println!("Key was successfully registered");
+
+                    if let Some(out) = prf.out {
+                        let mut out = File::create(out)?;
+                        new_fido_key.private_key.write(&mut out)?;
+                    } else {
+                        let mut buf = std::io::BufWriter::new(Vec::new());
+                        new_fido_key.private_key.write(&mut buf).unwrap();
+                        let serialized = String::from_utf8(buf.into_inner().unwrap()).unwrap();
+                        println!("Your new private key handle:\n{}", serialized);
+                        println!("You key fingerprint: {}", new_fido_key.private_key.pubkey.fingerprint().hash);
+                    }
+                },
+                Err(e) => {
+                    error!("Key could not be registered. Server said: {}", e);
+                    return Err(Box::new(e))
+                },
+            };
+        },
         Ok(RusticaAgentAction::Register(mut config)) => {
-            match config.server.register_key(&mut config.signatory, &config.key_config) {
+            match config.server.register_key(&mut config.signatory, &config.attestation) {
                 Ok(_) => {
                     println!("Key was successfully registered");
                 },

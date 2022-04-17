@@ -8,17 +8,22 @@ use serde_derive::Deserialize;
 pub use sshagent::{Agent, error::Error as AgentError, Identity, SshAgentHandler, Response};
 
 pub use rustica::{
-    key::KeyConfig,
+    key::{
+        PIVAttestation,
+    },
     RefreshError::{ConfigurationError, SigningError}
 };
 
+use rustica::key::U2FAttestation;
+
 
 use sshcerts::ssh::{Certificate, CertType, PrivateKey, SSHCertificateSigner};
-use sshcerts::utils::format_signature_for_ssh;
+use sshcerts::fido::generate::generate_new_ssh_key;
 use sshcerts::yubikey::piv::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy, Yubikey};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fs::File;
 
 use std::time::SystemTime;
 
@@ -130,7 +135,7 @@ impl SshAgentHandler for Handler {
         // Build identities from the private keys we have loaded
         let mut identities: Vec<Identity> = self.identities.iter().map(|x| Identity {
                 key_blob: x.1.pubkey.encode().to_vec(),
-                key_comment: x.1.comment.as_ref().unwrap_or(&String::new()).to_string(),
+                key_comment: x.1.comment.clone(),
             }).collect();
 
         // If the time hasn't expired on our certificate, we don't need to fetch a new one
@@ -142,6 +147,7 @@ impl SshAgentHandler for Handler {
                 return Ok(Response::Identities(vec![cert.clone()]));
             }
         }
+
         if let Some(f) = &self.notification_function {
             f()
         }
@@ -149,14 +155,19 @@ impl SshAgentHandler for Handler {
         // Grab a new certificate from the server because we don't have a valid one
         match self.server.get_custom_certificate(&mut self.signatory, &self.certificate_options) {
             Ok(response) => {
-                info!("{:#}", Certificate::from_string(&response.cert).unwrap());
+                let parsed_cert = Certificate::from_string(&response.cert).map_err(|e| 
+                    AgentError {
+                        details: e.to_string(),
+                    })?;
+                info!("{:#}", parsed_cert);
                 let cert: Vec<&str> = response.cert.split(' ').collect();
                 let raw_cert = base64::decode(cert[1]).unwrap_or_default();
                 let ident = Identity {
                     key_blob: raw_cert,
-                    key_comment: response.comment,
+                    key_comment: response.comment.clone(),
                 };
                 self.cert = Some(ident.clone());
+
                 identities.push(ident);
                 Ok(Response::Identities(identities))
             },
@@ -178,19 +189,15 @@ impl SshAgentHandler for Handler {
         } else if let Signatory::Direct(privkey) = &self.signatory {
             Some(privkey)
         } else if let Signatory::Yubikey(signer) = &mut self.signatory {
-            // If using long lived certificates you might need to tap again here because you didn't have to
-            // to get the certificate the first time
+            // Since we are using the Yubikey for a signing operation the only time they
+            // won't have to tap here is if they are using cached keys and this is right after
+            // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be 
+            // spurious.
             if let Some(f) = &self.notification_function {
                 f()
             }
 
-            let pubkey = signer.yk.ssh_cert_fetch_pubkey(&signer.slot).unwrap();
             let signature = signer.yk.ssh_cert_signer(&data, &signer.slot).map_err(|_| AgentError::from("Yubikey signing error"))?;
-        
-            let signature = match format_signature_for_ssh(&pubkey, &signature) {
-                Some(s) => s,
-                None => return Err(AgentError::from("Signature could not be converted to SSH format")), 
-            };
 
             return Ok(Response::SignResponse {
                 signature,
@@ -203,12 +210,7 @@ impl SshAgentHandler for Handler {
             Some(key) => {
                 let signature = match key.sign(&data) {
                     None => return Err(AgentError::from("Signing Error")),
-                    Some(signature) => format_signature_for_ssh(&key.pubkey, &signature),
-                };
-
-                let signature = match signature {
-                    Some(s) => s,
-                    None => return Err(AgentError::from("Signature could not be converted to SSH format"))
+                    Some(signature) => signature,
                 };
 
                 Ok(Response::SignResponse {
@@ -248,7 +250,7 @@ pub fn slot_validator(slot: &str) -> Result<(), String> {
 }
 
 /// Provisions a new keypair on the Yubikey with the given settings.
-pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], require_touch: bool) -> Option<KeyConfig> {
+pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_key: &[u8], require_touch: bool) -> Option<PIVAttestation> {
     println!("Provisioning new NISTP384 key in slot: {:?}", &yubikey.slot);
 
     let policy = if require_touch {
@@ -269,7 +271,7 @@ pub fn provision_new_key(mut yubikey: YubikeySigner, pin: &str, subj: &str, mgm_
             let intermediate = yubikey.yk.fetch_certificate(&SlotId::Attestation);
 
             match (certificate, intermediate) {
-                (Ok(certificate), Ok(intermediate)) => Some(KeyConfig {certificate, intermediate}),
+                (Ok(certificate), Ok(intermediate)) => Some(PIVAttestation{certificate, intermediate}),
                 _ => None,
             }
         },
@@ -358,6 +360,21 @@ pub unsafe extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *
     }
 }
 
+/// The return from this function must be freed by the caller because we can no longer track it
+/// once we return
+#[no_mangle]
+pub extern fn check_yubikey_slot_provisioned(yubikey_serial: u32, slot_id: u8) -> bool {
+    match &mut Yubikey::open(yubikey_serial) {
+        Ok(yk) => {
+            match SlotId::try_from(slot_id) {
+                Ok(slot) => yk.fetch_subject(&slot).is_ok(),
+                Err(_) => false,
+            }
+        },
+        Err(_) => false
+    }
+}
+
 /// Free the list of Yubikey keys
 /// 
 /// # Safety
@@ -375,6 +392,118 @@ pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
     for elem in v {
         let s = CString::from_raw(elem);
         std::mem::drop(s);
+    }
+}
+
+#[no_mangle]
+/// Generate and enroll a new FIDO key with a Rustica backend
+/// 
+/// # Safety
+/// All c_char pointers passed to this function must be null terminated C
+/// strings or undefined behaviour occurs possibly resulting in corruption
+/// or crashes.
+pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *const c_char, comment: *const c_char, pin: *const c_char, device: *const c_char) -> bool {
+    let cf = CStr::from_ptr(config_data);
+    let config: Config = match cf.to_str() {
+        Err(_) => return false,
+        Ok(s) => {
+            match toml::from_str(s) {
+                Ok(c) => c,
+                Err(e) => {
+                    println!("Error: Could not parse the configuration data: {}", e);
+                    return false
+                }
+            }
+        },
+    };
+
+    let out = CStr::from_ptr(out);
+    let out = match out.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let comment = if !comment.is_null() {
+        let comment = CStr::from_ptr(comment);
+        let comment = match comment.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+        comment.to_string()
+    } else {
+        "FFI-RusticaAgent-Generated-Key".to_string()
+    };
+
+    let pin = if !pin.is_null() {
+        let pin = CStr::from_ptr(pin);
+        let pin = match pin.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+        Some(pin.to_string())
+    } else {
+        None
+    };
+
+    let device = if !device.is_null() {
+        let device = CStr::from_ptr(device);
+        let device = match device.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+        Some(device.to_string())
+    } else {
+        None
+    };
+
+    let new_fido_key = match generate_new_ssh_key("ssh:RusticaAgentFIDOKey", &comment, pin, device) {
+        Ok(nfk) => nfk,
+        Err(e) => {
+            println!("Error: {}", e);
+            return false;
+        }
+    };
+
+    let server = RusticaServer {
+        address: config.server.unwrap(),
+        ca: config.ca_pem.unwrap(),
+        mtls_cert: config.mtls_cert.unwrap(),
+        mtls_key: config.mtls_key.unwrap(),
+    };
+
+    let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
+    let u2f_attestation = U2FAttestation {
+        auth_data: new_fido_key.attestation.auth_data,
+        auth_data_sig: new_fido_key.attestation.auth_data_sig,
+        intermediate: new_fido_key.attestation.intermediate,
+        challenge: new_fido_key.attestation.challenge,
+        alg: new_fido_key.attestation.alg,
+    };
+
+    let mut out_file = match File::create(out) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("Error: Could not create keyfile at {}: {}", out, e);
+            return false
+        },
+    };
+
+    if new_fido_key.private_key.write(&mut out_file).is_err() {
+        std::fs::remove_file(out).unwrap_or_default();
+        println!("Error: Could not write to file. Basically should never happen");
+        return false;
+    };
+
+    match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation) {
+        Ok(_) => {
+            println!("Key was successfully registered");
+            true
+        },
+        Err(e) => {
+            error!("Key could not be registered. Server said: {}", e);
+            std::fs::remove_file(out).unwrap();
+            false
+        },
     }
 }
 
@@ -416,7 +545,7 @@ pub unsafe extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_sec
             let intermediate = yk.fetch_certificate(&SlotId::Attestation);
 
             match (certificate, intermediate) {
-                (Ok(certificate), Ok(intermediate)) => KeyConfig {certificate, intermediate},
+                (Ok(certificate), Ok(intermediate)) => PIVAttestation{certificate, intermediate},
                 _ => return false,
             }
         },
@@ -452,11 +581,93 @@ pub unsafe extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_sec
 /// `config_data` and `socket_path` must be a null terminated C strings
 /// or behaviour is undefined and will result in a crash.
 #[no_mangle]
+pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, config_data: *const c_char, socket_path: *const c_char, pin: *const c_char, device: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
+    println!("Starting a new Rustica instance!");
+
+    let notification_f = move || {
+        notification_fn();
+    };
+
+    let cf = CStr::from_ptr(config_data);
+    let config_data = match cf.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let sp = CStr::from_ptr(socket_path);
+    let socket_path = match sp.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let private_key = CStr::from_ptr(private_key);
+    let mut private_key = match private_key.to_str() {
+        Err(_) => return false,
+        Ok(s) => {
+            if let Ok(p) = PrivateKey::from_string(s) {
+                p
+            } else {
+                return false
+            }
+        },
+    };
+
+    if !pin.is_null() {
+        let pin = CStr::from_ptr(pin);
+        let pin = match pin.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+        private_key.set_pin(pin);
+    }
+
+    if !device.is_null() {
+        let device = CStr::from_ptr(device);
+        let device = match device.to_str() {
+            Err(_) => return false,
+            Ok(s) => s,
+        };
+
+        private_key.set_device_path(device);
+    }
+
+    println!("Fingerprint: {:?}", private_key.pubkey.fingerprint().hash);
+
+    let config: Config = toml::from_str(config_data).unwrap();
+    let certificate_options = CertificateConfig::from(config.options);
+    let handler = Handler {
+        cert: None,
+        stale_at: 0,
+        certificate_options,
+        server: RusticaServer {
+            address: config.server.unwrap(),
+            ca: config.ca_pem.unwrap(),
+            mtls_cert: config.mtls_cert.unwrap(),
+            mtls_key: config.mtls_key.unwrap(),
+        },
+        signatory: Signatory::Direct(private_key),
+        identities: HashMap::new(),
+        notification_function: Some(Box::new(notification_f)),
+    };
+
+
+    let socket = UnixListener::bind(socket_path).unwrap();
+    Agent::run(handler, socket);
+
+    true
+}
+
+
+/// Start a new Rustica instance. Does not return unless Rustica exits.
+/// # Safety
+/// `config_data` and `socket_path` must be a null terminated C strings
+/// or behaviour is undefined and will result in a crash.
+#[no_mangle]
 pub unsafe extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_data: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
-        unsafe { notification_fn(); }
+        notification_fn();
     };
 
     let cf = CStr::from_ptr(config_data);

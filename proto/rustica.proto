@@ -48,8 +48,21 @@ message RegisterKeyRequest {
 
 message RegisterKeyResponse {}
 
+message RegisterU2FKeyRequest {
+    bytes auth_data = 1;
+    bytes auth_data_signature = 2;
+    bytes sk_application = 3;
+    bytes u2f_challenge = 4;
+    bytes intermediate = 5;
+    int32 alg = 6;
+    Challenge challenge = 7;
+}
+
+message RegisterU2FKeyResponse {}
+
 service Rustica {
     rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
     rpc Certificate(CertificateRequest) returns (CertificateResponse);
     rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
+    rpc RegisterU2FKey(RegisterU2FKeyRequest) returns (RegisterU2FKeyResponse);
 }

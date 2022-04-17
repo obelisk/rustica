@@ -8,6 +8,7 @@ use super::{
     Authorization,
     AuthorizationError,
     AuthorizationRequestProperties,
+    KeyAttestation,
     RegisterKeyRequestProperties,
 };
 use std::collections::HashMap;
@@ -57,8 +58,10 @@ impl AuthServer {
                 error!("Could not open a channel to the authorization server: {}", e);
                 return Err(AuthorizationError::AuthorizerError);
             },
-        // TODO: @obelisk handle these TLS unwraps
-        }.tls_config(tls).unwrap().connect().await.unwrap();
+        }.tls_config(tls)
+        .map_err(|_| AuthorizationError::ConnectionFailure)?
+        .connect().await
+        .map_err(|_| AuthorizationError::ConnectionFailure)?;
 
         let mut client = AuthorClient::new(channel);
         let response = client.authorize(request).await;
@@ -107,18 +110,34 @@ impl AuthServer {
         })
     }
 
-    pub async fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<bool, ()> {
+    pub async fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<(), AuthorizationError> {
         let mut identities = HashMap::new();
         identities.insert(String::from("requester_ip"), req.requester_ip.clone());
         identities.insert(String::from("key_fingerprint"), req.fingerprint.clone());
         identities.insert(String::from("mtls_identities"), req.mtls_identities.join(","));
 
         let mut identity_data = HashMap::new();
-        identity_data.insert(String::from("type"), String::from("ssh_key"));
-        if let Some(attestation) = &req.attestation {
-            identity_data.insert(String::from("certificate"), hex::encode(&attestation.certificate));
-            identity_data.insert(String::from("intermediate_certificate"), hex::encode(&attestation.intermediate));
-        }
+
+        match &req.attestation {
+            Some(KeyAttestation::Piv(attestation)) => {
+                identity_data.insert(String::from("type"), String::from("ssh_key"));
+                identity_data.insert(String::from("certificate"), hex::encode(&attestation.certificate));
+                identity_data.insert(String::from("intermediate_certificate"), hex::encode(&attestation.intermediate));
+            },
+            Some(KeyAttestation::U2f(attestation)) => {
+                identity_data.insert(String::from("type"), String::from("u2f_ssh_key"));
+                identity_data.insert(String::from("auth_data"), hex::encode(&attestation.auth_data));
+                identity_data.insert(String::from("auth_data_signature"), hex::encode(&attestation.auth_data_signature));
+                identity_data.insert(String::from("intermediate_certificate"), hex::encode(&attestation.intermediate));
+                identity_data.insert(String::from("challenge"), hex::encode(&attestation.challenge));
+                identity_data.insert(String::from("application"), hex::encode(&attestation.application));
+                identity_data.insert(String::from("alg"), attestation.alg.to_string());
+                identity_data.insert(String::from("aaguid"), attestation.aaguid.clone());
+            },
+            None => {
+                identity_data.insert(String::from("type"), String::from("ssh_key"));
+            },
+        };
 
         let request = tonic::Request::new(AddIdentityDataRequest {
             identities,
@@ -135,19 +154,21 @@ impl AuthServer {
             Ok(c) => c,
             Err(e) => {
                 error!("Could not open a channel to the authorization server: {}", e);
-                return Err(());
+                return Err(AuthorizationError::ConnectionFailure);
             },
-        // TODO: @obelisk handle these TLS unwraps
-        }.tls_config(tls).unwrap().connect().await.unwrap();
+        }.tls_config(tls)
+        .map_err(|_| AuthorizationError::ConnectionFailure)?
+        .connect().await
+        .map_err(|_| AuthorizationError::ConnectionFailure)?;
 
         let mut client = AuthorClient::new(channel);
         let response = client.add_identity_data(request).await;
 
         match response {
-            Ok(_) => Ok(true),
+            Ok(_) => Ok(()),
             Err(e) => {
                 error!("Server returned error: {}", e);
-                Ok(false)
+                Err(AuthorizationError::ExternalError(format!("{}", e)))
             },
         }
     }

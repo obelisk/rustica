@@ -3,7 +3,10 @@ use crate::logging::{Log, LoggingConfiguration};
 use crate::server::RusticaServer;
 use crate::signing::SigningConfiguration;
 
-use clap::{App, Arg};
+use clap::{
+    Arg,
+    Command,
+};
 
 use crossbeam_channel::{unbounded, Receiver};
 
@@ -12,6 +15,11 @@ use serde::Deserialize;
 
 use std::convert::TryInto;
 use std::net::SocketAddr;
+
+use sshcerts::{
+    ssh::KeyTypeKind,
+    PrivateKey,
+};
 
 
 #[derive(Deserialize)]
@@ -23,6 +31,7 @@ pub struct Configuration {
     pub authorization: AuthorizationConfiguration,
     pub signing: SigningConfiguration,
     pub require_rustica_proof: bool,
+    pub require_attestation_chain: bool,
     pub logging: LoggingConfiguration,
 }
 
@@ -79,7 +88,7 @@ impl std::fmt::Debug for ConfigurationError {
 
 
 pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
-    let matches = App::new("Rustica")
+    let matches = Command::new("Rustica")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Mitchell Grenier <mitchell@confurious.io>")
         .about("Rustica is a Yubikey backed SSHCA")
@@ -125,13 +134,16 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
 
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
+    let challenge_key = PrivateKey::new(KeyTypeKind::Ed25519, "RusticaChallengeKey").unwrap();
     
     let server = RusticaServer {
         log_sender,
         hmac_key,
+        challenge_key,
         authorizer,
         signer,
         require_rustica_proof: config.require_rustica_proof,
+        require_attestation_chain: config.require_attestation_chain,
     };
     
     Ok(RusticaSettings {

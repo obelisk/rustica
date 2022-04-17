@@ -16,6 +16,23 @@ pub enum AuthorizationError {
     CertType,
     NotAuthorized,
     AuthorizerError,
+    ConnectionFailure,
+    #[allow(dead_code)]
+    DatabaseError(String),
+    ExternalError(String),
+}
+
+impl std::fmt::Display for AuthorizationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthorizationError::CertType => write!(f, "Not authorized for this certificate type"),
+            AuthorizationError::NotAuthorized => write!(f, "Not authorized for this certificate type"),
+            AuthorizationError::AuthorizerError => write!(f, "Not authorized for this certificate type"),
+            AuthorizationError::ConnectionFailure => write!(f, "Not authorized for this certificate type"),
+            AuthorizationError::DatabaseError(ref m) => write!(f, "Database error: {}", m),
+            AuthorizationError::ExternalError(ref m) => write!(f, "{}", m),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -72,7 +89,7 @@ impl AuthorizationMechanism {
         }
     }
 
-    pub async fn register_key(&self, register_properties: &RegisterKeyRequestProperties) -> Result<bool, ()> {
+    pub async fn register_key(&self, register_properties: &RegisterKeyRequestProperties) -> Result<(), AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
             AuthorizationMechanism::Local(local) => local.register_key(register_properties),

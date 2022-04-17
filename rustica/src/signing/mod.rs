@@ -38,7 +38,7 @@ pub struct SigningConfiguration {
     pub amazonkms: Option<amazon_kms::Config>,
 }
 
-/// A `SigningConfiguration` can be concerted into a `SigningMechanism` to
+/// A `SigningConfiguration` can be coerced into a `SigningMechanism` to
 /// handle the signing operations as well as other convenience functions
 /// such as fetching public keys or printing info about how signing is
 ///configured.
@@ -64,13 +64,19 @@ pub enum SigningError {
     /// sign the provided certificate. This could be because of a key
     /// incompatiblity or a corrupted private key.
     SigningFailure,
+    /// ParsingError represents any error that occurs from unexpected data
+    /// not being able to be parsed correctly, or code that fails to parse
+    /// expected data
+    #[allow(dead_code)]
+    ParsingError,
 }
 
 impl std::fmt::Display for SigningError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SigningError::AccessError(e) => write!(f, "Could access the private key material: {}", e),
+            SigningError::AccessError(e) => write!(f, "Could not access the private key material: {}", e),
             SigningError::SigningFailure => write!(f, "The signing operation on the provided certificate failed"),
+            SigningError::ParsingError => write!(f, "The signature could not be parsed"),
         }
     }
 }

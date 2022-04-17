@@ -13,7 +13,7 @@ mod logging;
 mod server;
 mod signing;
 mod utils;
-mod yubikey;
+mod verification;
 
 use rustica::rustica_server::{RusticaServer as GRPCRusticaServer};
 use sshcerts::ssh::CertType;

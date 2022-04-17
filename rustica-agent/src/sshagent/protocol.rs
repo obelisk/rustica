@@ -47,7 +47,7 @@ impl MessageRequest {
 
 fn read_message<R: Read>(stream: &mut R) -> ParsingError<Vec<u8>> {
 	let len = stream.read_u32::<BigEndian>()?;
- 
+
  	let mut buf = vec![0; len as usize];
  	stream.read_exact(&mut buf)?;
 

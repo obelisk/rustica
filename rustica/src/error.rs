@@ -5,7 +5,9 @@ pub enum RusticaServerError {
     Success = 0,
     TimeExpired = 1,
     BadChallenge = 2,
+    #[allow(dead_code)]
     InvalidKey = 3,
+    #[allow(dead_code)]
     UnsupportedKeyType = 4,
     BadCertOptions = 5,
     NotAuthorized = 6,
@@ -18,7 +20,7 @@ impl From<AuthorizationError> for RusticaServerError {
         match e {
             AuthorizationError::CertType => RusticaServerError::BadCertOptions,
             AuthorizationError::NotAuthorized => RusticaServerError::NotAuthorized,
-            AuthorizationError::AuthorizerError => RusticaServerError::Unknown,
+            _ => RusticaServerError::Unknown,
         }
     }
 }

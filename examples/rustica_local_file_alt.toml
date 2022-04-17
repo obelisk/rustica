@@ -49,6 +49,12 @@ listen_address = "0.0.0.0:50052"
 # be required.
 require_rustica_proof = false
 
+# This setting controls if Rustica will allow users to register keys that
+# cannot have their providence validated. If set to true, if a registration
+# either does not provide an attestation or the attestation fails, the key
+# will be rejected and the API call will fail. In the case of using an
+# external authorizer, a call will not be made to inform it of this event.
+require_attestation_chain = true
 
 # Rustica has many ways it can sign SSH certificates which are sent to
 # clients. This method uses private keys embedded in the configuration

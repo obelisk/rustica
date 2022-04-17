@@ -11,11 +11,13 @@ pub use rustica_proto::{
     Challenge,
     ChallengeRequest,
     RegisterKeyRequest,
+    RegisterU2fKeyRequest,
 };
 
-use sshcerts::ssh::{CurveKind, PublicKeyKind, PrivateKeyKind};
+use sshcerts::ssh::{
+    Certificate as SSHCertificate,
+};
 
-use ring::{rand, signature};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 use crate::{RusticaServer, Signatory};
@@ -62,10 +64,9 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
     let response = client.challenge(request).await?;
 
     let response = response.into_inner();
-    let decoded_challenge = hex::decode(&response.challenge)?;
 
     if response.no_signature_required {
-        debug!("This server does not require signatures be sent to Rustica, not signing the challenge");
+        debug!("This server does not require signatures be sent, not resigning the certificate");
         return Ok((
             client,
             Challenge {
@@ -76,53 +77,17 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
         }))
     }
 
-    let challenge_signature = match signatory {
+    debug!("{}", &response.challenge);
+
+    let mut challenge_certificate = SSHCertificate::from_string(&response.challenge).map_err(|_| RefreshError::SigningError)?;
+    challenge_certificate.signature_key = challenge_certificate.key.clone();
+
+    let resigned_certificate = match signatory {
         Signatory::Yubikey(signer) => {
-            let alg = match signer.yk.get_ssh_key_type(&signer.slot){
-                Ok(alg) => alg,
-                Err(_) => return Err(RefreshError::SigningError),
-            };
-
-            hex::encode(signer.yk.sign_data(&decoded_challenge, alg, &signer.slot)?)
+            let signature = signer.yk.ssh_cert_signer(&challenge_certificate.tbs_certificate(), &signer.slot).map_err(|_| RefreshError::SigningError)?;
+            challenge_certificate.add_signature(&signature).map_err(|_| RefreshError::SigningError)?
         },
-        // TODO: @obelisk Find a way to replace this with sshcerts::ssh::signer code
-        Signatory::Direct(privkey) => {
-            let rng = rand::SystemRandom::new();
-
-            match &privkey.kind {
-                PrivateKeyKind::Rsa(_) => return Err(RefreshError::UnsupportedMode),
-                PrivateKeyKind::Ecdsa(key) => {
-                    let alg = match key.curve.kind {
-                        CurveKind::Nistp256 => &signature::ECDSA_P256_SHA256_ASN1_SIGNING,
-                        CurveKind::Nistp384 => &signature::ECDSA_P384_SHA384_ASN1_SIGNING,
-                        CurveKind::Nistp521 => return Err(RefreshError::UnsupportedMode),
-                    };
-
-                    let pubkey = match &privkey.pubkey.kind {
-                        PublicKeyKind::Ecdsa(key) => &key.key,
-                        _ => return Err(RefreshError::UnsupportedMode),
-                    };
-
-                    let key = if key.key[0] == 0x0_u8 {&key.key[1..]} else {&key.key};
-                    let key_pair = signature::EcdsaKeyPair::from_private_key_and_public_key(alg, key, pubkey)?;
-
-                    hex::encode(key_pair.sign(&rng, &decoded_challenge)?)
-                },
-                PrivateKeyKind::Ed25519(key) => {
-                    let public_key = match &privkey.pubkey.kind {
-                        PublicKeyKind::Ed25519(key) => &key.key,
-                        _ => return Err(RefreshError::UnsupportedMode),
-                    };
-
-                    let key_pair = match signature::Ed25519KeyPair::from_seed_and_public_key(&key.key[..32], public_key) {
-                        Ok(kp) => kp,
-                        Err(_) => return Err(RefreshError::SigningError),
-                    };
-
-                    hex::encode(key_pair.sign(&decoded_challenge))
-                },
-            }
-        },
+        Signatory::Direct(privkey) => challenge_certificate.sign(privkey).map_err(|_| RefreshError::SigningError)?,
     };
 
     Ok((
@@ -130,7 +95,7 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
         Challenge {
             pubkey: encoded_key.to_string(),
             challenge_time: response.time,
-            challenge: response.challenge,
-            challenge_signature,
+            challenge: format!("{}", resigned_certificate),
+            challenge_signature: String::new(),
     }))
 }

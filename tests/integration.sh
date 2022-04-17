@@ -27,7 +27,7 @@ cd ../..
 docker run --name rustica_test_ssh_server -p 2424:22 rustica_test_ssh_server:latest &
 
 # Verify that Rustica is not running and that this should fail
-if ./target/debug/rustica-agent --config examples/rustica_agent_local.toml -i > /dev/null 2>&1; then
+if ./target/debug/rustica-agent --config examples/rustica_agent_local.toml -i > /tmp/rustica_log 2>&1; then
     echo "FAIL: Some other Rustica instance is running!"
     exit 1
 else
@@ -40,10 +40,15 @@ RUSTICA_PID=$!
 sleep 2
 
 # Test that we can fetch a certificate
-if ./target/debug/rustica-agent --config examples/rustica_agent_local.toml -i > /dev/null 2>&1; then
+if ./target/debug/rustica-agent --config examples/rustica_agent_local.toml -i > /tmp/rustica_agent_log 2>&1; then
     echo "PASS: Successfully pulled a certificate from Rustica"
 else 
     echo "FAIL: Could not pull a certificate from Rustica"
+    echo "Rustica Log:"
+    cat /tmp/rustica_log
+    echo ""
+    echo "Rustica Agent Log"
+    cat /tmp/rustica_agent_log
     cleanup_and_exit 1
 fi
 
