@@ -117,7 +117,7 @@ fn get_signatory(cmd_slot: &Option<String>, config_slot: &Option<String>, matche
         (_, _, Some(file), _) => {
             match PrivateKey::from_path(file) {
                 Ok(p) => Ok(Signatory::Direct(p)),
-                Err(e) => Err(ConfigurationError::CannotReadFile(format!("{}: {}", e.to_string(), file))),
+                Err(e) => Err(ConfigurationError::CannotReadFile(format!("{}: {}", e, file))),
             }
         },
         (_, Some(slot), _, _) => {
@@ -414,10 +414,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         }
 
         let comment = matches.value_of("comment").unwrap().to_string();
-        let out = match matches.value_of("out") {
-            Some(o) => Some(String::from(o)),
-            None => None,
-        };
+        let out = matches.value_of("out").map(String::from);
 
         let key_type = match matches.value_of("kind") {
             Some("ecdsa") => SKType::Ecdsa,

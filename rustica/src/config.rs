@@ -134,7 +134,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
 
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
-    let challenge_key = PrivateKey::new(KeyTypeKind::Ed25519, &format!("RusticaChallengeKey")).unwrap();
+    let challenge_key = PrivateKey::new(KeyTypeKind::Ed25519, "RusticaChallengeKey").unwrap();
     
     let server = RusticaServer {
         log_sender,

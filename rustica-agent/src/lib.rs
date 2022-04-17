@@ -363,7 +363,7 @@ pub unsafe extern fn list_keys(yubikey_serial: u32, out_length: *mut c_int) -> *
 /// The return from this function must be freed by the caller because we can no longer track it
 /// once we return
 #[no_mangle]
-pub unsafe extern fn check_yubikey_slot_provisioned(yubikey_serial: u32, slot_id: u8) -> bool {
+pub extern fn check_yubikey_slot_provisioned(yubikey_serial: u32, slot_id: u8) -> bool {
     match &mut Yubikey::open(yubikey_serial) {
         Ok(yk) => {
             match SlotId::try_from(slot_id) {
@@ -396,6 +396,12 @@ pub unsafe extern fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
 }
 
 #[no_mangle]
+/// Generate and enroll a new FIDO key with a Rustica backend
+/// 
+/// # Safety
+/// All c_char pointers passed to this function must be null terminated C
+/// strings or undefined behaviour occurs possibly resulting in corruption
+/// or crashes.
 pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *const c_char, comment: *const c_char, pin: *const c_char, device: *const c_char) -> bool {
     let cf = CStr::from_ptr(config_data);
     let config: Config = match cf.to_str() {
@@ -417,7 +423,7 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
         Ok(s) => s,
     };
 
-    let comment = if comment != std::ptr::null() {
+    let comment = if !comment.is_null() {
         let comment = CStr::from_ptr(comment);
         let comment = match comment.to_str() {
             Err(_) => return false,
@@ -425,10 +431,10 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
         };
         comment.to_string()
     } else {
-        format!("FFI-RusticaAgent-Generated-Key")
+        "FFI-RusticaAgent-Generated-Key".to_string()
     };
 
-    let pin = if pin != std::ptr::null() {
+    let pin = if !pin.is_null() {
         let pin = CStr::from_ptr(pin);
         let pin = match pin.to_str() {
             Err(_) => return false,
@@ -439,7 +445,7 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
         None
     };
 
-    let device = if device != std::ptr::null() {
+    let device = if !device.is_null() {
         let device = CStr::from_ptr(device);
         let device = match device.to_str() {
             Err(_) => return false,
@@ -481,13 +487,11 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
             return false
         },
     };
-    match new_fido_key.private_key.write(&mut out_file) {
-        Err(_) => {
-            std::fs::remove_file(out).unwrap_or_default();
-            println!("Error: Could not write to file. Basically should never happen");
-            return false
-        },
-        _ => (),
+
+    if new_fido_key.private_key.write(&mut out_file).is_err() {
+        std::fs::remove_file(out).unwrap_or_default();
+        println!("Error: Could not write to file. Basically should never happen");
+        return false;
     };
 
     match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation) {
@@ -581,7 +585,7 @@ pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, conf
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
-        unsafe { notification_fn(); }
+        notification_fn();
     };
 
     let cf = CStr::from_ptr(config_data);
@@ -608,7 +612,7 @@ pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, conf
         },
     };
 
-    if pin != std::ptr::null() {
+    if !pin.is_null() {
         let pin = CStr::from_ptr(pin);
         let pin = match pin.to_str() {
             Err(_) => return false,
@@ -617,7 +621,7 @@ pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, conf
         private_key.set_pin(pin);
     }
 
-    if device != std::ptr::null() {
+    if !device.is_null() {
         let device = CStr::from_ptr(device);
         let device = match device.to_str() {
             Err(_) => return false,
@@ -663,7 +667,7 @@ pub unsafe extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, 
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
-        unsafe { notification_fn(); }
+        notification_fn();
     };
 
     let cf = CStr::from_ptr(config_data);

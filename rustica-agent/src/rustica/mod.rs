@@ -96,6 +96,6 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
             pubkey: encoded_key.to_string(),
             challenge_time: response.time,
             challenge: format!("{}", resigned_certificate),
-            challenge_signature: format!(""),
+            challenge_signature: String::new(),
     }))
 }

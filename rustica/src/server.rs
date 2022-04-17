@@ -220,7 +220,7 @@ fn validate_request(srv: &RusticaServer, hmac_key: &ring::hmac::Key, peer_certs:
     // this point the user must have received our challenge certificate
     // containing our HMAC challenge, resigned it with their key, and
     // sent it back for which it passed all checks.
-    return Ok((hmac_ssh_pubkey, mtls_identities))
+    Ok((hmac_ssh_pubkey, mtls_identities))
 }
 
 #[tonic::async_trait]
@@ -281,7 +281,7 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadRequest)),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Ok(create_response(e)),
         };
@@ -396,8 +396,8 @@ impl Rustica for RusticaServer {
             certificate_type: req_cert_type.to_string(),
             mtls_identities,
             principals: authorization.principals,
-            extensions: authorization.extensions.into(),
-            critical_options: critical_options.into(),
+            extensions: authorization.extensions,
+            critical_options,
             valid_after: authorization.valid_after,
             valid_before: authorization.valid_before,
         })).unwrap();
@@ -419,7 +419,7 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };
@@ -436,7 +436,7 @@ impl Rustica for RusticaServer {
                 
                 self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
                     key_info,
-                    message: format!("Attempt to register a key with an invalid attestation chain"),
+                    message: "Attempt to register a key with an invalid attestation chain".to_string(),
                 })).unwrap();
                 return Err(Status::unavailable("Could not register a key without valid attestation data"))
             },
@@ -488,7 +488,7 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(&self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };
@@ -505,7 +505,7 @@ impl Rustica for RusticaServer {
                 
                 self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
                     key_info,
-                    message: format!("Attempt to register a key with an invalid attestation chain"),
+                    message: "Attempt to register a key with an invalid attestation chain".to_string(),
                 })).unwrap();
                 return Err(Status::unavailable("Could not register a key without valid attestation data"))
             },

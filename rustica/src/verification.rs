@@ -40,7 +40,7 @@ pub fn verify_u2f_certificate_chain(auth_data: &[u8], auth_data_signature: &[u8]
         fingerprint: ssh_public_key.fingerprint().hash,
         attestation: Some(KeyAttestation::U2f(U2fAttestation {
             aaguid: hex::encode(validated_u2f_data.auth_data.aaguid),
-            firmware: validated_u2f_data.firmware.unwrap_or(format!("Unknown")),
+            firmware: validated_u2f_data.firmware.unwrap_or_else(|| "Unknown".to_string()),
             auth_data: auth_data.to_vec(),
             auth_data_signature: auth_data_signature.to_vec(),
             intermediate: intermediate.to_vec(),
