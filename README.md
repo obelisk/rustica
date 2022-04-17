@@ -14,6 +14,7 @@ Rustica is a Yubikey backed SSHCA written in Rust. It is designed to be used wit
     - Stdout
     - InfluxDB
     - Splunk
+    - External JSON Webhook
 - Just In Time Certificate Generation
 - Use Different Keys For User and Hosts
 - gRPC With mTLS
@@ -42,11 +43,15 @@ Compile in only what you need to reduce binary size and dependency bloat. If you
 It is possible to grant a principal to a user that is only valid for certain hostnames. This is achieved by setting the restricted host permission in the database. When in use, the certificate generated will have the `force-command` CriticalOption enabled. This will force the user to run a bash script, loaded inside the cert, that contains all hostnames she is allowed to log in to. If the hostname name of the remote host does not match any in the list, the connection is closed.
 
 ## Key Support
-The following key types have Yubikey support:
+The following key types have client support via FIDO:
+- ECDSA 256
+- Ed25519
+
+The following key types have Yubikey support (client and server):
 - ECDSA 256
 - ECDSA 384
 
-The following key types have file support:
+The following key types have file support (client and server):
 - ECDSA 256
 - ECDSA 384
 - Ed25519
