@@ -24,7 +24,7 @@ impl RusticaServer {
             servers: options.hosts.clone(),
             principals: options.principals.clone(),
             valid_before: current_timestamp + options.duration,
-            valid_after: 0x0,
+            valid_after: current_timestamp,
             challenge: Some(challenge),
         });
 

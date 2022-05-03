@@ -58,6 +58,7 @@ pub struct ProvisionAndRegisterFidoConfig {
     pub app_name: String,
     pub comment: String,
     pub key_type: SKType,
+    pub pin: Option<String>,
     pub out: Option<String>,
 }
 
@@ -307,6 +308,14 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                         .short('k')
                 )
                 .arg(
+                    Arg::new("pin")
+                        .help("Specify the pin")
+                        .long("pin")
+                        .short('p')
+                        .required(false)
+                        .takes_value(true),
+                )
+                .arg(
                     Arg::new("out")
                         .help("Relative path to write your new private key handle to")
                         .required(false)
@@ -421,11 +430,17 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             _ => SKType::Ed25519,
         };
 
+        let pin = match matches.value_of("pin") {
+            Some(p) => Some(p.to_string()),
+            None => None,
+        };
+
         let provision_config = ProvisionAndRegisterFidoConfig {
             server,
             app_name,
             comment,
             key_type,
+            pin,
             out,
         };
 

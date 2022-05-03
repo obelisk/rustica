@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // This is done in one step instead of two because there is no way (that I know of) to get an attestation
         // for a previously generated FIDO key. So we have to send the attestation data at generation time.
         Ok(RusticaAgentAction::ProvisionAndRegisterFido(prf)) => {
-            let new_fido_key = generate_new_ssh_key(&prf.app_name, &prf.comment, None, None)?;
+            let new_fido_key = generate_new_ssh_key(&prf.app_name, &prf.comment, prf.pin, None)?;
 
             let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
             let u2f_attestation = U2FAttestation {
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match prf.server.register_u2f_key(&mut signatory, &prf.app_name, &u2f_attestation) {
                 Ok(_) => {
-                    println!("Key was successfully registered");
+                    println!("Key was successfully registered!");
 
                     if let Some(out) = prf.out {
                         let mut out = File::create(out)?;
@@ -58,8 +58,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         new_fido_key.private_key.write(&mut buf).unwrap();
                         let serialized = String::from_utf8(buf.into_inner().unwrap()).unwrap();
                         println!("Your new private key handle:\n{}", serialized);
-                        println!("You key fingerprint: {}", new_fido_key.private_key.pubkey.fingerprint().hash);
                     }
+
+                    println!("You key fingerprint: {}", new_fido_key.private_key.pubkey.fingerprint().hash);
                 },
                 Err(e) => {
                     error!("Key could not be registered. Server said: {}", e);
@@ -69,9 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Ok(RusticaAgentAction::Register(mut config)) => {
             match config.server.register_key(&mut config.signatory, &config.attestation) {
-                Ok(_) => {
-                    println!("Key was successfully registered");
-                },
+                Ok(_) => println!("Key was successfully registered"),
                 Err(e) => {
                     error!("Key could not be registered. Server said: {}", e);
                     return Err(Box::new(e))
