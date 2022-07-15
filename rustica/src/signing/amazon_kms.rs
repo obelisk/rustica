@@ -1,3 +1,10 @@
+/// The AmazonKMS signer uses customer managed keys stored in AWS to handle
+/// signing operations. It supports Ecdsa256 and Ecdsa384. Ecdsa521 is not
+/// currently supported due to a lack of support in the Ring crypto
+/// dependency. This signer is also an example of how to write a signing
+/// module that is async. To use the AmazonKMS signer, the `amazon-kms`
+/// feature must be enabled.
+
 use sshcerts::{
     Certificate,
     PublicKey,
@@ -5,7 +12,7 @@ use sshcerts::{
     utils::format_signature_for_ssh,
 };
 
-use super::{Signer, SigningError};
+use super::{Signer, SignerConfig, SigningError};
 
 use async_trait::async_trait;
 
@@ -77,13 +84,13 @@ impl ProvideCredentials for Config {
 }
 
 #[async_trait]
-impl Signer<Config> for AmazonKMSSigner {
-    async fn new(config: Config) -> Result<Box<Self>, SigningError> {
-        let aws_config = aws_config::from_env().region(Region::new(config.aws_region.clone())).credentials_provider(config.clone()).load().await;
+impl SignerConfig for Config {
+    async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
+        let aws_config = aws_config::from_env().region(Region::new(self.aws_region.clone())).credentials_provider(self.clone()).load().await;
         let client = Client::new(&aws_config);
 
-        let user_public_key = client.get_public_key().key_id(&config.user_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access user key".to_owned()))?.public_key;
-        let host_public_key = client.get_public_key().key_id(&config.host_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access host key".to_owned()))?.public_key;
+        let user_public_key = client.get_public_key().key_id(&self.user_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access user key".to_owned()))?.public_key;
+        let host_public_key = client.get_public_key().key_id(&self.host_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access host key".to_owned()))?.public_key;
 
         let (user_public_key, host_public_key) = match (user_public_key, host_public_key) {
             (Some(upk), Some(hpk)) => (upk, hpk),
@@ -98,8 +105,8 @@ impl Signer<Config> for AmazonKMSSigner {
             _ => return Err(SigningError::AccessError("Key is not of a Rustica compatible type".to_owned())), // Likely the key was valid in KMS but of a type not supported by Rustica
         };
 
-        let user_key_signing_algorithm = SigningAlgorithmSpec::from(config.user_key_signing_algorithm.as_str());
-        let host_key_signing_algorithm = SigningAlgorithmSpec::from(config.host_key_signing_algorithm.as_str());
+        let user_key_signing_algorithm = SigningAlgorithmSpec::from(self.user_key_signing_algorithm.as_str());
+        let host_key_signing_algorithm = SigningAlgorithmSpec::from(self.host_key_signing_algorithm.as_str());
 
         if let SigningAlgorithmSpec::Unknown(_) = user_key_signing_algorithm {
             return Err(SigningError::AccessError("Unknown algorithm for user key".to_owned()))
@@ -109,17 +116,20 @@ impl Signer<Config> for AmazonKMSSigner {
             return Err(SigningError::AccessError("Unknown algorithm for host key".to_owned()))
         }
 
-        Ok(Box::new(Self {
+        Ok(Box::new(AmazonKMSSigner {
             user_public_key,
-            user_key_id: config.user_key_id,
+            user_key_id: self.user_key_id,
             user_key_signing_algorithm,
             host_public_key,
-            host_key_id: config.host_key_id,
+            host_key_id: self.host_key_id,
             host_key_signing_algorithm,
             client,
         }))
     }
+}
 
+#[async_trait]
+impl Signer for AmazonKMSSigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         let data = cert.tbs_certificate();
         let (pubkey, key_id, key_algo) = match &cert.cert_type {

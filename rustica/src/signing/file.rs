@@ -1,7 +1,12 @@
+/// The file signer uses private keys stored inside the Rustica
+/// configuration to sign certificate requests. This is currently the only
+/// signer which is present regardless of the features enabled at build
+/// time. It supports Ecdsa256, Ecdsa384, and Ed25519.
+
 use sshcerts::{Certificate, PublicKey, PrivateKey, ssh::CertType};
 use serde::Deserialize;
 
-use super::{Signer, SigningError};
+use super::{Signer, SignerConfig, SigningError};
 
 use async_trait::async_trait;
 
@@ -23,14 +28,7 @@ pub struct FileSigner {
 }
 
 #[async_trait]
-impl Signer<Config> for FileSigner {
-    async fn new(config: Config) -> Result<Box<Self>, SigningError> {
-        Ok(Box::new(Self {
-            user_key: config.user_key,
-            host_key: config.host_key,
-        }))
-    }
-
+impl Signer for FileSigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         let final_cert = match cert.cert_type {
             CertType::User => cert.sign(&self.user_key),
@@ -45,6 +43,16 @@ impl Signer<Config> for FileSigner {
             CertType::User => self.user_key.pubkey.clone(),
             CertType::Host => self.host_key.pubkey.clone(),
         }
+    }
+}
+
+#[async_trait]
+impl SignerConfig for Config {
+    async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
+        Ok(Box::new(FileSigner {
+            user_key: self.user_key,
+            host_key: self.host_key,
+        }))
     }
 }
 

@@ -1,4 +1,8 @@
-use super::{Signer, SigningError};
+/// The Yubikey signer uses a connected Yubikey 4/5 to sign requests. It
+/// currently only supports Ecdsa256 and Ecdsa384. To use the Yubikey
+/// signer, the `yubikey-support` feature must be enabled.
+
+use super::{Signer, SignerConfig, SigningError};
 
 use sshcerts::{Certificate, PublicKey, ssh::CertType};
 use sshcerts::yubikey::piv::{SlotId, Yubikey};
@@ -34,30 +38,32 @@ pub struct YubikeySigner {
     yubikey: Arc<Mutex<Yubikey>>
 }
 
-
 #[async_trait]
-impl Signer<Config> for YubikeySigner {
-    async fn new(config: Config) -> Result<Box<Self>, SigningError> {
+impl SignerConfig for Config {
+    async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
         let yubikey = new_yubikey_mutex();
 
         let (user_public_key, host_public_key) = {
             let mut yk = yubikey.lock().map_err(|e| SigningError::AccessError(format!("Could not lock Yubikey. Error: {}", e)))?;
 
             (
-                yk.ssh_cert_fetch_pubkey(&config.user_slot).map_err(|_| SigningError::AccessError(format!("Could fetch public key for user key")))?,
-                yk.ssh_cert_fetch_pubkey(&config.host_slot).map_err(|_| SigningError::AccessError(format!("Could fetch public key for host key")))?
+                yk.ssh_cert_fetch_pubkey(&self.user_slot).map_err(|_| SigningError::AccessError(format!("Could fetch public key for user key")))?,
+                yk.ssh_cert_fetch_pubkey(&self.host_slot).map_err(|_| SigningError::AccessError(format!("Could fetch public key for host key")))?
             )
         };
 
-        Ok(Box::new(Self {
-            user_slot: config.user_slot,
+        Ok(Box::new(YubikeySigner {
+            user_slot: self.user_slot,
             user_public_key,
-            host_slot: config.host_slot,
+            host_slot: self.host_slot,
             host_public_key,
             yubikey,
         }))
     }
+}
 
+#[async_trait]
+impl Signer for YubikeySigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         let slot = match cert.cert_type {
             CertType::User => self.user_slot,

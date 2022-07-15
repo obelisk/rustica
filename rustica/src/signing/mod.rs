@@ -15,18 +15,16 @@ mod file;
 #[cfg(feature = "yubikey-support")]
 mod yubikey;
 
+#[async_trait]
+trait SignerConfig {
+    async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError>;
+}
 
 /// Any code that wants to be able to sign certificates for Rustica must implement
 /// this trait. The trait is async to allow calls out to external services during
 /// sign but fetching public keys must be fast and low cost.
 #[async_trait]
-trait Signer<T> {
-    /// When configuring a signer from its config, network and blocking calls are allowed.
-    /// This allows calls to be made to external services to verify they are able to fulfil
-    /// signing requests as well as to cache the public keys returned from
-    /// `get_signer_public_key`.
-    async fn new(config: T) -> Result<Box<Self>, SigningError>;
-
+trait Signer {
     /// Take in a certificate and sign it turning it into a valid certificate. This call
     /// is async allowing calls to be made over the network or to other blocking resources.
     /// This call however should execute as fast as possible and have a strict timeout as 
@@ -46,22 +44,12 @@ trait Signer<T> {
 /// well as reducing attack surface.
 #[derive(Deserialize)]
 pub struct SigningConfiguration {
-    /// The file signer uses private keys stored inside the Rustica
-    /// configuration to sign certificate requests. This is currently the only
-    /// signer which is present regardless of the features enabled at build
-    /// time. It supports Ecdsa256, Ecdsa384, and Ed25519.
+
     pub file: Option<file::Config>,
-    /// The Yubikey signer uses a connected Yubikey 4/5 to sign requests. It
-    /// currently only supports Ecdsa256 and Ecdsa384. To use the Yubikey
-    /// signer, the `yubikey-support` feature must be enabled.
+
     #[cfg(feature = "yubikey-support")]
     pub yubikey: Option<yubikey::Config>,
-    /// The AmazonKMS signer uses customer managed keys stored in AWS to handle
-    /// signing operations. It supports Ecdsa256 and Ecdsa384. Ecdsa521 is not
-    /// currently supported due to a lack of support in the Ring crypto
-    /// dependency. This signer is also an example of how to write a signing
-    /// module that is async. To use the AmazonKMS signer, the `amazon-kms`
-    /// feature must be enabled.
+
     #[cfg(feature = "amazon-kms")]
     pub amazonkms: Option<amazon_kms::Config>,
 }
@@ -72,13 +60,13 @@ pub struct SigningConfiguration {
 /// configured.
 pub enum SigningMechanism {
     /// The file configuration converted into a SigningMechanism
-    File(file::FileSigner),
+    File(Box<dyn Signer + Send + Sync>),
     /// The Yubikey configuration converted into a SigningMechanism
     #[cfg(feature = "yubikey-support")]
-    Yubikey(yubikey::YubikeySigner),
+    Yubikey(Box<dyn Signer + Send + Sync>),
     /// The AmazonKMS configuration converted into a SigningMechanism
     #[cfg(feature = "amazon-kms")]
-    AmazonKMS(amazon_kms::AmazonKMSSigner),
+    AmazonKMS(Box<dyn Signer + Send + Sync>),
 }
 
 #[derive(Debug)]
@@ -169,8 +157,8 @@ impl SigningConfiguration {
         let file_sm = 
         match self.file {
             Some(config) => {
-                if let Ok(f) = file::FileSigner::new(config).await {
-                    Some(SigningMechanism::File(*f))
+                if let Ok(f) = config.into_signer().await {
+                    Some(SigningMechanism::File(f))
                 } else {
                     None
                 }
@@ -183,8 +171,8 @@ impl SigningConfiguration {
             #[cfg(feature = "yubikey-support")]
             match self.yubikey {
                 Some(config) => {
-                    if let Ok(yk) = yubikey::YubikeySigner::new(config).await {
-                        Some(SigningMechanism::Yubikey(*yk))
+                    if let Ok(yk) = config.into_signer().await {
+                        Some(SigningMechanism::Yubikey(yk))
                     } else {
                         None
                     }
@@ -200,8 +188,8 @@ impl SigningConfiguration {
             #[cfg(feature = "amazon-kms")]
             match self.amazonkms {
                 Some(config) => {
-                    if let Ok(amazonkms) = amazon_kms::AmazonKMSSigner::new(config).await {
-                        Some(SigningMechanism::AmazonKMS(*amazonkms))
+                    if let Ok(amazonkms) = config.into_signer().await {
+                        Some(SigningMechanism::AmazonKMS(amazonkms))
                     } else {
                         None
                     }
