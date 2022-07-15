@@ -298,9 +298,9 @@ impl Rustica for RusticaServer {
             return Ok(create_response(RusticaServerError::BadCertOptions));
         }
 
-        let (req_cert_type, ca_cert) = match request.cert_type {
-            1 => (CertType::User, self.signer.get_signer_public_key(CertType::User)),
-            2 => (CertType::Host, self.signer.get_signer_public_key(CertType::Host)),
+        let req_cert_type = match request.cert_type {
+            1 => CertType::User,
+            2 => CertType::Host,
             _ => return Ok(create_response(RusticaServerError::BadCertOptions)),
         };
 
@@ -326,6 +326,13 @@ impl Rustica for RusticaServer {
         };
 
         debug!("[{}] from [{}] is granted the following authorization on key [{}]: {:?}", mtls_identities.join(","), remote_addr, fingerprint, authorization);
+
+        let ca_cert = match self.signer.get_signer_public_key("", req_cert_type) {
+            Ok(public_key) => public_key,
+            // Since all PublicKeys are cached, this can only happen if a public key
+            // we don't have is requested.
+            Err(_) => return Ok(create_response(RusticaServerError::BadCertOptions)),
+        };
 
         let critical_options = match build_login_script(&authorization.hosts, &authorization.force_command) {
             Ok(cmd) => {
@@ -355,7 +362,7 @@ impl Rustica for RusticaServer {
             .set_critical_options(critical_options.clone())
             .set_extensions(authorization.extensions.clone());
 
-        let cert = self.signer.sign(cert).await;
+        let cert = self.signer.sign("", cert).await;
 
         let serialized_cert = match cert {
             Ok(cert) => {
