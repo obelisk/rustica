@@ -304,14 +304,6 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadCertOptions)),
         };
 
-        let ca_cert = match ca_cert {
-            Ok(ca_cert) => ca_cert,
-            Err(e) => {
-                rustica_error!(self, format!("Could not fetch public key to insert into new certificate: {:?}", e));
-                return Ok(create_response(RusticaServerError::Unknown));
-            }
-        };
-
         let fingerprint = ssh_pubkey.fingerprint().hash;
         let auth_props = AuthorizationRequestProperties {
             fingerprint: fingerprint.clone(),

@@ -1,29 +1,64 @@
+use super::{Signer, SigningError};
+
 use sshcerts::{Certificate, PublicKey, ssh::CertType};
 use sshcerts::yubikey::piv::{SlotId, Yubikey};
+
+use async_trait::async_trait;
+
 use serde::Deserialize;
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
-use super::SigningError;
-
 #[derive(Deserialize)]
-pub struct YubikeySigner {
+pub struct Config {
     /// The slot on the Yubikey to use for signing user certificates
-    #[serde(deserialize_with = "YubikeySigner::parse_slot")]
+    #[serde(deserialize_with = "parse_slot")]
     user_slot: SlotId,
     /// The slot on the Yubikey to use for signing host certificates
-    #[serde(deserialize_with = "YubikeySigner::parse_slot")]
+    #[serde(deserialize_with = "parse_slot")]
     host_slot: SlotId,
+}
+
+pub struct YubikeySigner {
+    /// The slot on the Yubikey to use for signing user certificates
+    user_slot: SlotId,
+    // The public key of the CA used for signing user certificates
+    user_public_key: PublicKey,
+    /// The slot on the Yubikey to use for signing host certificates
+    host_slot: SlotId,
+    /// The public key of the CA used for signing host certificates
+    host_public_key: PublicKey,
     /// A mutex to ensure there is no concurrent access to the Yubikey. Without
     /// this, handling two requests at the same time would result in possibly
     /// corrupted certificates for both.
-    #[serde(skip_deserializing, default = "YubikeySigner::new_yubikey_mutex")]
     yubikey: Arc<Mutex<Yubikey>>
 }
 
 
-impl YubikeySigner {
-    pub fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
+#[async_trait]
+impl Signer<Config> for YubikeySigner {
+    async fn new(config: Config) -> Result<Box<Self>, SigningError> {
+        let yubikey = new_yubikey_mutex();
+
+        let (user_public_key, host_public_key) = {
+            let mut yk = yubikey.lock().map_err(|e| SigningError::AccessError(format!("Could not lock Yubikey. Error: {}", e)))?;
+
+            (
+                yk.ssh_cert_fetch_pubkey(&config.user_slot).map_err(|_| SigningError::AccessError(format!("Could fetch public key for user key")))?,
+                yk.ssh_cert_fetch_pubkey(&config.host_slot).map_err(|_| SigningError::AccessError(format!("Could fetch public key for host key")))?
+            )
+        };
+
+        Ok(Box::new(Self {
+            user_slot: config.user_slot,
+            user_public_key,
+            host_slot: config.host_slot,
+            host_public_key,
+            yubikey,
+        }))
+    }
+
+    async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         let slot = match cert.cert_type {
             CertType::User => self.user_slot,
             CertType::Host => self.host_slot,
@@ -44,46 +79,33 @@ impl YubikeySigner {
         }
     }
 
-    pub fn get_signer_public_key(&self, cert_type: CertType) -> Result<PublicKey, SigningError> {
-        let slot = match cert_type {
-            CertType::User => self.user_slot,
-            CertType::Host => self.host_slot,
-        };
-
-        let public_key = match self.yubikey.lock() {
-            // Unfortunatly we need to create a new Yubikey here because otherwise
-            // everything will have to be mutable which causes an issue
-            // for the RusticaServer struct
-            Ok(_) => Yubikey::new().unwrap().ssh_cert_fetch_pubkey(&slot),
-            Err(e) => return Err(SigningError::AccessError(format!("Could not lock Yubikey to fetch from slot: {:?}. Error: {}", slot, e))),
-        };
-
-        match public_key {
-            Ok(public_key) => Ok(public_key),
-            Err(e) => Err(SigningError::AccessError(format!("Could not fetch public key from slot: {:?}. Error: {}", slot, e)))
+    fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {
+        match cert_type {
+            CertType::User => self.user_public_key.clone(),
+            CertType::Host => self.host_public_key.clone(),
         }
     }
-
-    pub fn parse_slot<'de, D>(deserializer: D) -> Result<SlotId, D::Error>
-    where
-        D: serde::Deserializer<'de>
-    {
-        let slot = String::deserialize(deserializer)?;
-        // If first character is R, then we need to parse the nice
-        // notation
-        if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
-            let slot_value = slot[1..].parse::<u8>();
-            match slot_value {
-                Ok(v) if v <= 20 => Ok(SlotId::try_from(0x81_u8 + v).unwrap()),
-                _ => Err(serde::de::Error::custom("Invalid Slot")),
-            }
-        } else {
-            Err(serde::de::Error::custom("Invalid Slot"))
-        }
-    }
-
-    pub fn new_yubikey_mutex() -> Arc<Mutex<Yubikey>> {
-        let yk = Yubikey::new().unwrap();
-        Arc::new(Mutex::new(yk))
-    }    
 }
+
+pub fn parse_slot<'de, D>(deserializer: D) -> Result<SlotId, D::Error>
+where
+    D: serde::Deserializer<'de>
+{
+    let slot = String::deserialize(deserializer)?;
+    // If first character is R, then we need to parse the nice
+    // notation
+    if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
+        let slot_value = slot[1..].parse::<u8>();
+        match slot_value {
+            Ok(v) if v <= 20 => Ok(SlotId::try_from(0x81_u8 + v).unwrap()),
+            _ => Err(serde::de::Error::custom("Invalid Slot")),
+        }
+    } else {
+        Err(serde::de::Error::custom("Invalid Slot"))
+    }
+}
+
+pub fn new_yubikey_mutex() -> Arc<Mutex<Yubikey>> {
+    let yk = Yubikey::new().unwrap();
+    Arc::new(Mutex::new(yk))
+} 

@@ -16,7 +16,6 @@ mod utils;
 mod verification;
 
 use rustica::rustica_server::{RusticaServer as GRPCRusticaServer};
-use sshcerts::ssh::CertType;
 use tonic::transport::{Certificate as TonicCertificate, Identity, Server, ServerTlsConfig};
 
 use std::thread;
@@ -31,20 +30,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = config::configure().await?;
     let identity = Identity::from_pem(settings.server_cert, settings.server_key);
     let client_ca_cert = TonicCertificate::from_pem(settings.client_ca_cert);
-
-    match (settings.server.signer.get_signer_public_key(CertType::User), settings.server.signer.get_signer_public_key(CertType::Host)) {
-        (Ok(_), Ok(_)) => (),
-        (Err(e), _) => {
-            error!("Could not fetch public key for user certificate signing: {:?}", e);
-            // Make this error
-            return Ok(());
-        },
-        (_, Err(e)) => {
-            error!("Could not fetch public key for host certificate signing: {:?}", e);
-            // Make this error
-            return Ok(());
-        }
-    };
 
     println!("Starting Rustica on: {}", settings.address);
     settings.server.signer.print_signing_info();

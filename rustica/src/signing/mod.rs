@@ -4,6 +4,8 @@
 /// runtime (provided by the server module) so key signing occuring on remote
 /// systems can be simply implemented.
 
+use async_trait::async_trait;
+
 use sshcerts::ssh::{CertType, Certificate, PublicKey};
 use serde::Deserialize;
 
@@ -12,6 +14,32 @@ mod amazon_kms;
 mod file;
 #[cfg(feature = "yubikey-support")]
 mod yubikey;
+
+
+/// Any code that wants to be able to sign certificates for Rustica must implement
+/// this trait. The trait is async to allow calls out to external services during
+/// sign but fetching public keys must be fast and low cost.
+#[async_trait]
+trait Signer<T> {
+    /// When configuring a signer from its config, network and blocking calls are allowed.
+    /// This allows calls to be made to external services to verify they are able to fulfil
+    /// signing requests as well as to cache the public keys returned from
+    /// `get_signer_public_key`.
+    async fn new(config: T) -> Result<Box<Self>, SigningError>;
+
+    /// Take in a certificate and sign it turning it into a valid certificate. This call
+    /// is async allowing calls to be made over the network or to other blocking resources.
+    /// This call however should execute as fast as possible and have a strict timeout as 
+    /// the runtime this is executing on is the one fulfilling certificate requests from
+    /// users.
+    async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError>;
+
+    /// This function is not async intentionally. This is to discourage this call being reliant
+    /// on further network calls because it can be hit earlier in the stack than `sign`. Creating
+    /// a `Signer` is async so memoization of the public key should be done in there. See the
+    /// AWS signer as an example.
+    fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey;
+}
 
 /// Represents the configuration of the signing module. Fields that introduce
 /// new dependencies are gated by features to help reduce final binary size as
@@ -22,12 +50,12 @@ pub struct SigningConfiguration {
     /// configuration to sign certificate requests. This is currently the only
     /// signer which is present regardless of the features enabled at build
     /// time. It supports Ecdsa256, Ecdsa384, and Ed25519.
-    pub file: Option<file::FileSigner>,
+    pub file: Option<file::Config>,
     /// The Yubikey signer uses a connected Yubikey 4/5 to sign requests. It
     /// currently only supports Ecdsa256 and Ecdsa384. To use the Yubikey
     /// signer, the `yubikey-support` feature must be enabled.
     #[cfg(feature = "yubikey-support")]
-    pub yubikey: Option<yubikey::YubikeySigner>,
+    pub yubikey: Option<yubikey::Config>,
     /// The AmazonKMS signer uses customer managed keys stored in AWS to handle
     /// signing operations. It supports Ecdsa256 and Ecdsa384. Ecdsa521 is not
     /// currently supported due to a lack of support in the Ring crypto
@@ -41,7 +69,7 @@ pub struct SigningConfiguration {
 /// A `SigningConfiguration` can be coerced into a `SigningMechanism` to
 /// handle the signing operations as well as other convenience functions
 /// such as fetching public keys or printing info about how signing is
-///configured.
+/// configured.
 pub enum SigningMechanism {
     /// The file configuration converted into a SigningMechanism
     File(file::FileSigner),
@@ -86,9 +114,9 @@ impl SigningMechanism {
     /// configured SigningMechanism.
     pub async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         match self {
-            SigningMechanism::File(file) => file.sign(cert),
+            SigningMechanism::File(file) => file.sign(cert).await,
             #[cfg(feature = "yubikey-support")]
-            SigningMechanism::Yubikey(yubikey) => yubikey.sign(cert),
+            SigningMechanism::Yubikey(yubikey) => yubikey.sign(cert).await,
             #[cfg(feature = "amazon-kms")]
             SigningMechanism::AmazonKMS(amazonkms) => amazonkms.sign(cert).await,
         }
@@ -96,13 +124,13 @@ impl SigningMechanism {
 
     /// Return an sshcerts::PublicKey type for the signing key asked for,
     /// either User or Host
-    pub fn get_signer_public_key(&self, cert_type: CertType) -> Result<PublicKey, SigningError> {
+    pub fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {
         match self {
-            SigningMechanism::File(file) => Ok(file.get_signer_public_key(cert_type)),
+            SigningMechanism::File(file) => file.get_signer_public_key(cert_type),
             #[cfg(feature = "yubikey-support")]
             SigningMechanism::Yubikey(yubikey) => yubikey.get_signer_public_key(cert_type),
             #[cfg(feature = "amazon-kms")]
-            SigningMechanism::AmazonKMS(amazonkms) => Ok(amazonkms.get_signer_public_key(cert_type)),
+            SigningMechanism::AmazonKMS(amazonkms) => amazonkms.get_signer_public_key(cert_type),
         }
     }
 
@@ -118,8 +146,8 @@ impl SigningMechanism {
             },
             #[cfg(feature = "yubikey-support")]
             SigningMechanism::Yubikey(yubikey) => {
-                println!("User CA Fingerprint (SHA256): {}", yubikey.get_signer_public_key(CertType::User).unwrap().fingerprint().hash);
-                println!("Host CA Fingerprint (SHA256): {}", yubikey.get_signer_public_key(CertType::Host).unwrap().fingerprint().hash);
+                println!("User CA Fingerprint (SHA256): {}", yubikey.get_signer_public_key(CertType::User).fingerprint().hash);
+                println!("Host CA Fingerprint (SHA256): {}", yubikey.get_signer_public_key(CertType::Host).fingerprint().hash);
                 println!("Configured signer: yubikey");
             },
             #[cfg(feature = "amazon-kms")]
@@ -138,12 +166,31 @@ impl SigningConfiguration {
     /// `SigningMechanism` enum varient.
     pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, ()> {
         // Try and create a file based SigningMechanism
-        let file_sm = self.file.map(SigningMechanism::File);
+        let file_sm = 
+        match self.file {
+            Some(config) => {
+                if let Ok(f) = file::FileSigner::new(config).await {
+                    Some(SigningMechanism::File(*f))
+                } else {
+                    None
+                }
+            },
+            _ => None,
+        };
 
         // Try and create a yubikey based SigningMechanism
         let yubikey_sm = {
             #[cfg(feature = "yubikey-support")]
-            {self.yubikey.map(SigningMechanism::Yubikey)}
+            match self.yubikey {
+                Some(config) => {
+                    if let Ok(yk) = yubikey::YubikeySigner::new(config).await {
+                        Some(SigningMechanism::Yubikey(*yk))
+                    } else {
+                        None
+                    }
+                },
+                _ => None,
+            }
             #[cfg(not(feature = "yubikey-support"))]
             None
         };
@@ -154,7 +201,7 @@ impl SigningConfiguration {
             match self.amazonkms {
                 Some(config) => {
                     if let Ok(amazonkms) = amazon_kms::AmazonKMSSigner::new(config).await {
-                        Some(SigningMechanism::AmazonKMS(amazonkms))
+                        Some(SigningMechanism::AmazonKMS(*amazonkms))
                     } else {
                         None
                     }

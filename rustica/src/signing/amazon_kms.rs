@@ -4,14 +4,17 @@ use sshcerts::{
     ssh::CertType,
     utils::format_signature_for_ssh,
 };
-use serde::Deserialize;
+
+use super::{Signer, SigningError};
+
+use async_trait::async_trait;
 
 use aws_sdk_kms::{Blob, Client, Credentials, Region};
 use aws_sdk_kms::model::SigningAlgorithmSpec;
 use aws_types::credentials::future;
 use aws_types::credentials::{ProvideCredentials};
 
-use super::SigningError;
+use serde::Deserialize;
 
 
 /// Defines the configuration of the AmazonKMS signer
@@ -73,17 +76,18 @@ impl ProvideCredentials for Config {
     }
 }
 
-impl AmazonKMSSigner {
-    pub async fn new(config: Config) -> Result<Self, ()> {
+#[async_trait]
+impl Signer<Config> for AmazonKMSSigner {
+    async fn new(config: Config) -> Result<Box<Self>, SigningError> {
         let aws_config = aws_config::from_env().region(Region::new(config.aws_region.clone())).credentials_provider(config.clone()).load().await;
         let client = Client::new(&aws_config);
 
-        let user_public_key = client.get_public_key().key_id(&config.user_key_id).send().await.map_err(|_| ())?.public_key;
-        let host_public_key = client.get_public_key().key_id(&config.host_key_id).send().await.map_err(|_| ())?.public_key;
+        let user_public_key = client.get_public_key().key_id(&config.user_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access user key".to_owned()))?.public_key;
+        let host_public_key = client.get_public_key().key_id(&config.host_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access host key".to_owned()))?.public_key;
 
         let (user_public_key, host_public_key) = match (user_public_key, host_public_key) {
             (Some(upk), Some(hpk)) => (upk, hpk),
-            _ => return Err(()),
+            _ => return Err(SigningError::AccessError("User or host key was not returned correctly or at all".to_owned())),
         };
 
         let user_public_key = sshcerts::x509::der_encoding_to_ssh_public_key(user_public_key.as_ref());
@@ -91,21 +95,21 @@ impl AmazonKMSSigner {
 
         let (user_public_key, host_public_key) = match (user_public_key, host_public_key) {
             (Ok(upk), Ok(hpk)) => (upk, hpk),
-            _ => return Err(()), // Likely the key was valid in KMS but of a type not supported by Rustica
+            _ => return Err(SigningError::AccessError("Key is not of a Rustica compatible type".to_owned())), // Likely the key was valid in KMS but of a type not supported by Rustica
         };
 
         let user_key_signing_algorithm = SigningAlgorithmSpec::from(config.user_key_signing_algorithm.as_str());
         let host_key_signing_algorithm = SigningAlgorithmSpec::from(config.host_key_signing_algorithm.as_str());
 
         if let SigningAlgorithmSpec::Unknown(_) = user_key_signing_algorithm {
-            return Err(())
+            return Err(SigningError::AccessError("Unknown algorithm for user key".to_owned()))
         }
 
         if let SigningAlgorithmSpec::Unknown(_) = host_key_signing_algorithm {
-            return Err(())
+            return Err(SigningError::AccessError("Unknown algorithm for host key".to_owned()))
         }
 
-        Ok(Self {
+        Ok(Box::new(Self {
             user_public_key,
             user_key_id: config.user_key_id,
             user_key_signing_algorithm,
@@ -113,10 +117,10 @@ impl AmazonKMSSigner {
             host_key_id: config.host_key_id,
             host_key_signing_algorithm,
             client,
-        })
+        }))
     }
 
-    pub async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
+    async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         let data = cert.tbs_certificate();
         let (pubkey, key_id, key_algo) = match &cert.cert_type {
             CertType::User => (&self.user_public_key, &self.user_key_id, &self.user_key_signing_algorithm),
@@ -137,7 +141,7 @@ impl AmazonKMSSigner {
         cert.add_signature(&signature).map_err(|_| SigningError::SigningFailure)
     }
 
-    pub fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {
+    fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {
         match cert_type {
             CertType::User => self.user_public_key.clone(),
             CertType::Host => self.host_public_key.clone(),
