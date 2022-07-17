@@ -60,7 +60,7 @@ require_attestation_chain = true
 # clients. This method uses private keys embedded in the configuration
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
-[signing."file"]
+[signing.authorities.example_test_environment]
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
