@@ -58,7 +58,7 @@ require_attestation_chain = true
 
 [logging."stdout"]
 
-[signing."yubikey"]
+[signing.authorities.example_prod_environment]
 user_slot = "R2"
 host_slot = "R3"
 

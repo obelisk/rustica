@@ -1,7 +1,7 @@
 use crate::auth::AuthorizationConfiguration;
 use crate::logging::{Log, LoggingConfiguration};
 use crate::server::RusticaServer;
-use crate::signing::SigningConfiguration;
+use crate::signing::{SigningError, SigningConfiguration};
 
 use clap::{
     Arg,
@@ -51,7 +51,7 @@ pub enum ConfigurationError {
     SSHKeyError,
     InvalidListenAddress,
     AuthorizerError,
-    SigningMechanismError,
+    SigningMechanismError(SigningError),
 }
 
 impl From<sshcerts::error::Error> for ConfigurationError {
@@ -68,15 +68,14 @@ impl std::error::Error for ConfigurationError {
 
 impl std::fmt::Display for ConfigurationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            ConfigurationError::FileError => "Could not read configuration file",
-            ConfigurationError::ParsingError => "Could not parse the configuration file",
-            ConfigurationError::SSHKeyError => "Could not parse the provided SSH keys file",
-            ConfigurationError::InvalidListenAddress => "Invalid address and/or port to listen on",
-            ConfigurationError::AuthorizerError => "Configuration for authorization was invalid",
-            ConfigurationError::SigningMechanismError => "Configuration for signing certificates was invalid",
-        };
-        write!(f, "{}", s)
+        match self {
+            Self::FileError => write!(f, "Could not read configuration file"),
+            Self::ParsingError => write!(f, "Could not parse the configuration file"),
+            Self::SSHKeyError => write!(f, "Could not parse the provided SSH keys file"),
+            Self::InvalidListenAddress => write!(f, "Invalid address and/or port to listen on"),
+            Self::AuthorizerError => write!(f, "Configuration for authorization was invalid"),
+            Self::SigningMechanismError(ref e) => write!(f, "{}", e),
+        }
     }
 }
 
@@ -129,7 +128,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
 
     let signer = match config.signing.convert_to_signing_mechanism().await {
         Ok(signer) => signer,
-        Err(_) => return Err(ConfigurationError::SigningMechanismError),
+        Err(e) => return Err(ConfigurationError::SigningMechanismError(e)),
     };
 
     let rng = rand::SystemRandom::new();

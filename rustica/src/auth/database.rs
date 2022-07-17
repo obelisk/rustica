@@ -40,7 +40,7 @@ impl LocalDatabase {
         let conn = establish_connection(&self.path);
         let principals = {
             use schema::fingerprint_principal_authorizations::dsl::*;
-            let results = fingerprint_principal_authorizations.filter(fingerprint.eq(fp))
+            let results = fingerprint_principal_authorizations.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintPrincipalAuthorization>(&conn)
                 .expect("Error loading authorized hosts");
             
@@ -50,7 +50,7 @@ impl LocalDatabase {
         let hosts = {
             use schema::fingerprint_host_authorizations::dsl::*;
 
-            let results = fingerprint_host_authorizations.filter(fingerprint.eq(fp))
+            let results = fingerprint_host_authorizations.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintHostAuthorization>(&conn)
                 .expect("Error loading authorized hosts");
             
@@ -59,7 +59,7 @@ impl LocalDatabase {
 
         {
             use schema::fingerprint_permissions::dsl::*;
-            let results = fingerprint_permissions.filter(fingerprint.eq(fp))
+            let results = fingerprint_permissions.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintPermission>(&conn)
                 .expect("Error loading authorized hosts");
             
@@ -88,6 +88,7 @@ impl LocalDatabase {
                     force_source_ip: false,
                     valid_after: req.valid_after,
                     valid_before: current_timestamp + results[0].max_creation_time as u64,
+                    authority: req.authority.clone(),
                 })
             } else {
                 Err(AuthorizationError::NotAuthorized)

@@ -305,6 +305,7 @@ impl Rustica for RusticaServer {
         };
 
         let fingerprint = ssh_pubkey.fingerprint().hash;
+        let authority = &request.key_id;
         let auth_props = AuthorizationRequestProperties {
             fingerprint: fingerprint.clone(),
             mtls_identities: mtls_identities.clone(),
@@ -314,9 +315,23 @@ impl Rustica for RusticaServer {
             cert_type: req_cert_type,
             valid_after: request.valid_after,
             valid_before: request.valid_before,
+            authority: authority.clone(),
         };
 
-        debug!("[{}] from [{}] requests a cert for key [{}]", mtls_identities.join(","), remote_addr, fingerprint);
+        debug!("[{}] from [{}] requests a cert for key [{}] from authority [{}]", mtls_identities.join(","), remote_addr, fingerprint, authority);
+
+        // I'm unsure if it's a good move to have this before or after the authorization call.
+        // Before means if a key is requested we don't know about, we can prevent extraneous calls to
+        // the authorization backend.
+        //
+        // On the other hand, having this hear will mean a large difference in execution time when
+        // the key exists vs not making attacks trying to figure out which exist emminently possible.
+        let ca_cert = match self.signer.get_signer_public_key("", req_cert_type) {
+            Ok(public_key) => public_key,
+            // Since all PublicKeys are cached, this can only happen if a public key
+            // we don't have is requested.
+            Err(_) => return Ok(create_response(RusticaServerError::BadCertOptions)),
+        };
 
         let authorization = self.authorizer.authorize(&auth_props).await;
 
@@ -325,15 +340,8 @@ impl Rustica for RusticaServer {
             Err(e) => return Ok(create_response(e)),
         };
 
-        debug!("[{}] from [{}] is granted the following authorization on key [{}]: {:?}", mtls_identities.join(","), remote_addr, fingerprint, authorization);
-
-        let ca_cert = match self.signer.get_signer_public_key("", req_cert_type) {
-            Ok(public_key) => public_key,
-            // Since all PublicKeys are cached, this can only happen if a public key
-            // we don't have is requested.
-            Err(_) => return Ok(create_response(RusticaServerError::BadCertOptions)),
-        };
-
+        debug!("[{}] from [{}] is granted the following authorization on key [{}] for authority [{}]: {:?}", mtls_identities.join(","), remote_addr, fingerprint, authority, authorization);
+        
         let critical_options = match build_login_script(&authorization.hosts, &authorization.force_command) {
             Ok(cmd) => {
                 let mut co = std::collections::HashMap::new();
@@ -362,7 +370,7 @@ impl Rustica for RusticaServer {
             .set_critical_options(critical_options.clone())
             .set_extensions(authorization.extensions.clone());
 
-        let cert = self.signer.sign("", cert).await;
+        let cert = self.signer.sign(&authorization.authority, cert).await;
 
         let serialized_cert = match cert {
             Ok(cert) => {

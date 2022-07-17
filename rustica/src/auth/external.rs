@@ -40,6 +40,7 @@ impl AuthServer {
         authorization_request.insert(String::from("valid_before"), auth_props.valid_before.to_string());
         authorization_request.insert(String::from("valid_after"), auth_props.valid_after.to_string());
         authorization_request.insert(String::from("cert_type"), auth_props.cert_type.to_string());
+        authorization_request.insert(String::from("authority"), auth_props.authority.to_string());
 
         let request = tonic::Request::new(AuthorizeRequest {
             identities,
@@ -107,6 +108,7 @@ impl AuthServer {
             extensions,
             force_command,
             force_source_ip,
+            authority: approval_response["authority"].to_string(),
         })
     }
 

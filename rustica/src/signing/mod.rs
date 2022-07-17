@@ -116,8 +116,8 @@ impl std::fmt::Display for SigningError {
 impl SigningMechanism {
     /// Takes in a certificate and handles the getting a signature from the 
     /// configured SigningMechanism.
-    pub async fn sign(&self, key_id: &str, cert: Certificate) -> Result<Certificate, SigningError> {
-        if let Some(authority) = self.authorities.get(key_id) {
+    pub async fn sign(&self, authority: &str, cert: Certificate) -> Result<Certificate, SigningError> {
+        if let Some(authority) = self.authorities.get(authority) {
             authority.sign(cert).await
         } else {
             Err(SigningError::UnknownAuthority)
@@ -126,8 +126,8 @@ impl SigningMechanism {
 
     /// Return an sshcerts::PublicKey type for the signing key asked for,
     /// either User or Host
-    pub fn get_signer_public_key(&self, key_id: &str, cert_type: CertType) -> Result<PublicKey, SigningError> {
-        if let Some(authority) = self.authorities.get(key_id) {
+    pub fn get_signer_public_key(&self, authority: &str, cert_type: CertType) -> Result<PublicKey, SigningError> {
+        if let Some(authority) = self.authorities.get(authority) {
             Ok(authority.get_signer_public_key(cert_type))
         } else {
             Err(SigningError::UnknownAuthority)
@@ -137,10 +137,11 @@ impl SigningMechanism {
     /// Print out information about the current configuration of the signing
     /// system. This is generally only called once from main before starting
     /// the main Rustica server.
-    pub fn print_signing_info(&self, key_id: &str) {
-        if let Some(authority) = self.authorities.get(key_id) {
-            println!("User CA Fingerprint (SHA256): {}", authority.get_signer_public_key(CertType::User).fingerprint().hash);
-            println!("Host CA Fingerprint (SHA256): {}", authority.get_signer_public_key(CertType::Host).fingerprint().hash);
+    pub fn print_signing_info(&self) {
+        for signer in self.authorities.iter() {
+            println!("Authority: {}", signer.0);
+            println!("\tUser CA Fingerprint (SHA256): {}", signer.1.get_signer_public_key(CertType::User).fingerprint().hash);
+            println!("\tHost CA Fingerprint (SHA256): {}", signer.1.get_signer_public_key(CertType::Host).fingerprint().hash);
         }
     }
 }
