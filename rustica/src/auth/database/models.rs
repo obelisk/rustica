@@ -21,6 +21,14 @@ pub struct FingerprintHostAuthorization {
 }
 
 #[derive(Queryable)]
+pub struct FingerprintExtension {
+    pub fingerprint: String,
+    pub extension_name: String,
+    pub extension_value: Option<String>,
+    pub authority: String,
+}
+
+#[derive(Queryable)]
 pub struct FingerprintPermission {
     pub fingerprint: String,
     pub host_unrestricted: bool,

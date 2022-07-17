@@ -326,11 +326,11 @@ impl Rustica for RusticaServer {
         //
         // On the other hand, having this hear will mean a large difference in execution time when
         // the key exists vs not making attacks trying to figure out which exist emminently possible.
-        let ca_cert = match self.signer.get_signer_public_key("", req_cert_type) {
+        let ca_cert = match self.signer.get_signer_public_key(authority, req_cert_type) {
             Ok(public_key) => public_key,
             // Since all PublicKeys are cached, this can only happen if a public key
             // we don't have is requested.
-            Err(_) => return Ok(create_response(RusticaServerError::BadCertOptions)),
+            Err(_) => return Ok(create_response(RusticaServerError::NotAuthorized)),
         };
 
         let authorization = self.authorizer.authorize(&auth_props).await;
@@ -400,6 +400,7 @@ impl Rustica for RusticaServer {
         self.log_sender.send(Log::CertificateIssued(CertificateIssued {
             fingerprint,
             signed_by: ca_cert.fingerprint().hash,
+            authority: authority.to_string(),
             certificate_type: req_cert_type.to_string(),
             mtls_identities,
             principals: authorization.principals,

@@ -38,6 +38,7 @@ pub struct Options {
     pub hosts: Option<Vec<String>>,
     pub kind: Option<String>,
     pub duration: Option<u64>,
+    pub authority: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,6 +59,7 @@ pub struct CertificateConfig {
     pub hosts: Vec<String>,
     pub cert_type: CertType,
     pub duration: u64,
+    pub authority: String,
 }
 
 #[derive(Debug)]
@@ -66,6 +68,7 @@ pub struct RusticaServer {
     pub ca: String,
     pub mtls_cert: String,
     pub mtls_key: String,
+    pub runtime: tokio::runtime::Runtime,
 }
 
 #[derive(Debug)]
@@ -100,6 +103,18 @@ impl std::fmt::Debug for Handler {
     }
 }
 
+impl RusticaServer {
+    pub fn new(address: String, ca: String, mtls_cert: String, mtls_key: String) -> Self {
+        Self {
+            address,
+            ca,
+            mtls_cert,
+            mtls_key,
+            runtime: tokio::runtime::Runtime::new().unwrap()
+        }
+    }
+}
+
 
 impl From<Option<Options>> for CertificateConfig {
     fn from(co: Option<Options>) -> CertificateConfig {
@@ -110,6 +125,7 @@ impl From<Option<Options>> for CertificateConfig {
                     duration: 10,
                     hosts: vec![],
                     principals: vec![],
+                    authority: String::new(),
                 }
             },
             Some(co) => {
@@ -118,6 +134,7 @@ impl From<Option<Options>> for CertificateConfig {
                     duration: co.duration.unwrap_or(10),
                     hosts: co.hosts.unwrap_or_default(),
                     principals: co.principals.unwrap_or_default(),
+                    authority: co.authority.unwrap_or_default(),
                 }
             }
         }
@@ -464,12 +481,12 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
         }
     };
 
-    let server = RusticaServer {
-        address: config.server.unwrap(),
-        ca: config.ca_pem.unwrap(),
-        mtls_cert: config.mtls_cert.unwrap(),
-        mtls_key: config.mtls_key.unwrap(),
-    };
+    let server = RusticaServer::new(
+        config.server.unwrap(),
+        config.ca_pem.unwrap(),
+        config.mtls_cert.unwrap(),
+        config.mtls_key.unwrap(),
+    );
 
     let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
     let u2f_attestation = U2FAttestation {
@@ -557,12 +574,12 @@ pub unsafe extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_sec
         slot,
     });
 
-    let server = RusticaServer {
-        address: config.server.unwrap(),
-        ca: config.ca_pem.unwrap(),
-        mtls_cert: config.mtls_cert.unwrap(),
-        mtls_key: config.mtls_key.unwrap(),
-    };
+    let server = RusticaServer::new(
+        config.server.unwrap(),
+        config.ca_pem.unwrap(),
+        config.mtls_cert.unwrap(),
+        config.mtls_key.unwrap(),
+    );
 
     match server.register_key(&mut signatory, &key_config) {
         Ok(_) => {
@@ -581,7 +598,7 @@ pub unsafe extern fn generate_and_enroll(yubikey_serial: u32, slot: u8, high_sec
 /// `config_data` and `socket_path` must be a null terminated C strings
 /// or behaviour is undefined and will result in a crash.
 #[no_mangle]
-pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, config_data: *const c_char, socket_path: *const c_char, pin: *const c_char, device: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
+pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, config_data: *const c_char, socket_path: *const c_char, pin: *const c_char, device: *const c_char, notification_fn: unsafe extern "C" fn() -> (), authority: *const c_char) -> bool {
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
@@ -598,6 +615,12 @@ pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, conf
     let socket_path = match sp.to_str() {
         Err(_) => return false,
         Ok(s) => s,
+    };
+
+    let authority = CStr::from_ptr(authority);
+    let authority = match authority.to_str() {
+        Err(_) => return false,
+        Ok(s) => s.to_owned(),
     };
 
     let private_key = CStr::from_ptr(private_key);
@@ -634,17 +657,19 @@ pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, conf
     println!("Fingerprint: {:?}", private_key.pubkey.fingerprint().hash);
 
     let config: Config = toml::from_str(config_data).unwrap();
-    let certificate_options = CertificateConfig::from(config.options);
+    let mut certificate_options = CertificateConfig::from(config.options);
+    certificate_options.authority = authority;
+
     let handler = Handler {
         cert: None,
         stale_at: 0,
         certificate_options,
-        server: RusticaServer {
-            address: config.server.unwrap(),
-            ca: config.ca_pem.unwrap(),
-            mtls_cert: config.mtls_cert.unwrap(),
-            mtls_key: config.mtls_key.unwrap(),
-        },
+        server: RusticaServer::new(
+            config.server.unwrap(),
+            config.ca_pem.unwrap(),
+            config.mtls_cert.unwrap(),
+            config.mtls_key.unwrap(),
+        ),
         signatory: Signatory::Direct(private_key),
         identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
@@ -663,7 +688,7 @@ pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, conf
 /// `config_data` and `socket_path` must be a null terminated C strings
 /// or behaviour is undefined and will result in a crash.
 #[no_mangle]
-pub unsafe extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_data: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> ()) -> bool {
+pub unsafe extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, config_data: *const c_char, socket_path: *const c_char, notification_fn: unsafe extern "C" fn() -> (), authority: *const c_char) -> bool {
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
@@ -676,20 +701,27 @@ pub unsafe extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, 
         Ok(s) => s,
     };
 
+    let authority = CStr::from_ptr(authority);
+    let authority = match authority.to_str() {
+        Err(_) => return false,
+        Ok(s) => s.to_owned(),
+    };
+
     let config: Config = toml::from_str(config_data).unwrap();
 
-    let certificate_options = CertificateConfig::from(config.options);
+    let mut certificate_options = CertificateConfig::from(config.options);
+    certificate_options.authority = authority;
 
     let handler = Handler {
         cert: None,
         stale_at: 0,
         certificate_options,
-        server: RusticaServer {
-            address: config.server.unwrap(),
-            ca: config.ca_pem.unwrap(),
-            mtls_cert: config.mtls_cert.unwrap(),
-            mtls_key: config.mtls_key.unwrap(),
-        },
+        server: RusticaServer::new(
+            config.server.unwrap(),
+            config.ca_pem.unwrap(),
+            config.mtls_cert.unwrap(),
+            config.mtls_key.unwrap(),
+        ),
         signatory: Signatory::Yubikey(YubikeySigner {
             yk: Yubikey::open(yubikey_serial).unwrap(),
             slot: SlotId::try_from(slot).unwrap(),

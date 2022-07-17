@@ -235,6 +235,12 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 .long("socket")
                 .takes_value(true)
         )
+        .arg(
+            Arg::new("authority")
+                .help("The name of the authority you are requesting a certificate from")
+                .long("authority")
+                .takes_value(true)
+        )
         .subcommand(
             Command::new("register")
                 .about("Take your key and register with the backend. If a hardware key, proof of providence will be sent to the backend")
@@ -379,12 +385,12 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         (None, None) => return Err(ConfigurationError::MissingServerCertificateAuthority),
     };
 
-    let server = RusticaServer {
+    let server = RusticaServer::new(
         address,
         ca,
         mtls_cert,
         mtls_key,
-    };
+    );
 
     let cmd_slot = matches.value_of("slot").map(|x| x.to_owned());
 
@@ -499,6 +505,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     if let Some(duration) = matches.value_of("duration") {
         certificate_options.duration = duration.parse::<u64>().unwrap_or(10);
+    }
+
+    if let Some(authority) = matches.value_of("authority") {
+        certificate_options.authority = authority.to_owned();
     }
 
     if matches.is_present("immediate") {

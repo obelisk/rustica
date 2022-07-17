@@ -54,7 +54,7 @@ require_rustica_proof = false
 # either does not provide an attestation or the attestation fails, the key
 # will be rejected and the API call will fail. In the case of using an
 # external authorizer, a call will not be made to inform it of this event.
-require_attestation_chain = true
+require_attestation_chain = false
 
 [logging."stdout"]
 
@@ -81,7 +81,7 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
-[signing.authorities.example_prod_environment]
+[signing.authorities."example_prod_environment"]
 user_slot = "R2"
 host_slot = "R3"
 
