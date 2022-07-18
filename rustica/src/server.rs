@@ -323,9 +323,6 @@ impl Rustica for RusticaServer {
         // I'm unsure if it's a good move to have this before or after the authorization call.
         // Before means if a key is requested we don't know about, we can prevent extraneous calls to
         // the authorization backend.
-        //
-        // On the other hand, having this hear will mean a large difference in execution time when
-        // the key exists vs not making attacks trying to figure out which exist emminently possible.
         let ca_cert = match self.signer.get_signer_public_key(authority, req_cert_type) {
             Ok(public_key) => public_key,
             // Since all PublicKeys are cached, this can only happen if a public key
