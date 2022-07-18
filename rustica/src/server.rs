@@ -14,7 +14,6 @@ use crate::rustica::{
     rustica_server::Rustica,
 };
 use crate::signing::{SigningMechanism};
-use crate::utils::build_login_script;
 use crate::verification::{
     verify_piv_certificate_chain,
     verify_u2f_certificate_chain,
@@ -30,6 +29,7 @@ use sshcerts::ssh::{
 };
 
 use ring::hmac;
+use std::collections::HashMap;
 use std::{
     sync::Arc,
     time::SystemTime,
@@ -323,6 +323,9 @@ impl Rustica for RusticaServer {
         // I'm unsure if it's a good move to have this before or after the authorization call.
         // Before means if a key is requested we don't know about, we can prevent extraneous calls to
         // the authorization backend.
+        //
+        // Having it after means that it's easier to flood the backend service but brutefocing key_ids
+        // is much less achievable.
         let ca_cert = match self.signer.get_signer_public_key(authority, req_cert_type) {
             Ok(public_key) => public_key,
             // Since all PublicKeys are cached, this can only happen if a public key
@@ -338,25 +341,15 @@ impl Rustica for RusticaServer {
         };
 
         debug!("[{}] from [{}] is granted the following authorization on key [{}] for authority [{}]: {:?}", mtls_identities.join(","), remote_addr, fingerprint, authority, authorization);
-        
-        let critical_options = match build_login_script(&authorization.hosts, &authorization.force_command) {
-            Ok(cmd) => {
-                let mut co = std::collections::HashMap::new();
-                // If our authorization contains no hosts and no command,
-                // this becomes an unrestricted cert good for all commands on all
-                // hosts
-                if let Some(cmd) = cmd {
-                    co.insert(String::from("force-command"), cmd);
-                }
+      
+        let mut critical_options = HashMap::new();
+        if let Some(cmd) = authorization.force_command {
+            critical_options.insert(String::from("force-command"), cmd);
+        }
 
-                if authorization.force_source_ip {
-                    co.insert(String::from("source-address"), remote_addr.ip().to_string());
-                }
-
-                co
-            },
-            Err(_) => return Ok(create_response(RusticaServerError::Unknown)),
-        };
+        if authorization.force_source_ip {
+            critical_options.insert(String::from("source-address"), remote_addr.ip().to_string());
+        }
 
         let cert = Certificate::builder(&ssh_pubkey, req_cert_type, &ca_cert).unwrap()
             .serial(authorization.serial)

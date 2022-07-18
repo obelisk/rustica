@@ -54,10 +54,12 @@ require_rustica_proof = false
 # either does not provide an attestation or the attestation fails, the key
 # will be rejected and the API call will fail. In the case of using an
 # external authorizer, a call will not be made to inform it of this event.
-require_attestation_chain = false
+require_attestation_chain = true
 
-[logging."stdout"]
-
+# Rustica has many ways it can sign SSH certificates which are sent to
+# clients. This method uses private keys embedded in the configuration
+# file. This will mean the hosts which you want to login to via Rustica
+# must respect the public portion of the user key variable below.
 [signing.example_test_environment]
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -81,9 +83,28 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
-[signing."example_prod_environment"]
-user_slot = "R2"
-host_slot = "R3"
+[signing.example_prod_environment]
+user_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACB6GWweeLV8JUaw6su+TwZc+dGmEmV1crFVLjRnviX0vQAAAKC4yomjuMqJ
+owAAAAtzc2gtZWQyNTUxOQAAACB6GWweeLV8JUaw6su+TwZc+dGmEmV1crFVLjRnviX0vQ
+AAAEC5ut4epWWUojssOgAlAlGfiBJ4AGZ8G1eWchiRfhk2mnoZbB54tXwlRrDqy75PBlz5
+0aYSZXVysVUuNGe+JfS9AAAAG29iZWxpc2tATWFjQm9vay1Qcm8tMy5sb2NhbAEC
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+host_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACB5w+QCbSSFLH0hWI04OY0JFSNF5yg4kg2Po0XFgtGy/wAAAKDqg4KG6oOC
+hgAAAAtzc2gtZWQyNTUxOQAAACB5w+QCbSSFLH0hWI04OY0JFSNF5yg4kg2Po0XFgtGy/w
+AAAECPJOmHKCJNl7CyEn0HoPpMT2aVg/l8JYNJWu/ClUHDNnnD5AJtJIUsfSFYjTg5jQkV
+I0XnKDiSDY+jRcWC0bL/AAAAG29iZWxpc2tATWFjQm9vay1Qcm8tMy5sb2NhbAEC
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+[logging."stdout"]
 
 [authorization."database"]
 path = "examples/example.db"

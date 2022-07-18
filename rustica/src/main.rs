@@ -12,7 +12,6 @@ mod key;
 mod logging;
 mod server;
 mod signing;
-mod utils;
 mod verification;
 
 use rustica::rustica_server::{RusticaServer as GRPCRusticaServer};
@@ -32,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client_ca_cert = TonicCertificate::from_pem(settings.client_ca_cert);
 
     println!("Starting Rustica on: {}", settings.address);
-    settings.server.signer.print_signing_info();
+    println!("{}", settings.server.signer);
     println!("{}", settings.server.authorizer.info());
 
     let logging_configuration = settings.logging_configuration;

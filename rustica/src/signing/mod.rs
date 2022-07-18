@@ -8,7 +8,7 @@ use std::collections::{HashMap};
 
 use async_trait::async_trait;
 
-use sshcerts::{ssh::{CertType, Certificate, PublicKey}};
+use sshcerts::ssh::{CertType, Certificate, PublicKey};
 use serde::Deserialize;
 
 #[cfg(feature = "amazon-kms")]
@@ -19,7 +19,7 @@ mod yubikey;
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum SignerType {
+pub enum SignerType {
     File(file::Config),
     #[cfg(feature = "yubikey-support")]
     Yubikey(yubikey::Config),
@@ -40,7 +40,7 @@ impl SignerType {
 }
 
 #[async_trait]
-trait SignerConfig {
+pub trait SignerConfig {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError>;
 }
 
@@ -48,7 +48,7 @@ trait SignerConfig {
 /// this trait. The trait is async to allow calls out to external services during
 /// sign but fetching public keys must be fast and low cost.
 #[async_trait]
-trait Signer {
+pub trait Signer {
     /// Take in a certificate and sign it turning it into a valid certificate. This call
     /// is async allowing calls to be made over the network or to other blocking resources.
     /// This call however should execute as fast as possible and have a strict timeout as 
@@ -63,20 +63,32 @@ trait Signer {
     fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey;
 }
 
-/// Represents the configuration of the signing module. Fields that introduce
-/// new dependencies are gated by features to help reduce final binary size as
-/// well as reducing attack surface.
 #[derive(Deserialize)]
-pub struct SigningConfiguration {
-    authorities: HashMap<String, SignerType>
+pub struct ExternalSigningConfig {
+    pub server: String,
+    pub port: String,
+    pub ca: String,
+    pub mtls_cert: String,
+    pub mtls_key: String,
+}
+
+/// Represents the configuration of the signing module. A HashMap of strings
+/// (which is the name of the authority) to a configuration struct of the
+/// particular signer.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum SigningConfiguration {
+    Internal(HashMap<String, SignerType>),
+    External(ExternalSigningConfig)
 }
 
 /// A `SigningConfiguration` can be coerced into a `SigningMechanism` to
 /// handle the signing operations as well as other convenience functions
 /// such as fetching public keys or printing info about how signing is
 /// configured.
-pub struct SigningMechanism {
-    authorities: HashMap<String, Box<dyn Signer + Send + Sync>>,
+pub enum SigningMechanism {
+    Internal(HashMap<String, Box<dyn Signer + Send + Sync>>),
+    External(ExternalSigningConfig),
 }
 
 #[derive(Debug)]
@@ -113,68 +125,84 @@ impl std::fmt::Display for SigningError {
     }
 }
 
+impl std::fmt::Display for SigningMechanism {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut output = String::new();
+        match self {
+            SigningMechanism::Internal(authorities) => 
+                for signer in authorities.iter() {
+                    output.push_str(&format!("Authority: {}\n", signer.0));
+                    output.push_str(&format!("\tUser CA Fingerprint (SHA256): {}\n", signer.1.get_signer_public_key(CertType::User).fingerprint().hash));
+                    output.push_str(&format!("\tHost CA Fingerprint (SHA256): {}\n", signer.1.get_signer_public_key(CertType::Host).fingerprint().hash));
+                }
+            SigningMechanism::External(_) => panic!("Still need to impl"),
+        };
+        write!(f, "{}", output)
+    }
+}
+
 impl SigningMechanism {
     /// Takes in a certificate and handles the getting a signature from the 
     /// configured SigningMechanism.
     pub async fn sign(&self, authority: &str, cert: Certificate) -> Result<Certificate, SigningError> {
-        if let Some(authority) = self.authorities.get(authority) {
-            authority.sign(cert).await
-        } else {
-            Err(SigningError::UnknownAuthority)
+        match self {
+            SigningMechanism::Internal(authorities) => 
+                if let Some(authority) = authorities.get(authority) {
+                    authority.sign(cert).await
+                } else {
+                    Err(SigningError::UnknownAuthority)
+                }
+            SigningMechanism::External(_) => panic!("Still need to impl"),
         }
     }
 
     /// Return an sshcerts::PublicKey type for the signing key asked for,
     /// either User or Host
     pub fn get_signer_public_key(&self, authority: &str, cert_type: CertType) -> Result<PublicKey, SigningError> {
-        if let Some(authority) = self.authorities.get(authority) {
-            Ok(authority.get_signer_public_key(cert_type))
-        } else {
-            Err(SigningError::UnknownAuthority)
-        }
-    }
-
-    /// Print out information about the current configuration of the signing
-    /// system. This is generally only called once from main before starting
-    /// the main Rustica server.
-    pub fn print_signing_info(&self) {
-        for signer in self.authorities.iter() {
-            println!("Authority: {}", signer.0);
-            println!("\tUser CA Fingerprint (SHA256): {}", signer.1.get_signer_public_key(CertType::User).fingerprint().hash);
-            println!("\tHost CA Fingerprint (SHA256): {}", signer.1.get_signer_public_key(CertType::Host).fingerprint().hash);
+        match self {
+            SigningMechanism::Internal(authorities) => 
+                if let Some(authority) = authorities.get(authority) {
+                    Ok(authority.get_signer_public_key(cert_type))
+                } else {
+                    Err(SigningError::UnknownAuthority)
+                }
+            SigningMechanism::External(_) => panic!("Still need to impl"),
         }
     }
 }
 
 impl SigningConfiguration {
     pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, SigningError> {
-        let mut authorities = HashMap::new();
-        let mut public_keys: HashMap<String, String> = HashMap::new();
-
-        for authority in self.authorities.into_iter() {
-            let signer = authority.1.into_signer().await?;
-            let user_hash = signer.get_signer_public_key(CertType::User).fingerprint().hash;
-            let host_hash = signer.get_signer_public_key(CertType::Host).fingerprint().hash;
-
-            if user_hash == host_hash {
-                return Err(SigningError::IdenticalUserHostKey(authority.0));
-            }
-
-            if let Some(existing) = public_keys.get(&user_hash) {
-                return Err(SigningError::DuplicatedKey(authority.0, existing.to_owned()));
-            }
-
-            if let Some(existing) = public_keys.get(&host_hash) {
-                return Err(SigningError::DuplicatedKey(authority.0, existing.to_owned()));
-            }
-
-            public_keys.insert(user_hash, authority.0.to_owned());
-            public_keys.insert(host_hash, authority.0.to_owned());
-            authorities.insert(authority.0, signer);
+        match self {
+            SigningConfiguration::Internal(authorities) => {
+                let mut converted_authorities = HashMap::new();
+                let mut public_keys: HashMap<String, String> = HashMap::new();
+                for authority in authorities.into_iter() {
+                    let signer = authority.1.into_signer().await?;
+                    let user_hash = signer.get_signer_public_key(CertType::User).fingerprint().hash;
+                    let host_hash = signer.get_signer_public_key(CertType::Host).fingerprint().hash;
+        
+                    if user_hash == host_hash {
+                        return Err(SigningError::IdenticalUserHostKey(authority.0));
+                    }
+        
+                    if let Some(existing) = public_keys.get(&user_hash) {
+                        return Err(SigningError::DuplicatedKey(authority.0, existing.to_owned()));
+                    }
+        
+                    if let Some(existing) = public_keys.get(&host_hash) {
+                        return Err(SigningError::DuplicatedKey(authority.0, existing.to_owned()));
+                    }
+        
+                    public_keys.insert(user_hash, authority.0.to_owned());
+                    public_keys.insert(host_hash, authority.0.to_owned());
+                    converted_authorities.insert(authority.0, signer);
+                }
+        
+                Ok(SigningMechanism::Internal(converted_authorities))
+            },
+            SigningConfiguration::External(e) => Ok(SigningMechanism::External(e)),
         }
 
-        Ok(SigningMechanism {
-            authorities
-        })
     }
 }
