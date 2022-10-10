@@ -419,11 +419,26 @@ impl Rustica for RusticaServer {
 
         let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
-            Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
+            Err(e) => {
+                rustica_error!(self, format!("Could not validate request: {:?}", e));
+                return Err(Status::cancelled(""))
+            },
         };
 
         let (fingerprint, attestation) = match verify_piv_certificate_chain(&request.certificate, &request.intermediate) {
-            Ok(key) => (key.fingerprint, key.attestation),
+            Ok(key) => {
+                // This can only occur if an attestation chain has been provided 
+                // that doesn't match the initially provided PublicKey in the
+                // challenge request
+                if ssh_pubkey.fingerprint().hash != key.fingerprint {
+                    rustica_warning!(self, format!("Attestation fingerprint did not match challenge from host [{requester_ip}]. Attestation: [{}] Challenge: [{}]",
+                        ssh_pubkey.fingerprint().hash,
+                        key.fingerprint)
+                    );
+                    return Err(Status::invalid_argument("Attestation did not match challenge")) 
+                }
+                (key.fingerprint, key.attestation)
+            },
             Err(_) => if !self.require_attestation_chain {
                 (ssh_pubkey.fingerprint().hash, None)
             } else {
@@ -492,7 +507,19 @@ impl Rustica for RusticaServer {
         };
 
         let (fingerprint, attestation) = match verify_u2f_certificate_chain(&request.auth_data, &request.auth_data_signature, &request.intermediate, request.alg, &request.u2f_challenge, &request.sk_application) {
-            Ok(key) => (key.fingerprint, key.attestation),
+            Ok(key) => {
+                // This can only occur if an attestation chain has been provided 
+                // that doesn't match the initially provided PublicKey in the
+                // challenge request
+                if ssh_pubkey.fingerprint().hash != key.fingerprint {
+                    rustica_warning!(self, format!("Attestation fingerprint did not match challenge from host [{requester_ip}]. Attestation: [{}] Challenge: [{}]",
+                        ssh_pubkey.fingerprint().hash,
+                        key.fingerprint)
+                    );
+                    return Err(Status::invalid_argument("Attestation did not match challenge")) 
+                }
+                (key.fingerprint, key.attestation)
+            },
             Err(_) => if !self.require_attestation_chain {
                 (ssh_pubkey.fingerprint().hash, None)
             } else {
