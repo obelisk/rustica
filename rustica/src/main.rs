@@ -43,6 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Server::builder()
         .tls_config(ServerTlsConfig::new().identity(identity).client_ca_root(client_ca_cert))?
+        .max_frame_size(1024 * 1024 * 4) // 4 MiB
         .add_service(GRPCRusticaServer::new(settings.server))
         .serve(settings.address)
         .await?;
