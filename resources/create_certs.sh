@@ -95,8 +95,10 @@ create_editor_certs "rustica"
 create_editor_certs "author"
 # Generate CopyEditor Certificates
 create_editor_certs "copyeditor"
-# Generate Approved Certificates
-create_editor_certs "approved"
+# Generate Quroum Certificates
+create_editor_certs "quorum"
+
+create_editor_certs "okta-adapter"
 
 # ------------ Generate User and Host CA Keys ------------ #
 ssh-keygen -t ed25519 -f rustica/user_ssh_ca -q -N ""

@@ -17,7 +17,7 @@ pub use rustica::{
 use rustica::key::U2FAttestation;
 
 
-use sshcerts::ssh::{Certificate, CertType, PrivateKey, SSHCertificateSigner};
+use sshcerts::ssh::{Certificate, CertType, PublicKey, PrivateKey, SSHCertificateSigner};
 use sshcerts::fido::generate::generate_new_ssh_key;
 use sshcerts::yubikey::piv::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy, Yubikey};
 
@@ -87,6 +87,7 @@ pub enum Signatory {
 pub struct Handler {
     pub server: RusticaServer,
     pub cert: Option<Identity>,
+    pub pubkey: PublicKey,
     pub signatory: Signatory,
     pub stale_at: u64,
     pub certificate_options: CertificateConfig,
@@ -155,13 +156,22 @@ impl SshAgentHandler for Handler {
                 key_comment: x.1.comment.clone(),
             }).collect();
 
+        // Add our signatory backed public key as well for systems that
+        // don't understand certificates or to make them available when
+        // perhaps fetching a new certificate is not possible. Useful
+        // for Git commit signing.
+        identities.push(Identity {
+            key_blob: self.pubkey.encode().to_vec(),
+            key_comment: String::new(),
+        });
+
         // If the time hasn't expired on our certificate, we don't need to fetch a new one
         let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         if let Some(cert) = &self.cert {
             if timestamp < self.stale_at {
                 debug!("Certificate has not expired, not refreshing");
                 identities.push(cert.clone());
-                return Ok(Response::Identities(vec![cert.clone()]));
+                return Ok(Response::Identities(identities));
             }
         }
 
@@ -190,7 +200,11 @@ impl SshAgentHandler for Handler {
             },
             Err(e) => {
                 error!("Refresh certificate error: {:?}", e);
-                Err(AgentError::from("Could not refresh certificate"))
+                // We used to error on this, but now we will just return without the certificate.
+                // We cannot really pass any dianostic information and not returning
+                // the certificate causes similar failures to the agent not working entirely
+                // except you can continue to use non-certificate functionality.
+                Ok(Response::Identities(identities))
             },
         }
     }
@@ -204,8 +218,17 @@ impl SshAgentHandler for Handler {
         let private_key: Option<&PrivateKey> = if self.identities.contains_key(&pubkey) {
             Some(&self.identities[&pubkey])
         } else if let Signatory::Direct(privkey) = &self.signatory {
+            // Don't sign requests if the requested key does not match the signatory
+            if privkey.pubkey.encode() != pubkey {
+                return Err(AgentError::from("No such key"));
+            }
+
             Some(privkey)
         } else if let Signatory::Yubikey(signer) = &mut self.signatory {
+            // Don't sign requests if the requested key does not match the signatory
+            if signer.yk.ssh_cert_fetch_pubkey(&signer.slot).map_err(|_| AgentError::from("Yubikey signing error"))?.encode() != pubkey {
+                return Err(AgentError::from("No such key"));
+            }
             // Since we are using the Yubikey for a signing operation the only time they
             // won't have to tap here is if they are using cached keys and this is right after
             // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be 
@@ -663,6 +686,7 @@ pub unsafe extern fn start_direct_rustica_agent(private_key: *const c_char, conf
     let handler = Handler {
         cert: None,
         stale_at: 0,
+        pubkey: private_key.pubkey.clone(),
         certificate_options,
         server: RusticaServer::new(
             config.server.unwrap(),
@@ -712,9 +736,17 @@ pub unsafe extern fn start_yubikey_rustica_agent(yubikey_serial: u32, slot: u8, 
     let mut certificate_options = CertificateConfig::from(config.options);
     certificate_options.authority = authority;
 
+    let mut yk = Yubikey::open(yubikey_serial).unwrap();
+    let slot =  SlotId::try_from(slot).unwrap();
+    let pubkey = match yk.ssh_cert_fetch_pubkey(&slot) {
+        Ok(cert) => cert,
+        Err(_) => return false,
+    };
+
     let handler = Handler {
         cert: None,
         stale_at: 0,
+        pubkey,
         certificate_options,
         server: RusticaServer::new(
             config.server.unwrap(),

@@ -535,6 +535,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     let handler = Handler {
         server,
         cert: None,
+        pubkey: pubkey.clone(),
         signatory,
         stale_at: 0,
         certificate_options,
