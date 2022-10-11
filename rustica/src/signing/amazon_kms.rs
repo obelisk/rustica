@@ -138,11 +138,19 @@ impl Signer for AmazonKMSSigner {
         };
         let result = self.client.sign().key_id(key_id).signing_algorithm(key_algo.clone()).message(Blob::new(data)).send().await;
 
+        // Amazon container type
         let signature = match result {
-            Ok(result) => result.signature.unwrap().into_inner(),
+            Ok(result) => result.signature,
             Err(e) => return Err(SigningError::AccessError(e.to_string())),
         };
 
+        // Was the signature successfully created
+        let signature = match signature {
+            Some(sig) => sig.into_inner(),
+            None => return Err(SigningError::AccessError("No signature returned".to_owned())),
+        };
+
+        // Convert to SSH styled signature
         let signature = match format_signature_for_ssh(pubkey, &signature) {
             Some(s) => s,
             None => return Err(SigningError::ParsingError),

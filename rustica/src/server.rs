@@ -52,26 +52,22 @@ pub struct RusticaServer {
 }
 
 /// Macro for simplifying sending error logs to the Rustica logging system.
-/// Contains an unwrap because logging should never fail and if it does
-/// there is no defined way to handle it.
 macro_rules! rustica_error {
     ($self:ident, $message:expr) => {
-        $self.log_sender.send(Log::InternalMessage(InternalMessage {
+        let _ = $self.log_sender.send(Log::InternalMessage(InternalMessage {
             severity: Severity::Error,
             message: $message,
-        })).unwrap();
+        }));
     };
 }
 
 /// Macro for simplifying sending warning logs to the Rustica logging system.
-/// Contains an unwrap because logging should never fail and if it does
-/// there is no defined way to handle it.
 macro_rules! rustica_warning {
     ($self:ident, $message:expr) => {
-        $self.log_sender.send(Log::InternalMessage(InternalMessage {
+        let _ = $self.log_sender.send(Log::InternalMessage(InternalMessage {
             severity: Severity::Warning,
             message: $message,
-        })).unwrap();
+        }));
     };
 }
 
@@ -227,10 +223,10 @@ fn validate_request(srv: &RusticaServer, hmac_key: &ring::hmac::Key, peer_certs:
 impl Rustica for RusticaServer {
     /// Handler when a host is going to make a further request to Rustica
     async fn challenge(&self, request: Request<ChallengeRequest>) -> Result<Response<ChallengeResponse>, Status> {
-        // These unwraps should be fine because Tonic has already handled
-        // the connection mTLS.
-        let remote_addr = request.remote_addr().unwrap();
-        let peer = request.peer_certs().unwrap();
+        // We must receive these from the Tonic system or else we should fail
+        // as we may have guarantees on this information upstream.
+        let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
+        let peer = request.peer_certs().ok_or(Status::permission_denied(""))?;
         let request = request.into_inner();
         let mtls_identities = match extract_certificate_identities(&peer) {
             Ok(idents) => idents,
@@ -246,7 +242,7 @@ impl Rustica for RusticaServer {
 
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
+            .expect("Could not get time from the system")
             .as_secs()
             .to_string();
         let pubkey = &request.pubkey;
@@ -254,12 +250,16 @@ impl Rustica for RusticaServer {
         let tag = hmac::sign(&self.hmac_key, challenge.as_bytes());
 
         // Build an SSHCertificate as a challenge
-        let cert = Certificate::builder(&ssh_pubkey, CertType::Host, &self.challenge_key.pubkey).unwrap()
+        //
+        // Generating certificates here should never fail. We map_err as a guard
+        // in case there is some SSH pubkey that causes some failure condition
+        // preventing us from crashing and resulting in a DOS.
+        let cert = Certificate::builder(&ssh_pubkey, CertType::Host, &self.challenge_key.pubkey).map_err(|_| Status::permission_denied(""))?
             .serial(0xFEFEFEFEFEFEFEFE)
             .key_id(hex::encode(tag))
             .valid_after(0)
             .valid_before(0)
-            .sign(&self.challenge_key).unwrap();
+            .sign(&self.challenge_key).map_err(|_| Status::permission_denied(""))?;
 
         let reply = ChallengeResponse {
             time: timestamp,
@@ -272,7 +272,7 @@ impl Rustica for RusticaServer {
 
     /// Handler used when a host requests a new certificate from Rustica
     async fn certificate(&self, request: Request<CertificateRequest>) -> Result<Response<CertificateResponse>, Status> {
-        let remote_addr = request.remote_addr().unwrap();
+        let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
         let peer = request.peer_certs();
         let request = request.into_inner();
 
@@ -351,7 +351,7 @@ impl Rustica for RusticaServer {
             critical_options.insert(String::from("source-address"), remote_addr.ip().to_string());
         }
 
-        let cert = Certificate::builder(&ssh_pubkey, req_cert_type, &ca_cert).unwrap()
+        let cert = Certificate::builder(&ssh_pubkey, req_cert_type, &ca_cert).map_err(|_| Status::permission_denied(""))?
             .serial(authorization.serial)
             .key_id(format!("Rustica-JITC-for-{}", &fingerprint))
             .set_principals(&authorization.principals)
@@ -387,7 +387,7 @@ impl Rustica for RusticaServer {
             error_code: RusticaServerError::Success as i64,
         };
 
-        self.log_sender.send(Log::CertificateIssued(CertificateIssued {
+        let _ = self.log_sender.send(Log::CertificateIssued(CertificateIssued {
             fingerprint,
             signed_by: ca_cert.fingerprint().hash,
             authority: authority.to_string(),
@@ -398,7 +398,7 @@ impl Rustica for RusticaServer {
             critical_options,
             valid_after: authorization.valid_after,
             valid_before: authorization.valid_before,
-        })).unwrap();
+        }));
 
         Ok(Response::new(reply))
     }
@@ -447,10 +447,10 @@ impl Rustica for RusticaServer {
                     mtls_identities,
                 };
                 
-                self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
+                let _ = self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
                     key_info,
                     message: "Attempt to register a key with an invalid attestation chain".to_string(),
-                })).unwrap();
+                }));
                 return Err(Status::unavailable("Could not register a key without valid attestation data"))
             },
         };
@@ -466,10 +466,10 @@ impl Rustica for RusticaServer {
 
         match response {
             Ok(_) => {
-                self.log_sender.send(Log::KeyRegistered(KeyInfo {
+                let _ = self.log_sender.send(Log::KeyRegistered(KeyInfo {
                     fingerprint,
                     mtls_identities,
-                })).unwrap();
+                }));
                 return Ok(Response::new(RegisterKeyResponse{}))
             },
             Err(e) => {
@@ -478,10 +478,10 @@ impl Rustica for RusticaServer {
                     mtls_identities,
                 };
 
-                self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
+                let _ = self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
                     key_info,
                     message: e.to_string(),
-                })).unwrap();
+                }));
                 return Err(Status::unavailable("Could not register new key"))
             },
         }
@@ -528,10 +528,10 @@ impl Rustica for RusticaServer {
                     mtls_identities,
                 };
                 
-                self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
+                let _ = self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
                     key_info,
                     message: "Attempt to register a key with an invalid attestation chain".to_string(),
-                })).unwrap();
+                }));
                 return Err(Status::unavailable("Could not register a key without valid attestation data"))
             },
         };
@@ -547,10 +547,10 @@ impl Rustica for RusticaServer {
 
         match response {
             Ok(_) => {
-                self.log_sender.send(Log::KeyRegistered(KeyInfo {
+                let _ = self.log_sender.send(Log::KeyRegistered(KeyInfo {
                     fingerprint,
                     mtls_identities,
-                })).unwrap();
+                }));
                 return Ok(Response::new(RegisterU2fKeyResponse{}))
             },
             Err(e) => {
@@ -559,10 +559,10 @@ impl Rustica for RusticaServer {
                     mtls_identities,
                 };
                 
-                self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
+                let _ = self.log_sender.send(Log::KeyRegistrationFailure(KeyRegistrationFailure{
                     key_info,
                     message: e.to_string(),
-                })).unwrap();
+                }));
                 return Err(Status::unavailable("Could not register new key"))
             },
         }

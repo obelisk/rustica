@@ -67,22 +67,23 @@ impl AuthServer {
         let mut client = AuthorClient::new(channel);
         let response = client.authorize(request).await;
 
-        if let Err(e) = response {
-            error!("Authorization server returned error: {}", e);
-            if e.code() == tonic::Code::PermissionDenied {
-                return Err(AuthorizationError::NotAuthorized);
-            } else {
-                return Err(AuthorizationError::AuthorizerError);
+        let approval_response = match response {
+            Ok(r) => r.into_inner().approval_response,
+            Err(e) => {
+                error!("Authorization server returned error: {}", e);
+                if e.code() == tonic::Code::PermissionDenied {
+                    return Err(AuthorizationError::NotAuthorized);
+                } else {
+                    return Err(AuthorizationError::AuthorizerError);
+                }
             }
-        }
-
-        let approval_response = response.unwrap().into_inner().approval_response;
+        };
 
         // Find all extension keys, strip the "extension." prefix and create a new
         // hashmap with the values
         let extensions: HashMap<String, String> = approval_response.keys().into_iter()
             .filter(|x| x.starts_with("extension."))
-            .map(|ext| (ext.strip_prefix("extension.").unwrap().to_string(), approval_response[ext].clone()))
+            .map(|ext| (ext.strip_prefix("extension.").unwrap_or_default().to_string(), approval_response[ext].clone()))
             .collect();
 
         let force_command = if approval_response.contains_key("force_command") {
@@ -99,12 +100,16 @@ impl AuthServer {
             None
         };
 
+        let serial = approval_response["serial"].parse::<u64>().map_err(|_| AuthorizationError::AuthorizerError)?;
+        let valid_before = approval_response["valid_before"].parse::<u64>().map_err(|_| AuthorizationError::AuthorizerError)?;
+        let valid_after = approval_response["valid_after"].parse::<u64>().map_err(|_| AuthorizationError::AuthorizerError)?;
+
         Ok(Authorization {
-            serial: approval_response["serial"].parse::<u64>().unwrap(),
+            serial,
             principals: approval_response["principals"].split(',').map(String::from).collect(),
             hosts,
-            valid_before: approval_response["valid_before"].parse::<u64>().unwrap(),
-            valid_after: approval_response["valid_after"].parse::<u64>().unwrap(),
+            valid_before,
+            valid_after,
             extensions,
             force_command,
             force_source_ip,
