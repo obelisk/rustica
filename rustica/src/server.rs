@@ -121,7 +121,7 @@ fn extract_certificate_identities(peer_certs: &Arc<Vec<TonicCertificate>>) -> Re
 /// - Validate Signature
 /// - Validate HMAC
 /// - Validate certificate parameters
-fn validate_request(srv: &RusticaServer, hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertificate>>, challenge: &Challenge, check_signature: bool) -> Result<(PublicKey, Vec<String>), RusticaServerError> {
+fn validate_request(srv: &RusticaServer, hmac_key: &ring::hmac::Key, peer_certs: &Arc<Vec<TonicCertificate>>, challenge: &Challenge) -> Result<(PublicKey, Vec<String>), RusticaServerError> {
     let mtls_identities = extract_certificate_identities(peer_certs)?;
 
     // Get request time, and current time. Any issue causes request to fail
@@ -187,7 +187,7 @@ fn validate_request(srv: &RusticaServer, hmac_key: &ring::hmac::Key, peer_certs:
     // The benefit of enabling this is that a compromised host cannot fetch
     // certificates to see what permissions they might be able to use after
     // waiting for a user to initiate a connection themselves.
-    if !check_signature {
+    if !srv.require_rustica_proof {
         // Do an extra sanity check here that the certificate we received was signed by us
         if parsed_certificate.signature_key.fingerprint().hash != srv.challenge_key.pubkey.fingerprint().hash {
             rustica_warning!(srv, format!("Received an incorrect certificate from {}", mtls_identities.join(",")));
@@ -281,7 +281,7 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadRequest)),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Ok(create_response(e)),
         };
@@ -417,7 +417,7 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => {
                 rustica_error!(self, format!("Could not validate request: {:?}", e));
@@ -501,7 +501,7 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge, self.require_rustica_proof) {
+        let (ssh_pubkey, mtls_identities) = match validate_request(self, &self.hmac_key, &peer, challenge) {
             Ok((ssh_pk, idents)) => (ssh_pk, idents),
             Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
         };
