@@ -16,6 +16,7 @@ use sshcerts::{
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::net::{UnixListener};
+use std::os::unix::prelude::PermissionsExt;
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {  
@@ -51,8 +52,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Key was successfully registered!");
 
                     if let Some(out) = prf.out {
-                        let mut out = File::create(out)?;
-                        new_fido_key.private_key.write(&mut out)?;
+                        let mut out_file = File::create(&out)?;
+
+                        if let Ok(md) = out_file.metadata() {
+                            let mut permissions = md.permissions();
+                            permissions.set_mode(0o600);
+                        } else {
+                            println!("Error: Could not set file permissions on: {}", out);
+                        };
+
+                        new_fido_key.private_key.write(&mut out_file)?;
                     } else {
                         let mut buf = std::io::BufWriter::new(Vec::new());
                         new_fido_key.private_key.write(&mut buf).unwrap();

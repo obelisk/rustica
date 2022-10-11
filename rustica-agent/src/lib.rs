@@ -21,7 +21,7 @@ use sshcerts::ssh::{Certificate, CertType, PublicKey, PrivateKey, SSHCertificate
 use sshcerts::fido::generate::generate_new_ssh_key;
 use sshcerts::yubikey::piv::{AlgorithmId, SlotId, RetiredSlotId, TouchPolicy, PinPolicy, Yubikey};
 
-use std::collections::HashMap;
+use std::{collections::HashMap, os::unix::prelude::PermissionsExt};
 use std::convert::TryFrom;
 use std::fs::File;
 
@@ -526,6 +526,14 @@ pub unsafe extern fn generate_and_enroll_fido(config_data: *const c_char, out: *
             println!("Error: Could not create keyfile at {}: {}", out, e);
             return false
         },
+    };
+
+    if let Ok(md) = out_file.metadata() {
+        let mut permissions = md.permissions();
+        permissions.set_mode(0o600);
+    } else {
+        println!("Error: Could get file info {}", out);
+        return false;
     };
 
     if new_fido_key.private_key.write(&mut out_file).is_err() {
