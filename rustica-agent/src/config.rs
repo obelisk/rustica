@@ -263,10 +263,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("pin")
+                    Arg::new("pin-env")
                         .help("Specify the pin")
-                        .default_value("123456")
-                        .long("pin")
+                        .default_value("YK_PIN")
+                        .long("pinenv")
                         .short('p')
                         .required(false)
                         .takes_value(true),
@@ -314,9 +314,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                         .short('k')
                 )
                 .arg(
-                    Arg::new("pin")
+                    Arg::new("pin-env")
                         .help("Specify the pin")
-                        .long("pin")
+                        .default_value("YK_PIN")
+                        .long("pinenv")
                         .short('p')
                         .required(false)
                         .takes_value(true),
@@ -408,7 +409,12 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             Err(_) => return Err(ConfigurationError::YubikeyManagementKeyInvalid),
         };
 
-        let pin = cmd_matches.value_of("pin").unwrap().to_string();
+        let pin_env = cmd_matches.value_of("pin-env").unwrap().to_string();
+        let pin = match env::var(pin_env) {
+            Ok(val) => val,
+            Err(_e) => "123456".to_string(),
+        };
+        
 
         let provision_config = ProvisionPIVConfig {
             yubikey,
@@ -436,9 +442,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             _ => SKType::Ed25519,
         };
 
-        let pin = match matches.value_of("pin") {
-            Some(p) => Some(p.to_string()),
-            None => None,
+        let pin_env = matches.value_of("pin-env").unwrap().to_string();
+        let pin = match env::var(pin_env) {
+            Ok(val) => Some(val),
+            Err(_e) => None,
         };
 
         let provision_config = ProvisionAndRegisterFidoConfig {
