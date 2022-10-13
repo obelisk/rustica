@@ -14,10 +14,12 @@ mod server;
 mod signing;
 mod verification;
 
-use rustica::rustica_server::{RusticaServer as GRPCRusticaServer};
+use rustica::rustica_server::RusticaServer as GRPCRusticaServer;
 use tonic::transport::{Certificate as TonicCertificate, Identity, Server, ServerTlsConfig};
 
 use std::thread;
+
+use crate::config::ConfigurationError;
 
 pub mod rustica {
     tonic::include_proto!("rustica");
@@ -26,7 +28,15 @@ pub mod rustica {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let settings = config::configure().await?;
+    let settings = match config::configure().await {
+        Ok(settings) => settings,
+        Err(ConfigurationError::ValidateOnly) => {
+            println!("Configuration successfully validated");
+            return Ok(());
+        }
+        Err(e) => return Err(e)?,
+    };
+
     let identity = Identity::from_pem(settings.server_cert, settings.server_key);
     let client_ca_cert = TonicCertificate::from_pem(settings.client_ca_cert);
 
@@ -42,7 +52,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     Server::builder()
-        .tls_config(ServerTlsConfig::new().identity(identity).client_ca_root(client_ca_cert))?
+        .tls_config(
+            ServerTlsConfig::new()
+                .identity(identity)
+                .client_ca_root(client_ca_cert),
+        )?
         .max_frame_size(1024 * 1024 * 4) // 4 MiB
         .add_service(GRPCRusticaServer::new(settings.server))
         .serve(settings.address)

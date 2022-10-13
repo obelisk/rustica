@@ -58,7 +58,10 @@ require_attestation_chain = false
 
 [logging."stdout"]
 
-[signing.example_test_environment]
+[signing]
+default_authority = "example_test_environment"
+
+[signing.signing_configuration.example_test_environment]
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
@@ -81,7 +84,7 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
-[signing."example_prod_environment"]
+[signing.signing_configuration."example_prod_environment"]
 user_slot = "R2"
 host_slot = "R3"
 
