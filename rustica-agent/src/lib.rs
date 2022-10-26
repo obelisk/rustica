@@ -83,14 +83,25 @@ pub enum Signatory {
 }
 
 pub struct Handler {
+    /// a GRPC client for making requests to a Rustica server
     pub server: RusticaServer,
+    /// A previously issued certificate
     pub cert: Option<Identity>,
+    /// The public key we for the key we are providing a certificate for
     pub pubkey: PublicKey,
+    /// The signing method for the private part of our public key
     pub signatory: Signatory,
+    /// When our certificate expires and we must request a new one
     pub stale_at: u64,
+    /// Any settings we wish to ask the server for in our certificate
     pub certificate_options: CertificateConfig,
+    /// Any other identities added to our agent
     pub identities: HashMap<Vec<u8>, PrivateKey>,
+    /// A function that we will call before calling the signatory
     pub notification_function: Option<Box<dyn Fn() + Send + Sync>>,
+    /// Should we list the certificate or key first when we're asked to list
+    /// identities
+    pub certificate_priority: bool,
 }
 
 impl std::fmt::Debug for Handler {
@@ -164,7 +175,19 @@ impl SshAgentHandler for Handler {
         if let Some(cert) = &self.cert {
             if timestamp < self.stale_at {
                 debug!("Certificate has not expired, not refreshing");
-                identities.push(cert.clone());
+                let key_ident = Identity {
+                    key_blob: self.pubkey.encode().to_vec(),
+                    key_comment: String::new(),
+                };
+
+                if self.certificate_priority {
+                    identities.push(cert.clone());
+                    identities.push(key_ident);
+                } else {
+                    identities.push(key_ident);
+                    identities.push(cert.clone());
+                }
+
                 return Ok(Response::Identities(identities));
             }
         }
@@ -186,23 +209,28 @@ impl SshAgentHandler for Handler {
                 info!("{:#}", parsed_cert);
                 let cert: Vec<&str> = response.cert.split(' ').collect();
                 let raw_cert = base64::decode(cert[1]).unwrap_or_default();
-                let ident = Identity {
+                let cert_ident = Identity {
                     key_blob: raw_cert,
                     key_comment: response.comment.clone(),
                 };
-                self.cert = Some(ident.clone());
+                self.cert = Some(cert_ident.clone());
 
                 // Add our signatory backed public key as well for systems that
                 // don't understand certificates or to make them available when
                 // perhaps fetching a new certificate is not possible. Useful
                 // for Git commit signing.
-                identities.push(Identity {
+                let key_ident = Identity {
                     key_blob: self.pubkey.encode().to_vec(),
                     key_comment: String::new(),
-                });
+                };
 
-                // Push the certificate
-                identities.push(ident);
+                if self.certificate_priority {
+                    identities.push(cert_ident);
+                    identities.push(key_ident);
+                } else {
+                    identities.push(key_ident);
+                    identities.push(cert_ident);
+                }
             }
             Err(e) => {
                 error!("Refresh certificate error: {:?}", e);
@@ -703,6 +731,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
     device: *const c_char,
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
+    certificate_priority: bool,
 ) -> bool {
     println!("Starting a new Rustica instance!");
 
@@ -779,6 +808,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
         signatory: Signatory::Direct(private_key),
         identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
+        certificate_priority,
     };
 
     let socket = UnixListener::bind(socket_path).unwrap();
@@ -799,6 +829,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     socket_path: *const c_char,
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
+    certificate_priority: bool,
 ) -> bool {
     println!("Starting a new Rustica instance!");
 
@@ -847,6 +878,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         }),
         identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
+        certificate_priority,
     };
 
     println!("Slot: {:?}", SlotId::try_from(slot));

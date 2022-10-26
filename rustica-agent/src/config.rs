@@ -1,11 +1,7 @@
-use clap::{
-    Arg,
-    ArgMatches,
-    Command,
-};
+use clap::{Arg, ArgMatches, Command};
 
-use sshcerts::{CertType, PublicKey, PrivateKey};
 use sshcerts::yubikey::piv::{SlotId, Yubikey};
+use sshcerts::{CertType, PrivateKey, PublicKey};
 
 use rustica_agent::*;
 
@@ -13,7 +9,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::env;
 use std::fs::{self, File};
-use std::io::{Read};
+use std::io::Read;
 use std::process;
 
 #[derive(Debug)]
@@ -83,7 +79,6 @@ pub enum RusticaAgentAction {
     ProvisionAndRegisterFido(ProvisionAndRegisterFidoConfig),
 }
 
-
 impl From<std::io::Error> for ConfigurationError {
     fn from(e: std::io::Error) -> Self {
         ConfigurationError::CannotReadFile(e.to_string())
@@ -96,7 +91,12 @@ impl From<sshcerts::error::Error> for ConfigurationError {
     }
 }
 
-fn get_signatory(cmd_slot: &Option<String>, config_slot: &Option<String>, matches: &ArgMatches, config_key: &Option<String>) -> Result<Signatory, ConfigurationError> {
+fn get_signatory(
+    cmd_slot: &Option<String>,
+    config_slot: &Option<String>,
+    matches: &ArgMatches,
+    config_key: &Option<String>,
+) -> Result<Signatory, ConfigurationError> {
     // Determine the signatory to be used. These match statements, execute in order,
     // create a hierarchy of which keys override others.
     // If a file is specified at the command line, that overrides everything else.
@@ -106,35 +106,31 @@ fn get_signatory(cmd_slot: &Option<String>, config_slot: &Option<String>, matche
     // Otherwise use the slot in the config
     // If none of these, error.
     match (cmd_slot, config_slot, matches.value_of("file"), &config_key) {
-        (Some(slot), _, _, _) => {
-            match slot_parser(slot) {
-                Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
-                    yk: Yubikey::new().unwrap(),
-                    slot: s,
-                })),
-                None => Err(ConfigurationError::BadSlot)
-            }
+        (Some(slot), _, _, _) => match slot_parser(slot) {
+            Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
+                yk: Yubikey::new().unwrap(),
+                slot: s,
+            })),
+            None => Err(ConfigurationError::BadSlot),
         },
-        (_, _, Some(file), _) => {
-            match PrivateKey::from_path(file) {
-                Ok(p) => Ok(Signatory::Direct(p)),
-                Err(e) => Err(ConfigurationError::CannotReadFile(format!("{}: {}", e, file))),
-            }
+        (_, _, Some(file), _) => match PrivateKey::from_path(file) {
+            Ok(p) => Ok(Signatory::Direct(p)),
+            Err(e) => Err(ConfigurationError::CannotReadFile(format!(
+                "{}: {}",
+                e, file
+            ))),
         },
-        (_, Some(slot), _, _) => {
-            match slot_parser(slot) {
-                Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
-                    yk: Yubikey::new().unwrap(),
-                    slot: s,
-                })),
-                None => Err(ConfigurationError::BadSlot),
-            }
+        (_, Some(slot), _, _) => match slot_parser(slot) {
+            Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
+                yk: Yubikey::new().unwrap(),
+                slot: s,
+            })),
+            None => Err(ConfigurationError::BadSlot),
         },
         (_, _, _, Some(key_string)) => Ok(Signatory::Direct(PrivateKey::from_string(key_string)?)),
-        (None, None, None, None) => Err(ConfigurationError::MissingSSHKey)
+        (None, None, None, None) => Err(ConfigurationError::MissingSSHKey),
     }
 }
-
 
 pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     let matches = Command::new("rustica-agent")
@@ -241,6 +237,12 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 .long("authority")
                 .takes_value(true)
         )
+        .arg(
+            Arg::new("certificate-priority")
+                .help("If this is present, the certificate will be listed first in the identity listing (otherwise the key will be first)")
+                .long("priority")
+                .takes_value(false)
+        )
         .subcommand(
             Command::new("register")
                 .about("Take your key and register with the backend. If a hardware key, proof of providence will be sent to the backend")
@@ -341,21 +343,19 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             if let Ok(t) = toml::from_str(&content) {
                 t
             } else {
-                return Err(ConfigurationError::BadConfiguration)
-            }
-        },
-        Err(_) => {
-            Config {
-                server: None,
-                ca_pem: None,
-                mtls_cert: None,
-                mtls_key: None,
-                slot: None,
-                key: None,
-                options: None,
-                socket: None,
+                return Err(ConfigurationError::BadConfiguration);
             }
         }
+        Err(_) => Config {
+            server: None,
+            ca_pem: None,
+            mtls_cert: None,
+            mtls_key: None,
+            slot: None,
+            key: None,
+            options: None,
+            socket: None,
+        },
     };
 
     let mtls_cert = match (matches.value_of("mtlscert"), &config.mtls_cert) {
@@ -369,7 +369,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         (_, Some(mtls_key)) => mtls_key.to_owned(),
         (None, None) => return Err(ConfigurationError::MissingMTLSKey),
     };
-    
+
     let address = match (matches.value_of("server"), &config.server) {
         (Some(server), _) => server.to_owned(),
         (_, Some(server)) => server.to_owned(),
@@ -381,17 +381,12 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             let mut contents = String::new();
             File::open(v)?.read_to_string(&mut contents)?;
             contents
-        },
+        }
         (_, Some(v)) => v.to_owned(),
         (None, None) => return Err(ConfigurationError::MissingServerCertificateAuthority),
     };
 
-    let server = RusticaServer::new(
-        address,
-        ca,
-        mtls_cert,
-        mtls_key,
-    );
+    let server = RusticaServer::new(address, ca, mtls_cert, mtls_key);
 
     let cmd_slot = matches.value_of("slot").map(|x| x.to_owned());
 
@@ -399,7 +394,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         let signatory = get_signatory(&cmd_slot, &config.slot, &matches, &config.key)?;
         let yubikey = match signatory {
             Signatory::Yubikey(yk_sig) => yk_sig,
-            Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile)
+            Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile),
         };
 
         let require_touch = cmd_matches.is_present("require-touch");
@@ -414,7 +409,6 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             Ok(val) => val,
             Err(_e) => "123456".to_string(),
         };
-        
 
         let provision_config = ProvisionPIVConfig {
             yubikey,
@@ -457,7 +451,9 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             out,
         };
 
-        return Ok(RusticaAgentAction::ProvisionAndRegisterFido(provision_config));
+        return Ok(RusticaAgentAction::ProvisionAndRegisterFido(
+            provision_config,
+        ));
     }
 
     let mut signatory = get_signatory(&cmd_slot, &config.slot, &matches, &config.key)?;
@@ -466,7 +462,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             Ok(cert) => cert,
             Err(_) => return Err(ConfigurationError::YubikeyNoKeypairFound),
         },
-        Signatory::Direct(privkey) => privkey.pubkey.clone()
+        Signatory::Direct(privkey) => privkey.pubkey.clone(),
     };
 
     if let Some(matches) = matches.subcommand_matches("register") {
@@ -481,8 +477,14 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
                 Signatory::Direct(_) => return Err(ConfigurationError::CannotAttestFileBasedKey),
             };
 
-            attestation.certificate = signer.yk.fetch_attestation(&signer.slot).unwrap_or_default();
-            attestation.intermediate = signer.yk.fetch_certificate(&SlotId::Attestation).unwrap_or_default();
+            attestation.certificate = signer
+                .yk
+                .fetch_attestation(&signer.slot)
+                .unwrap_or_default();
+            attestation.intermediate = signer
+                .yk
+                .fetch_certificate(&SlotId::Attestation)
+                .unwrap_or_default();
 
             if attestation.certificate.is_empty() || attestation.intermediate.is_empty() {
                 error!("Part of the attestation could not be generated. Registration may fail");
@@ -493,7 +495,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             server,
             signatory,
             attestation,
-        }))
+        }));
     }
 
     let mut certificate_options = CertificateConfig::from(config.options);
@@ -548,6 +550,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         certificate_options,
         identities: HashMap::new(),
         notification_function: None,
+        certificate_priority: matches.is_present("certificate-priority"),
     };
 
     Ok(RusticaAgentAction::Run(RunConfig {
