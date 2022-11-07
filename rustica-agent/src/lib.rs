@@ -30,7 +30,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_long};
 use std::os::unix::net::UnixListener;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Options {
     pub principals: Option<Vec<String>>,
     pub hosts: Option<Vec<String>>,
@@ -82,6 +82,19 @@ pub enum Signatory {
     Direct(PrivateKey),
 }
 
+#[derive(Debug)]
+pub struct YubikeyPIVKeyDescriptor {
+    pub serial: u32,
+    pub slot: SlotId,
+    pub public_key: PublicKey,
+}
+
+#[derive(Debug)]
+pub enum RusticaAgentLibraryError {
+    CouldNotOpenYubikey(u32),
+    CouldNotEnumerateYubikeys(String),
+}
+
 pub struct Handler {
     /// a GRPC client for making requests to a Rustica server
     pub server: RusticaServer,
@@ -97,6 +110,8 @@ pub struct Handler {
     pub certificate_options: CertificateConfig,
     /// Any other identities added to our agent
     pub identities: HashMap<Vec<u8>, PrivateKey>,
+    /// Other PIV identities
+    pub piv_identities: HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>,
     /// A function that we will call before calling the signatory
     pub notification_function: Option<Box<dyn Fn() + Send + Sync>>,
     /// Should we list the certificate or key first when we're asked to list
@@ -166,6 +181,11 @@ impl SshAgentHandler for Handler {
                 key_comment: x.1.comment.clone(),
             })
             .collect();
+
+        identities.extend(self.piv_identities.iter().map(|x| Identity {
+            key_blob: x.1.public_key.encode().to_vec(),
+            key_comment: format!("Yubikey Serial: {} Slot: {:?}", x.1.serial, x.1.slot),
+        }));
 
         // If the time hasn't expired on our certificate, we don't need to fetch a new one
         let timestamp = SystemTime::now()
@@ -385,17 +405,11 @@ pub fn provision_new_key(
     }
 }
 
-/// Fetch the list of serial numbers for the connected Yubikeys
-/// The return from this function must be freed by the caller because we can no longer track it
-/// once we return
-///
-/// # Safety
-/// out_length must be a valid pointer to an 8 byte segment of memory
-#[no_mangle]
-pub unsafe extern "C" fn list_yubikeys(out_length: *mut c_int) -> *mut c_long {
+pub fn list_yubikey_serials() -> Result<Vec<i64>, RusticaAgentLibraryError> {
+    let mut serials: Vec<i64> = vec![];
+
     match &mut yubikey::reader::Context::open() {
         Ok(readers) => {
-            let mut serials: Vec<c_long> = vec![];
             for reader in readers
                 .iter()
                 .unwrap()
@@ -409,15 +423,66 @@ pub unsafe extern "C" fn list_yubikeys(out_length: *mut c_int) -> *mut c_long {
                 let serial: u32 = reader.serial().into();
                 serials.push(serial.into());
             }
+        }
+        Err(e) => {
+            return Err(RusticaAgentLibraryError::CouldNotEnumerateYubikeys(
+                e.to_string(),
+            ))
+        }
+    };
 
+    Ok(serials)
+}
+
+pub fn get_all_piv_keys(
+) -> Result<HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>, RusticaAgentLibraryError> {
+    let mut all_keys = HashMap::new();
+    let serials = list_yubikey_serials()?;
+
+    for serial in serials {
+        let serial = serial as u32;
+        match &mut Yubikey::open(serial) {
+            Ok(yk) => {
+                for slot in 0x82..0x96_u8 {
+                    let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
+                    if let Ok(pubkey) = yk.ssh_cert_fetch_pubkey(&slot) {
+                        let descriptor = YubikeyPIVKeyDescriptor {
+                            serial,
+                            slot,
+                            public_key: pubkey.clone(),
+                        };
+                        all_keys.insert(pubkey.encode().to_vec(), descriptor);
+                    }
+                }
+            }
+            Err(_e) => return Err(RusticaAgentLibraryError::CouldNotOpenYubikey(serial)),
+        }
+    }
+
+    Ok(all_keys)
+}
+
+/// Fetch the list of serial numbers for the connected Yubikeys
+/// The return from this function must be freed by the caller because we can no longer track it
+/// once we return
+///
+/// # Safety
+/// out_length must be a valid pointer to an 8 byte segment of memory
+#[no_mangle]
+pub unsafe extern "C" fn list_yubikeys(out_length: *mut c_int) -> *const c_long {
+    match list_yubikey_serials() {
+        Ok(serials) => {
             let len = serials.len();
-            let ptr = serials.as_mut_ptr();
+            let ptr = serials.as_ptr();
             std::mem::forget(serials);
             std::ptr::write(out_length, len as c_int);
 
             ptr
         }
-        Err(_) => std::ptr::null_mut(),
+        Err(e) => {
+            println!("{:?}", e);
+            std::ptr::null_mut()
+        }
     }
 }
 
@@ -807,6 +872,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
         ),
         signatory: Signatory::Direct(private_key),
         identities: HashMap::new(),
+        piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
     };
@@ -877,6 +943,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
             slot: SlotId::try_from(slot).unwrap(),
         }),
         identities: HashMap::new(),
+        piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
     };
