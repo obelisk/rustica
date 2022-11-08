@@ -1,6 +1,6 @@
 mod fidosetup;
 mod immediatemode;
-mod listallkeys;
+mod listpivkeys;
 mod multimode;
 mod provisionpiv;
 mod register;
@@ -51,7 +51,7 @@ pub enum RusticaAgentAction {
     ProvisionPIV(provisionpiv::ProvisionPIVConfig),
     Register(register::RegisterConfig),
     ProvisionAndRegisterFido(fidosetup::ProvisionAndRegisterFidoConfig),
-    ListAllKeys,
+    ListPIVKeys(listpivkeys::ListPIVKeysConfig),
 }
 
 impl From<std::io::Error> for ConfigurationError {
@@ -324,12 +324,18 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         "Run Rustica agent on a single Yubikey slot or with a single key file.",
     ));
 
-    let command_configuration = command_configuration.subcommand(immediate_mode);
-    let command_configuration = command_configuration.subcommand(multi_mode);
-    let command_configuration = command_configuration.subcommand(fido_setup_mode);
-    let command_configuration = command_configuration.subcommand(provision_piv_mode);
-    let command_configuration = command_configuration.subcommand(register_mode);
-    let command_configuration = command_configuration.subcommand(single_mode);
+    let list_piv_keys = listpivkeys::add_configuration(
+        Command::new("list-piv-keys").about("List PIV keys found on connected devices."),
+    );
+
+    let command_configuration = command_configuration
+        .subcommand(immediate_mode)
+        .subcommand(multi_mode)
+        .subcommand(fido_setup_mode)
+        .subcommand(provision_piv_mode)
+        .subcommand(register_mode)
+        .subcommand(single_mode)
+        .subcommand(list_piv_keys);
 
     let matches = command_configuration.get_matches();
 
@@ -355,6 +361,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     if let Some(single_mode) = matches.subcommand_matches("single") {
         return singlemode::configure_singlemode(&single_mode);
+    }
+
+    if let Some(list_piv_keys) = matches.subcommand_matches("list-piv-keys") {
+        return listpivkeys::configure_list_piv_keys(&list_piv_keys);
     }
 
     Err(ConfigurationError::NoMode)

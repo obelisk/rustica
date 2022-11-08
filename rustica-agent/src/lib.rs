@@ -95,6 +95,21 @@ pub enum RusticaAgentLibraryError {
     CouldNotEnumerateYubikeys(String),
 }
 
+impl std::fmt::Display for RusticaAgentLibraryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            RusticaAgentLibraryError::CouldNotOpenYubikey(sn) => {
+                write!(f, "Could not open Yubikey with serial: {sn}")
+            }
+            RusticaAgentLibraryError::CouldNotEnumerateYubikeys(e) => {
+                write!(f, "Could not enumerate Yubikeys: {e}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RusticaAgentLibraryError {}
+
 pub struct Handler {
     /// a GRPC client for making requests to a Rustica server
     pub server: RusticaServer,

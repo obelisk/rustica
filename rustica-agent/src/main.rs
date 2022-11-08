@@ -17,7 +17,19 @@ use std::os::unix::prelude::PermissionsExt;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     match config::configure() {
-        Ok(RusticaAgentAction::ListAllKeys) => {}
+        // This lists all keys we can find on connected devices
+        Ok(RusticaAgentAction::ListPIVKeys(config)) => {
+            let all_keys = crate::get_all_piv_keys()?;
+
+            for (_, des) in all_keys {
+                let key_form = match config.show_full {
+                    true => des.public_key.to_string(),
+                    false => des.public_key.fingerprint().hash,
+                };
+
+                println!("{}\t{:?}:\t{key_form}", des.serial, des.slot)
+            }
+        }
         // Generates a new hardware backed key in a Yubikey then exits.
         // This always generates a NISTP384 key.
         Ok(RusticaAgentAction::ProvisionPIV(config)) => {
