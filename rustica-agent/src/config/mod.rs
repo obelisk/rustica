@@ -52,6 +52,7 @@ pub enum RusticaAgentAction {
     Register(register::RegisterConfig),
     ProvisionAndRegisterFido(fidosetup::ProvisionAndRegisterFidoConfig),
     ListPIVKeys(listpivkeys::ListPIVKeysConfig),
+    ListFidoDevices,
 }
 
 impl From<std::io::Error> for ConfigurationError {
@@ -328,6 +329,9 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         Command::new("list-piv-keys").about("List PIV keys found on connected devices."),
     );
 
+    let list_fido_devices =
+        Command::new("list-fido-devices").about("List all connected FIDO2 devices. Used for pointing private keys to the correct device when multiple are connected");
+
     let command_configuration = command_configuration
         .subcommand(immediate_mode)
         .subcommand(multi_mode)
@@ -335,7 +339,8 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         .subcommand(provision_piv_mode)
         .subcommand(register_mode)
         .subcommand(single_mode)
-        .subcommand(list_piv_keys);
+        .subcommand(list_piv_keys)
+        .subcommand(list_fido_devices);
 
     let matches = command_configuration.get_matches();
 
@@ -365,6 +370,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     if let Some(list_piv_keys) = matches.subcommand_matches("list-piv-keys") {
         return listpivkeys::configure_list_piv_keys(&list_piv_keys);
+    }
+
+    if let Some(_) = matches.subcommand_matches("list-fido-devices") {
+        return Ok(RusticaAgentAction::ListFidoDevices);
     }
 
     Err(ConfigurationError::NoMode)

@@ -17,6 +17,11 @@ use std::os::unix::prelude::PermissionsExt;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     match config::configure() {
+        Ok(RusticaAgentAction::ListFidoDevices) => {
+            for device in sshcerts::fido::list_fido_devices() {
+                println!("{} - {}", device.path, device.product_string);
+            }
+        }
         // This lists all keys we can find on connected devices
         Ok(RusticaAgentAction::ListPIVKeys(config)) => {
             let all_keys = crate::get_all_piv_keys()?;

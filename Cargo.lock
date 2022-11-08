@@ -1947,7 +1947,19 @@ dependencies = [
  "chrono",
  "pem",
  "ring",
- "yasna",
+ "yasna 0.4.0",
+]
+
+[[package]]
+name = "rcgen"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffbe84efe2f38dea12e9bfc1f65377fdf03e53a18cb3b995faedf7934c7e785b"
+dependencies = [
+ "pem",
+ "ring",
+ "time 0.3.9",
+ "yasna 0.5.0",
 ]
 
 [[package]]
@@ -2093,7 +2105,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "sha2",
- "sshcerts",
+ "sshcerts 0.11.0",
  "tokio",
  "toml",
  "tonic 0.4.3",
@@ -2119,7 +2131,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha2",
- "sshcerts",
+ "sshcerts 0.12.0",
  "tokio",
  "toml",
  "tonic 0.6.2",
@@ -2431,11 +2443,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673c11b3455e43e149ed8bc0a7421f7b63f2ed6012ef9ebe5e86638665e647a8"
 dependencies = [
  "base64 0.13.0",
+ "der-parser 5.1.2",
+ "minicbor",
+ "rcgen 0.8.14",
+ "ring",
+ "x509",
+ "x509-parser 0.13.2",
+ "yubikey",
+ "zeroize",
+]
+
+[[package]]
+name = "sshcerts"
+version = "0.12.0"
+source = "git+https://github.com/obelisk/sshcerts?branch=bug_fixes_2022_07_06#4d90bed58eac47d416b544e739424843a03bf669"
+dependencies = [
+ "base64 0.13.0",
  "ctap-hid-fido2",
  "der-parser 5.1.2",
  "minicbor",
  "num-bigint",
- "rcgen",
+ "rcgen 0.10.0",
  "ring",
  "simple_asn1",
  "x509",
@@ -3284,6 +3312,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e262a29d0e61ccf2b6190d7050d4b237535fc76ce4c1210d9caa316f71dffa75"
 dependencies = [
  "chrono",
+]
+
+[[package]]
+name = "yasna"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346d34a236c9d3e5f3b9b74563f238f955bbd05fa0b8b4efa53c130c43982f4c"
+dependencies = [
+ "time 0.3.9",
 ]
 
 [[package]]
