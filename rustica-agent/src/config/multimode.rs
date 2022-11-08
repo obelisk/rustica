@@ -1,9 +1,8 @@
 use std::{collections::HashMap, fs};
 
-use base64::Config;
 use rustica_agent::{
-    get_all_piv_keys, CertificateConfig, Handler, RusticaAgentLibraryError, RusticaServer,
-    Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
+    get_all_piv_keys, Handler, RusticaAgentLibraryError, Signatory, YubikeyPIVKeyDescriptor,
+    YubikeySigner,
 };
 
 use clap::{Arg, ArgMatches, Command};

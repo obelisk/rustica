@@ -3,11 +3,12 @@ mod immediatemode;
 mod listallkeys;
 mod multimode;
 mod provisionpiv;
+mod register;
+mod singlemode;
 
 use clap::{Arg, ArgMatches, Command};
 
-use rustica_agent::rustica::cert;
-use sshcerts::yubikey::piv::{SlotId, Yubikey};
+use sshcerts::yubikey::piv::Yubikey;
 use sshcerts::{CertType, PrivateKey, PublicKey};
 
 use rustica_agent::*;
@@ -44,17 +45,11 @@ pub struct RunConfig {
     pub handler: Handler,
 }
 
-pub struct RegisterConfig {
-    pub server: RusticaServer,
-    pub signatory: Signatory,
-    pub attestation: PIVAttestation,
-}
-
 pub enum RusticaAgentAction {
     Run(RunConfig),
     Immediate(immediatemode::ImmediateConfig),
     ProvisionPIV(provisionpiv::ProvisionPIVConfig),
-    Register(RegisterConfig),
+    Register(register::RegisterConfig),
     ProvisionAndRegisterFido(fidosetup::ProvisionAndRegisterFidoConfig),
     ListAllKeys,
 }
@@ -302,7 +297,7 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     let immediate_mode = immediatemode::add_configuration(new_run_agent_subcommand(
         "immediate",
-        "Immiediately request a certificate. Useful for testing and verifying access",
+        "Immiediately request a certificate. Useful for testing and verifying access.",
     ));
 
     let multi_mode = multimode::add_configuration(new_run_agent_subcommand(
@@ -316,13 +311,25 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     ));
 
     let provision_piv_mode = provisionpiv::add_configuration(
-        Command::new("provision-piv").about("Provision this slot with a new private key"),
+        Command::new("provision-piv").about("Provision a yubikey slot with a new private key."),
     );
+
+    let register_mode = register::add_configuration(new_run_agent_subcommand(
+        "register",
+        "Register a key file or a provisioned PIV key.",
+    ));
+
+    let single_mode = singlemode::add_configuration(new_run_agent_subcommand(
+        "single",
+        "Run Rustica agent on a single Yubikey slot or with a single key file.",
+    ));
 
     let command_configuration = command_configuration.subcommand(immediate_mode);
     let command_configuration = command_configuration.subcommand(multi_mode);
     let command_configuration = command_configuration.subcommand(fido_setup_mode);
     let command_configuration = command_configuration.subcommand(provision_piv_mode);
+    let command_configuration = command_configuration.subcommand(register_mode);
+    let command_configuration = command_configuration.subcommand(single_mode);
 
     let matches = command_configuration.get_matches();
 
@@ -340,6 +347,14 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     if let Some(provision_piv_mode) = matches.subcommand_matches("provision-piv") {
         return provisionpiv::configure_provision_piv(&provision_piv_mode);
+    }
+
+    if let Some(register_mode) = matches.subcommand_matches("register") {
+        return register::configure_register(&register_mode);
+    }
+
+    if let Some(single_mode) = matches.subcommand_matches("single") {
+        return singlemode::configure_singlemode(&single_mode);
     }
 
     Err(ConfigurationError::NoMode)

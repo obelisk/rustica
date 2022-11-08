@@ -3,7 +3,7 @@ use std::env;
 use clap::{Arg, ArgMatches, Command};
 use rustica_agent::{slot_validator, Signatory, YubikeySigner};
 
-use super::{get_signatory, parse_config_from_args, ConfigurationError, RusticaAgentAction};
+use super::{get_signatory, ConfigurationError, RusticaAgentAction};
 
 pub struct ProvisionPIVConfig {
     pub yubikey: YubikeySigner,
@@ -16,11 +16,9 @@ pub struct ProvisionPIVConfig {
 pub fn configure_provision_piv(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
-    let config = parse_config_from_args(&matches)?;
-
     let slot = matches.value_of("slot").map(|x| x.to_string());
 
-    let signatory = get_signatory(&slot, &config.slot, &None, &None)?;
+    let signatory = get_signatory(&slot, &None, &None, &None)?;
 
     let yubikey = match signatory {
         Signatory::Yubikey(yk_sig) => yk_sig,
