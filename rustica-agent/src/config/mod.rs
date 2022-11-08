@@ -1,6 +1,8 @@
+mod fidosetup;
 mod immediatemode;
 mod listallkeys;
 mod multimode;
+mod provisionpiv;
 
 use clap::{Arg, ArgMatches, Command};
 
@@ -10,7 +12,6 @@ use sshcerts::{CertType, PrivateKey, PublicKey};
 
 use rustica_agent::*;
 
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::env;
 use std::fs::{self, File};
@@ -43,28 +44,6 @@ pub struct RunConfig {
     pub handler: Handler,
 }
 
-pub struct ProvisionPIVConfig {
-    pub yubikey: YubikeySigner,
-    pub pin: String,
-    pub management_key: Vec<u8>,
-    pub require_touch: bool,
-    pub subject: String,
-}
-
-pub enum SKType {
-    Ed25519,
-    Ecdsa,
-}
-
-pub struct ProvisionAndRegisterFidoConfig {
-    pub server: RusticaServer,
-    pub app_name: String,
-    pub comment: String,
-    pub key_type: SKType,
-    pub pin: Option<String>,
-    pub out: Option<String>,
-}
-
 pub struct RegisterConfig {
     pub server: RusticaServer,
     pub signatory: Signatory,
@@ -74,9 +53,9 @@ pub struct RegisterConfig {
 pub enum RusticaAgentAction {
     Run(RunConfig),
     Immediate(immediatemode::ImmediateConfig),
-    ProvisionPIV(ProvisionPIVConfig),
+    ProvisionPIV(provisionpiv::ProvisionPIVConfig),
     Register(RegisterConfig),
-    ProvisionAndRegisterFido(ProvisionAndRegisterFidoConfig),
+    ProvisionAndRegisterFido(fidosetup::ProvisionAndRegisterFidoConfig),
     ListAllKeys,
 }
 
@@ -169,34 +148,37 @@ fn new_run_agent_subcommand<'a>(name: &'a str, about: &'a str) -> Command<'a> {
                 .long("mtlskey")
                 .takes_value(true),
         )
-        .arg(
-            Arg::new("kind")
-                .help("The type of certificate you want to request")
-                .long("kind")
-                .short('k')
-                .possible_value("user")
-                .possible_value("host")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("duration")
-                .help("Your request for certificate duration in seconds")
-                .long("duration")
-                .short('d')
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("principals")
-                .help("A comma separated list of values you are requesting as principals")
-                .short('n')
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("authority")
-                .help("The name of the authority you are requesting a certificate from")
-                .long("authority")
-                .takes_value(true),
-        )
+}
+
+pub fn add_request_options(cmd: Command) -> Command {
+    cmd.arg(
+        Arg::new("kind")
+            .help("The type of certificate you want to request")
+            .long("kind")
+            .short('k')
+            .possible_value("user")
+            .possible_value("host")
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("duration")
+            .help("Your request for certificate duration in seconds")
+            .long("duration")
+            .short('d')
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("principals")
+            .help("A comma separated list of values you are requesting as principals")
+            .short('n')
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("authority")
+            .help("The name of the authority you are requesting a certificate from")
+            .long("authority")
+            .takes_value(true),
+    )
 }
 
 pub fn add_daemon_options(cmd: Command) -> Command {
@@ -328,8 +310,19 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         "Run RusticaAgent in multimode. This takes a directory of SSH public keys and will try to serve them all as hardware backed keys.",
     ));
 
+    let fido_setup_mode = fidosetup::add_configuration(new_run_agent_subcommand(
+        "fido-setup",
+        "Provision and register a new FIDO2 key.",
+    ));
+
+    let provision_piv_mode = provisionpiv::add_configuration(
+        Command::new("provision-piv").about("Provision this slot with a new private key"),
+    );
+
     let command_configuration = command_configuration.subcommand(immediate_mode);
     let command_configuration = command_configuration.subcommand(multi_mode);
+    let command_configuration = command_configuration.subcommand(fido_setup_mode);
+    let command_configuration = command_configuration.subcommand(provision_piv_mode);
 
     let matches = command_configuration.get_matches();
 
@@ -339,6 +332,14 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
 
     if let Some(multi_mode_cmd) = matches.subcommand_matches("multi") {
         return multimode::configure_multimode(&multi_mode_cmd);
+    }
+
+    if let Some(fido_setup_mode_cmd) = matches.subcommand_matches("fido-setup") {
+        return fidosetup::configure_fido_setup(&fido_setup_mode_cmd);
+    }
+
+    if let Some(provision_piv_mode) = matches.subcommand_matches("provision-piv") {
+        return provisionpiv::configure_provision_piv(&provision_piv_mode);
     }
 
     Err(ConfigurationError::NoMode)

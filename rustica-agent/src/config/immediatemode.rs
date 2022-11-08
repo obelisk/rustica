@@ -13,7 +13,27 @@ pub struct ImmediateConfig {
     pub out: Option<String>,
 }
 
+pub fn configure_immediate(matches: &ArgMatches) -> Result<RusticaAgentAction, ConfigurationError> {
+    let config = parse_config_from_args(&matches)?;
+    let server = parse_server_from_args(&matches, &config)?;
+    let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
+    let out = matches.value_of("out").map(|x| x.to_string());
+    let slot = matches.value_of("slot").map(|x| x.to_string());
+    let file = matches.value_of("file").map(|x| x.to_string());
+
+    let signatory = get_signatory(&slot, &config.slot, &file, &config.key)?;
+
+    return Ok(RusticaAgentAction::Immediate(ImmediateConfig {
+        server,
+        certificate_options,
+        signatory,
+        out,
+    }));
+}
+
 pub fn add_configuration(cmd: Command) -> Command {
+    let cmd = super::add_request_options(cmd);
+
     cmd
     .arg(
         Arg::new("out")
@@ -37,22 +57,4 @@ pub fn add_configuration(cmd: Command) -> Command {
             .short('f')
             .takes_value(true),
     )
-}
-
-pub fn configure_immediate(matches: &ArgMatches) -> Result<RusticaAgentAction, ConfigurationError> {
-    let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config)?;
-    let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
-    let out = matches.value_of("out").map(|x| x.to_string());
-    let slot = matches.value_of("slot").map(|x| x.to_string());
-    let file = matches.value_of("file").map(|x| x.to_string());
-
-    let signatory = get_signatory(&slot, &config.slot, &file, &config.key)?;
-
-    return Ok(RusticaAgentAction::Immediate(ImmediateConfig {
-        server,
-        certificate_options,
-        signatory,
-        out,
-    }));
 }

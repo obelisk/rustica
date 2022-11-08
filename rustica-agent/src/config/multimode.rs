@@ -173,6 +173,9 @@ pub fn add_configuration(cmd: Command) -> Command {
     // Add socket path and certificate priority
     let cmd = super::add_daemon_options(cmd);
 
+    // Add options for setting the fields on requested certificates
+    let cmd = super::add_request_options(cmd);
+
     // Add the specific arguments for this command
     cmd
         .arg(
