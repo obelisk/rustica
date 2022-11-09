@@ -7,7 +7,10 @@ use crate::config::RusticaAgentAction;
 use rustica_agent::rustica::key::U2FAttestation;
 use rustica_agent::*;
 
-use sshcerts::{fido::generate::generate_new_ssh_key, Certificate};
+use sshcerts::{
+    fido::{generate::generate_new_ssh_key, list_fido_devices},
+    Certificate,
+};
 
 use std::fs::File;
 use std::io::Write;
@@ -18,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     match config::configure() {
         Ok(RusticaAgentAction::ListFidoDevices) => {
-            for device in sshcerts::fido::list_fido_devices() {
+            for device in list_fido_devices() {
                 println!("{} - {}", device.path, device.product_string);
             }
         }
