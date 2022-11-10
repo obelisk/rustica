@@ -19,9 +19,9 @@ use sshcerts::fido::generate::generate_new_ssh_key;
 use sshcerts::ssh::{CertType, Certificate, PrivateKey, PublicKey, SSHCertificateSigner};
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
 
-use std::convert::TryFrom;
 use std::fs::File;
 use std::{collections::HashMap, os::unix::prelude::PermissionsExt};
+use std::{convert::TryFrom, slice};
 
 use std::time::SystemTime;
 
@@ -87,6 +87,7 @@ pub struct YubikeyPIVKeyDescriptor {
     pub serial: u32,
     pub slot: SlotId,
     pub public_key: PublicKey,
+    pub pin: Option<String>,
 }
 
 #[derive(Debug)]
@@ -187,8 +188,9 @@ impl SshAgentHandler for Handler {
     }
 
     fn identities(&mut self) -> Result<Response, AgentError> {
+        let mut identities = vec![];
         // Build identities from the private keys we have loaded
-        let mut identities: Vec<Identity> = self
+        let mut extra_identities: Vec<Identity> = self
             .identities
             .iter()
             .map(|x| Identity {
@@ -197,7 +199,7 @@ impl SshAgentHandler for Handler {
             })
             .collect();
 
-        identities.extend(self.piv_identities.iter().map(|x| Identity {
+        extra_identities.extend(self.piv_identities.iter().map(|x| Identity {
             key_blob: x.1.public_key.encode().to_vec(),
             key_comment: format!("Yubikey Serial: {} Slot: {:?}", x.1.serial, x.1.slot),
         }));
@@ -222,6 +224,8 @@ impl SshAgentHandler for Handler {
                     identities.push(key_ident);
                     identities.push(cert.clone());
                 }
+
+                identities.append(&mut extra_identities);
 
                 return Ok(Response::Identities(identities));
             }
@@ -266,6 +270,7 @@ impl SshAgentHandler for Handler {
                     identities.push(key_ident);
                     identities.push(cert_ident);
                 }
+                identities.append(&mut extra_identities);
             }
             Err(e) => {
                 error!("Refresh certificate error: {:?}", e);
@@ -296,6 +301,41 @@ impl SshAgentHandler for Handler {
         // TODO: @obelisk make this better
         let private_key: Option<&PrivateKey> = if self.identities.contains_key(&pubkey) {
             Some(&self.identities[&pubkey])
+        } else if let Some(descriptor) = self.piv_identities.get(&pubkey) {
+            let mut yk = Yubikey::open(descriptor.serial).map_err(|e| {
+                println!("Unable to open Yubikey: {e}");
+                AgentError::from("Unable to open Yubikey")
+            })?;
+
+            if let Some(f) = &self.notification_function {
+                f()
+            }
+
+            if let Some(pin) = &descriptor.pin {
+                if let Err(e) = yk.unlock(
+                    pin.as_bytes(),
+                    &hex::decode("010203040506070801020304050607080102030405060708").unwrap(),
+                ) {
+                    println!("Unlock Error: {e}");
+                    let tries_remaining =
+                        yk.yk.get_pin_retries().map(|x| x as i32).map_err(|e| {
+                            println!(
+                                "Could not fetch pin retries [{e}] for Yubikey: {}",
+                                descriptor.serial
+                            );
+                            AgentError::from("Could not fetch pin retries")
+                        })?;
+                    println!("Could not unlock Yubikey: {tries_remaining} tries remaining");
+                    return Err(AgentError::from("Yubikey unlocking error"));
+                }
+            }
+
+            let signature = yk.ssh_cert_signer(&data, &descriptor.slot).map_err(|e| {
+                println!("Signing Error: {e}");
+                AgentError::from("Yubikey signing error")
+            })?;
+
+            return Ok(Response::SignResponse { signature });
         } else if let Signatory::Direct(privkey) = &self.signatory {
             // Don't sign requests if the requested key does not match the signatory
             if privkey.pubkey.encode() != pubkey {
@@ -308,7 +348,10 @@ impl SshAgentHandler for Handler {
             if signer
                 .yk
                 .ssh_cert_fetch_pubkey(&signer.slot)
-                .map_err(|_| AgentError::from("Yubikey signing error"))?
+                .map_err(|e| {
+                    println!("Yubikey Fetch Certificate Error: {e}");
+                    AgentError::from("Yubikey fetch certificate error")
+                })?
                 .encode()
                 != pubkey
             {
@@ -325,7 +368,10 @@ impl SshAgentHandler for Handler {
             let signature = signer
                 .yk
                 .ssh_cert_signer(&data, &signer.slot)
-                .map_err(|_| AgentError::from("Yubikey signing error"))?;
+                .map_err(|e| {
+                    println!("Signing Error: {e}");
+                    AgentError::from("Yubikey signing error")
+                })?;
 
             return Ok(Response::SignResponse { signature });
         } else {
@@ -449,6 +495,7 @@ pub fn list_yubikey_serials() -> Result<Vec<i64>, RusticaAgentLibraryError> {
     Ok(serials)
 }
 
+/// List all PIV keys on all connected Yubikeys
 pub fn get_all_piv_keys(
 ) -> Result<HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>, RusticaAgentLibraryError> {
     let mut all_keys = HashMap::new();
@@ -465,6 +512,7 @@ pub fn get_all_piv_keys(
                             serial,
                             slot,
                             public_key: pubkey.clone(),
+                            pin: None,
                         };
                         all_keys.insert(pubkey.encode().to_vec(), descriptor);
                     }
@@ -475,6 +523,58 @@ pub fn get_all_piv_keys(
     }
 
     Ok(all_keys)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn unlock_yubikey(
+    yubikey_serial: *const c_int,
+    pin: *const c_char,
+    management_key: *const c_char,
+) -> c_int {
+    let mut yk = match Yubikey::open(yubikey_serial as u32) {
+        Ok(yk) => yk,
+        Err(e) => {
+            println!("Could not connect to Yubikey: {e}");
+            return -1;
+        }
+    };
+
+    let pin = if !pin.is_null() {
+        let pin = CStr::from_ptr(pin);
+        let pin = match pin.to_str() {
+            Err(_) => return -2,
+            Ok(s) => s,
+        };
+        pin.to_string()
+    } else {
+        return -6;
+    };
+
+    let management_key = if !management_key.is_null() {
+        let management_key = CStr::from_ptr(management_key);
+        let management_key = match management_key.to_str() {
+            Err(_) => return -2,
+            Ok(s) => s,
+        };
+
+        match hex::decode(management_key) {
+            Ok(s) => s,
+            Err(_) => {
+                println!("Invalid management key");
+                return -3;
+            }
+        }
+    } else {
+        return -4;
+    };
+
+    match yk.unlock(pin.as_bytes(), &management_key) {
+        Ok(_) => 0,
+        Err(e) => {
+            println!("Error unlocking key: {e}");
+            return yk.yk.get_pin_retries().map(|x| x as i32).unwrap_or(-9);
+        }
+    }
 }
 
 /// Fetch the list of serial numbers for the connected Yubikeys
@@ -717,7 +817,8 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
 pub unsafe extern "C" fn generate_and_enroll(
     yubikey_serial: u32,
     slot: u8,
-    high_security: bool,
+    touch_policy: u8,
+    pin_policy: u8,
     subject: *const c_char,
     config_data: *const c_char,
     pin: *const c_char,
@@ -740,11 +841,18 @@ pub unsafe extern "C" fn generate_and_enroll(
     let alg = AlgorithmId::EccP384;
     let slot = SlotId::try_from(slot).unwrap();
 
-    let policy = if high_security {
-        TouchPolicy::Always
-    } else {
-        TouchPolicy::Cached
+    let touch_policy = match touch_policy {
+        0 => TouchPolicy::Never,
+        1 => TouchPolicy::Cached,
+        _ => TouchPolicy::Always,
     };
+
+    let pin_policy = match pin_policy {
+        0 => PinPolicy::Never,
+        1 => PinPolicy::Once,
+        _ => PinPolicy::Always,
+    };
+
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
 
     if yk
@@ -759,8 +867,8 @@ pub unsafe extern "C" fn generate_and_enroll(
         &slot,
         subject.to_str().unwrap(),
         alg,
-        policy,
-        PinPolicy::Never,
+        touch_policy,
+        pin_policy,
     ) {
         Ok(_) => {
             let certificate = yk.fetch_attestation(&slot);
@@ -812,6 +920,41 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
     certificate_priority: bool,
+) -> bool {
+    return start_direct_rustica_agent_with_piv_idents(
+        private_key,
+        config_data,
+        socket_path,
+        pin,
+        device,
+        notification_fn,
+        authority,
+        certificate_priority,
+        std::ptr::null(),
+        std::ptr::null(),
+        std::ptr::null(),
+        0,
+    );
+}
+
+/// Start a new Rustica instance. Does not return unless Rustica exits.
+/// # Safety
+/// `config_data` and `socket_path` must be a null terminated C strings
+/// or behaviour is undefined and will result in a crash.
+#[no_mangle]
+pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
+    private_key: *const c_char,
+    config_data: *const c_char,
+    socket_path: *const c_char,
+    pin: *const c_char,
+    device: *const c_char,
+    notification_fn: unsafe extern "C" fn() -> (),
+    authority: *const c_char,
+    certificate_priority: bool,
+    piv_serials: *const c_long,
+    piv_slots: *const u8,
+    piv_pins: *const c_long,
+    piv_key_count: c_int,
 ) -> bool {
     println!("Starting a new Rustica instance!");
 
@@ -868,7 +1011,66 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
         private_key.set_device_path(device);
     }
 
+    let piv_key_count = piv_key_count as usize;
+    let key_serials: Vec<u32> = slice::from_raw_parts(piv_serials, piv_key_count)
+        .into_iter()
+        .map(|x| *x as u32)
+        .collect();
+
+    let piv_pins: Vec<Option<String>> = slice::from_raw_parts(piv_pins, piv_key_count)
+        .into_iter()
+        .map(|x| {
+            let pin = *x as u32;
+            if pin != 0 {
+                Some(pin.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut key_slots = vec![];
+
+    for maybe_slot in slice::from_raw_parts(piv_slots, piv_key_count) {
+        match SlotId::try_from(*maybe_slot) {
+            Ok(s) => key_slots.push(s),
+            Err(_) => return false,
+        };
+    }
+
+    let mut piv_identities = HashMap::new();
+    for ((serial, slot), pin) in key_serials
+        .into_iter()
+        .zip(key_slots.into_iter())
+        .zip(piv_pins.into_iter())
+    {
+        let mut yk = match Yubikey::open(serial) {
+            Ok(yk) => yk,
+            Err(_) => return false,
+        };
+
+        let pubkey = match yk.ssh_cert_fetch_pubkey(&slot) {
+            Ok(pk) => pk,
+            Err(_) => return false,
+        };
+
+        piv_identities.insert(
+            pubkey.encode().to_vec(),
+            YubikeyPIVKeyDescriptor {
+                public_key: pubkey,
+                serial,
+                slot,
+                pin,
+            },
+        );
+    }
+
     println!("Fingerprint: {:?}", private_key.pubkey.fingerprint().hash);
+
+    println!("Additional Fingerprints:");
+    for key in piv_identities.iter() {
+        println!("{}", key.1.public_key.fingerprint().hash);
+    }
 
     let config: Config = toml::from_str(config_data).unwrap();
     let mut certificate_options = CertificateConfig::from(config.options);
@@ -887,7 +1089,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
         ),
         signatory: Signatory::Direct(private_key),
         identities: HashMap::new(),
-        piv_identities: HashMap::new(),
+        piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
     };
