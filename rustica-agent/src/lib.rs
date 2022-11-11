@@ -21,7 +21,7 @@ use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, Touc
 
 use std::fs::File;
 use std::{collections::HashMap, os::unix::prelude::PermissionsExt};
-use std::{convert::TryFrom, slice};
+use std::{convert::TryFrom, env, slice};
 
 use std::time::SystemTime;
 
@@ -501,7 +501,23 @@ pub fn get_all_piv_keys(
     let mut all_keys = HashMap::new();
     let serials = list_yubikey_serials()?;
 
+    let global_pin = match env::var("YK_PIN") {
+        Ok(val) => Some(val),
+        Err(_e) => None,
+    };
+
     for serial in serials {
+        let pin = match env::var(format!("YK_PIN_{serial}")) {
+            Ok(val) => Some(val),
+            Err(_e) => None,
+        };
+
+        let pin = match (pin, &global_pin) {
+            (Some(pin), _) => Some(pin),
+            (None, Some(pin)) => Some(pin.clone()),
+            (None, None) => None,
+        };
+
         let serial = serial as u32;
         match &mut Yubikey::open(serial) {
             Ok(yk) => {
@@ -512,7 +528,7 @@ pub fn get_all_piv_keys(
                             serial,
                             slot,
                             public_key: pubkey.clone(),
-                            pin: None,
+                            pin: pin.clone(),
                         };
                         all_keys.insert(pubkey.encode().to_vec(), descriptor);
                     }
