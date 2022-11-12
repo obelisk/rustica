@@ -46,5 +46,6 @@ H+dYJhoc1smw1KVDmtt8ysKMCwNm7Y0i8etXJ6RA8kBfHdxWtd3GEMS8
 
 [options]
 duration = 15
+authority = "example_test_environment"
 principals = ["testuser"]
 kind = "user"

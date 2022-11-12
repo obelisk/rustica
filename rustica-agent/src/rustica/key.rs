@@ -1,8 +1,6 @@
 use super::error::{RefreshError};
 use super::{RegisterKeyRequest, RegisterU2fKeyRequest, RusticaServer, Signatory};
 
-use tokio::runtime::Runtime;
-
 pub mod rustica {
     tonic::include_proto!("rustica");
 }
@@ -41,7 +39,7 @@ impl RusticaServer {
 
 
     pub fn register_key(&self, signatory: &mut Signatory, key: &PIVAttestation) -> Result<(), RefreshError> {
-        Runtime::new().unwrap().block_on(async {
+        self.runtime.block_on(async {
             self.register_key_async(signatory, key).await
         })
     }
@@ -66,7 +64,7 @@ impl RusticaServer {
     }
 
     pub fn register_u2f_key(&self, signatory: &mut Signatory, application: &str, key: &U2FAttestation) -> Result<(), RefreshError> {
-        Runtime::new().unwrap().block_on(async {
+        self.runtime.block_on(async {
             self.register_u2f_key_async(signatory, application, key).await
         })
     }

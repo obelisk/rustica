@@ -54,15 +54,13 @@ require_rustica_proof = false
 # either does not provide an attestation or the attestation fails, the key
 # will be rejected and the API call will fail. In the case of using an
 # external authorizer, a call will not be made to inform it of this event.
-require_attestation_chain = true
+require_attestation_chain = false
+
+[logging."stdout"]
 
 [signing]
 default_authority = "example_test_environment"
 
-# Rustica has many ways it can sign SSH certificates which are sent to
-# clients. This method uses private keys embedded in the configuration
-# file. This will mean the hosts which you want to login to via Rustica
-# must respect the public portion of the user key variable below.
 [signing.signing_configuration.example_test_environment]
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -86,14 +84,9 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
-[logging."stdout"]
-
-[logging."influx"]
-address = "http://some-local-influx-instance:8080"
-database = "rustica"
-dataset = "rustica_logs"
-user = "influx_user"
-password = "influx_password"
+[signing.signing_configuration."example_prod_environment"]
+user_slot = "R2"
+host_slot = "R3"
 
 [authorization."database"]
 path = "examples/example.db"

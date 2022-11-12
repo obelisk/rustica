@@ -86,14 +86,28 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
-[logging."stdout"]
+[signing.signing_configuration.example_prod_environment]
+user_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACB6GWweeLV8JUaw6su+TwZc+dGmEmV1crFVLjRnviX0vQAAAKC4yomjuMqJ
+owAAAAtzc2gtZWQyNTUxOQAAACB6GWweeLV8JUaw6su+TwZc+dGmEmV1crFVLjRnviX0vQ
+AAAEC5ut4epWWUojssOgAlAlGfiBJ4AGZ8G1eWchiRfhk2mnoZbB54tXwlRrDqy75PBlz5
+0aYSZXVysVUuNGe+JfS9AAAAG29iZWxpc2tATWFjQm9vay1Qcm8tMy5sb2NhbAEC
+-----END OPENSSH PRIVATE KEY-----
+'''
 
-[logging."influx"]
-address = "http://some-local-influx-instance:8080"
-database = "rustica"
-dataset = "rustica_logs"
-user = "influx_user"
-password = "influx_password"
+host_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACB5w+QCbSSFLH0hWI04OY0JFSNF5yg4kg2Po0XFgtGy/wAAAKDqg4KG6oOC
+hgAAAAtzc2gtZWQyNTUxOQAAACB5w+QCbSSFLH0hWI04OY0JFSNF5yg4kg2Po0XFgtGy/w
+AAAECPJOmHKCJNl7CyEn0HoPpMT2aVg/l8JYNJWu/ClUHDNnnD5AJtJIUsfSFYjTg5jQkV
+I0XnKDiSDY+jRcWC0bL/AAAAG29iZWxpc2tATWFjQm9vay1Qcm8tMy5sb2NhbAEC
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+[logging."stdout"]
 
 [authorization."database"]
 path = "examples/example.db"
