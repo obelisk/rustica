@@ -1,26 +1,20 @@
 use crate::auth::AuthorizationConfiguration;
 use crate::logging::{Log, LoggingConfiguration};
 use crate::server::RusticaServer;
-use crate::signing::SigningConfiguration;
+use crate::signing::{SigningConfiguration, SigningError};
 
-use clap::{
-    Arg,
-    Command,
-};
+use clap::{Arg, Command};
 
 use crossbeam_channel::{unbounded, Receiver};
 
 use ring::{hmac, rand};
 use serde::Deserialize;
+use sshcerts::CertType;
 
 use std::convert::TryInto;
 use std::net::SocketAddr;
 
-use sshcerts::{
-    ssh::KeyTypeKind,
-    PrivateKey,
-};
-
+use sshcerts::{ssh::KeyTypeKind, PrivateKey};
 
 #[derive(Deserialize)]
 pub struct Configuration {
@@ -51,7 +45,9 @@ pub enum ConfigurationError {
     SSHKeyError,
     InvalidListenAddress,
     AuthorizerError,
-    SigningMechanismError,
+    SigningMechanismError(SigningError),
+    ValidateOnly,
+    DefaultAuthorityNotDefined,
 }
 
 impl From<sshcerts::error::Error> for ConfigurationError {
@@ -68,15 +64,19 @@ impl std::error::Error for ConfigurationError {
 
 impl std::fmt::Display for ConfigurationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            ConfigurationError::FileError => "Could not read configuration file",
-            ConfigurationError::ParsingError => "Could not parse the configuration file",
-            ConfigurationError::SSHKeyError => "Could not parse the provided SSH keys file",
-            ConfigurationError::InvalidListenAddress => "Invalid address and/or port to listen on",
-            ConfigurationError::AuthorizerError => "Configuration for authorization was invalid",
-            ConfigurationError::SigningMechanismError => "Configuration for signing certificates was invalid",
-        };
-        write!(f, "{}", s)
+        match self {
+            Self::FileError => write!(f, "Could not read configuration file"),
+            Self::ParsingError => write!(f, "Could not parse the configuration file"),
+            Self::SSHKeyError => write!(f, "Could not parse the provided SSH keys file"),
+            Self::InvalidListenAddress => write!(f, "Invalid address and/or port to listen on"),
+            Self::AuthorizerError => write!(f, "Configuration for authorization was invalid"),
+            Self::SigningMechanismError(ref e) => write!(f, "{}", e),
+            Self::ValidateOnly => write!(f, "Configuration was validated"),
+            Self::DefaultAuthorityNotDefined => write!(
+                f,
+                "The default authority provided did not have a matching configuration"
+            ),
+        }
     }
 }
 
@@ -85,7 +85,6 @@ impl std::fmt::Debug for ConfigurationError {
         write!(f, "{}", self)
     }
 }
-
 
 pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let matches = Command::new("Rustica")
@@ -98,7 +97,15 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
                 .long("config")
                 .default_value("/etc/rustica/rustica.toml")
                 .takes_value(true),
-        ).get_matches();
+        )
+        .arg(
+            Arg::new("validate")
+                .help("Only validate the configuration and then quit. Useful for testing configuration changes.")
+                .long("validate-config")
+                .short('v')
+                .takes_value(false),
+        )
+        .get_matches();
 
     // Read the configuration file
     let config = match tokio::fs::read(matches.value_of("config").unwrap()).await {
@@ -112,12 +119,12 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         Err(e) => {
             error!("Failed to parse config: {}", e);
             return Err(ConfigurationError::ParsingError);
-        },
+        }
     };
 
     let address = match config.listen_address.parse() {
         Ok(addr) => addr,
-        Err(_) => return Err(ConfigurationError::InvalidListenAddress)
+        Err(_) => return Err(ConfigurationError::InvalidListenAddress),
     };
 
     let (log_sender, log_receiver) = unbounded();
@@ -129,13 +136,24 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
 
     let signer = match config.signing.convert_to_signing_mechanism().await {
         Ok(signer) => signer,
-        Err(_) => return Err(ConfigurationError::SigningMechanismError),
+        Err(e) => return Err(ConfigurationError::SigningMechanismError(e)),
     };
+
+    if signer
+        .get_signer_public_key(&signer.default_authority, CertType::User)
+        .is_err()
+    {
+        return Err(ConfigurationError::DefaultAuthorityNotDefined);
+    }
 
     let rng = rand::SystemRandom::new();
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
     let challenge_key = PrivateKey::new(KeyTypeKind::Ed25519, "RusticaChallengeKey").unwrap();
-    
+
+    if matches.is_present("validate") {
+        return Err(ConfigurationError::ValidateOnly);
+    }
+
     let server = RusticaServer {
         log_sender,
         hmac_key,
@@ -145,7 +163,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         require_rustica_proof: config.require_rustica_proof,
         require_attestation_chain: config.require_attestation_chain,
     };
-    
+
     Ok(RusticaSettings {
         server,
         client_ca_cert: config.client_ca_cert,

@@ -1,6 +1,6 @@
 [package]
 name = "rustica-agent"
-version = "0.9.0"
+version = "0.10.0"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2018"
 
@@ -22,9 +22,9 @@ serde = "1.0.97"
 serde_derive = "1.0"
 sha2 = "0.9.2"
 # For Production
-sshcerts = {version = "0.11.0", features = ["yubikey-support", "fido-support"]}
+#sshcerts = {version = "0.11.0", features = ["yubikey-support", "fido-support"]}
 # For Development
-#sshcerts = {git = "https://github.com/obelisk/sshcerts", branch = "new_fido2", features = ["yubikey-support", "fido-support"]}
+sshcerts = {git = "https://github.com/obelisk/sshcerts", branch = "bug_fixes_2022_07_06", features = ["yubikey-support", "fido-support"]}
 #sshcerts = {path = "../../sshcerts", features = ["yubikey-support", "fido-support"]}
 tokio = { version = "1.0.0", features = ["full"] }
 toml = "0.5.8"
