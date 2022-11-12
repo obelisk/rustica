@@ -6,6 +6,7 @@ use diesel::sqlite::SqliteConnection;
 
 use serde::Deserialize;
 
+use std::collections::HashMap;
 use std::time::SystemTime;
 use super::{
     Authorization,
@@ -15,7 +16,7 @@ use super::{
     KeyAttestation,
 };
 
-use sshcerts::ssh::{Certificate, CertType};
+use sshcerts::ssh::CertType;
 
 #[derive(Deserialize)]
 pub struct LocalDatabase {
@@ -40,7 +41,7 @@ impl LocalDatabase {
         let conn = establish_connection(&self.path);
         let principals = {
             use schema::fingerprint_principal_authorizations::dsl::*;
-            let results = fingerprint_principal_authorizations.filter(fingerprint.eq(fp))
+            let results = fingerprint_principal_authorizations.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintPrincipalAuthorization>(&conn)
                 .expect("Error loading authorized hosts");
             
@@ -50,16 +51,26 @@ impl LocalDatabase {
         let hosts = {
             use schema::fingerprint_host_authorizations::dsl::*;
 
-            let results = fingerprint_host_authorizations.filter(fingerprint.eq(fp))
+            let results = fingerprint_host_authorizations.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintHostAuthorization>(&conn)
                 .expect("Error loading authorized hosts");
             
             Some(results.into_iter().map(|x| x.hostname).collect())
         };
 
+        let extensions: HashMap<String, String> = {
+            use schema::fingerprint_extensions::dsl::*;
+
+            let results = fingerprint_extensions.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
+                .load::<models::FingerprintExtension>(&conn)
+                .expect("Error loading fingerprint extensions");
+            
+            results.into_iter().map(|x| (x.extension_name, x.extension_value.unwrap_or(String::new()))).collect()
+        };
+
         {
             use schema::fingerprint_permissions::dsl::*;
-            let results = fingerprint_permissions.filter(fingerprint.eq(fp))
+            let results = fingerprint_permissions.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintPermission>(&conn)
                 .expect("Error loading authorized hosts");
             
@@ -83,11 +94,12 @@ impl LocalDatabase {
                     principals: if results[0].principal_unrestricted {req.principals.clone()} else {principals},
                     // When host is unrestricted we return None
                     hosts: if results[0].host_unrestricted {None} else {hosts},
-                    extensions: Certificate::standard_extensions(),
+                    extensions,
                     force_command: None,
                     force_source_ip: false,
                     valid_after: req.valid_after,
                     valid_before: current_timestamp + results[0].max_creation_time as u64,
+                    authority: req.authority.clone(),
                 })
             } else {
                 Err(AuthorizationError::NotAuthorized)

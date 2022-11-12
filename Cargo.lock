@@ -97,9 +97,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.53"
+version = "0.1.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed6aa3524a2dfcf9fe180c51eae2b58738348d819517ceadf95789c51fff7600"
+checksum = "96cf8829f67d2eab0b2dfa42c5d0ef737e0724e4a82b01b3e292456202b19716"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1291,70 +1291,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lexical-core"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92912c4af2e7d9075be3e5e3122c4d7263855fa6cce34fbece4dd08e5884624d"
-dependencies = [
- "lexical-parse-float",
- "lexical-parse-integer",
- "lexical-util",
- "lexical-write-float",
- "lexical-write-integer",
-]
-
-[[package]]
-name = "lexical-parse-float"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f518eed87c3be6debe6d26b855c97358d8a11bf05acec137e5f53080f5ad2dd8"
-dependencies = [
- "lexical-parse-integer",
- "lexical-util",
- "static_assertions",
-]
-
-[[package]]
-name = "lexical-parse-integer"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afc852ec67c6538bbb2b9911116a385b24510e879a69ab516e6a151b15a79168"
-dependencies = [
- "lexical-util",
- "static_assertions",
-]
-
-[[package]]
-name = "lexical-util"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c72a9d52c5c4e62fa2cdc2cb6c694a39ae1382d9c2a17a466f18e272a0930eb1"
-dependencies = [
- "static_assertions",
-]
-
-[[package]]
-name = "lexical-write-float"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a89ec1d062e481210c309b672f73a0567b7855f21e7d2fae636df44d12e97f9"
-dependencies = [
- "lexical-util",
- "lexical-write-integer",
- "static_assertions",
-]
-
-[[package]]
-name = "lexical-write-integer"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "094060bd2a7c2ff3a16d5304a6ae82727cb3cc9d1c70f813cc73f744c319337e"
-dependencies = [
- "lexical-util",
- "static_assertions",
-]
-
-[[package]]
 name = "libc"
 version = "0.2.123"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1462,7 +1398,7 @@ checksum = "e7413f999671bd4745a7b624bd370a569fb6bc574b23c83a3c5ed2e453f3d5e2"
 dependencies = [
  "bitvec",
  "funty",
- "lexical-core 0.7.6",
+ "lexical-core",
  "memchr",
  "version_check",
 ]
@@ -1846,11 +1782,11 @@ checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.37"
+version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec757218438d5fda206afc041538b2f6d889286160d649a86a24d37e1235afd1"
+checksum = "dd96a1e8ed2596c337f8eae5f24924ec83f5ad5ab21ea8e455d3566c69fbcaf7"
 dependencies = [
- "unicode-xid",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -2011,7 +1947,19 @@ dependencies = [
  "chrono",
  "pem",
  "ring",
- "yasna",
+ "yasna 0.4.0",
+]
+
+[[package]]
+name = "rcgen"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffbe84efe2f38dea12e9bfc1f65377fdf03e53a18cb3b995faedf7934c7e785b"
+dependencies = [
+ "pem",
+ "ring",
+ "time 0.3.9",
+ "yasna 0.5.0",
 ]
 
 [[package]]
@@ -2133,8 +2081,9 @@ dependencies = [
 
 [[package]]
 name = "rustica"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-sdk-kms",
  "aws-types",
@@ -2156,7 +2105,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "sha2",
- "sshcerts",
+ "sshcerts 0.11.0",
  "tokio",
  "toml",
  "tonic 0.4.3",
@@ -2166,7 +2115,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.12.3",
  "byteorder",
@@ -2175,14 +2124,14 @@ dependencies = [
  "futures-core",
  "futures-util",
  "hex",
- "lexical-core 0.8.3",
+ "lexical-core",
  "log",
  "prost 0.9.0",
  "ring",
  "serde",
  "serde_derive",
  "sha2",
- "sshcerts",
+ "sshcerts 0.12.0",
  "tokio",
  "toml",
  "tonic 0.6.2",
@@ -2494,11 +2443,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673c11b3455e43e149ed8bc0a7421f7b63f2ed6012ef9ebe5e86638665e647a8"
 dependencies = [
  "base64 0.13.0",
+ "der-parser 5.1.2",
+ "minicbor",
+ "rcgen 0.8.14",
+ "ring",
+ "x509",
+ "x509-parser 0.13.2",
+ "yubikey",
+ "zeroize",
+]
+
+[[package]]
+name = "sshcerts"
+version = "0.12.0"
+source = "git+https://github.com/obelisk/sshcerts?branch=bug_fixes_2022_07_06#4d90bed58eac47d416b544e739424843a03bf669"
+dependencies = [
+ "base64 0.13.0",
  "ctap-hid-fido2",
  "der-parser 5.1.2",
  "minicbor",
  "num-bigint",
- "rcgen",
+ "rcgen 0.10.0",
  "ring",
  "simple_asn1",
  "x509",
@@ -2555,13 +2520,13 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.91"
+version = "1.0.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b683b2b825c8eef438b77c36a06dc262294da3d5a5813fac20da149241dcd44d"
+checksum = "c50aef8a904de4c23c788f104b7dddc7d6f79c647c7c8ce4cc8f73eb0ca773dd"
 dependencies = [
  "proc-macro2",
  "quote",
- "unicode-xid",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -2965,6 +2930,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a01404663e3db436ed2746d9fefef640d868edae3cceb81c3b8d5732fda678f"
 
 [[package]]
+name = "unicode-ident"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bd2fe26506023ed7b5e1e315add59d6f584c621d037f9368fea9cfb988f368c"
+
+[[package]]
 name = "unicode-normalization"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3341,6 +3312,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e262a29d0e61ccf2b6190d7050d4b237535fc76ce4c1210d9caa316f71dffa75"
 dependencies = [
  "chrono",
+]
+
+[[package]]
+name = "yasna"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346d34a236c9d3e5f3b9b74563f238f955bbd05fa0b8b4efa53c130c43982f4c"
+dependencies = [
+ "time 0.3.9",
 ]
 
 [[package]]

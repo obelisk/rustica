@@ -12,14 +12,14 @@ mod key;
 mod logging;
 mod server;
 mod signing;
-mod utils;
 mod verification;
 
-use rustica::rustica_server::{RusticaServer as GRPCRusticaServer};
-use sshcerts::ssh::CertType;
+use rustica::rustica_server::RusticaServer as GRPCRusticaServer;
 use tonic::transport::{Certificate as TonicCertificate, Identity, Server, ServerTlsConfig};
 
 use std::thread;
+
+use crate::config::ConfigurationError;
 
 pub mod rustica {
     tonic::include_proto!("rustica");
@@ -28,26 +28,20 @@ pub mod rustica {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let settings = config::configure().await?;
+    let settings = match config::configure().await {
+        Ok(settings) => settings,
+        Err(ConfigurationError::ValidateOnly) => {
+            println!("Configuration successfully validated");
+            return Ok(());
+        }
+        Err(e) => return Err(e)?,
+    };
+
     let identity = Identity::from_pem(settings.server_cert, settings.server_key);
     let client_ca_cert = TonicCertificate::from_pem(settings.client_ca_cert);
 
-    match (settings.server.signer.get_signer_public_key(CertType::User), settings.server.signer.get_signer_public_key(CertType::Host)) {
-        (Ok(_), Ok(_)) => (),
-        (Err(e), _) => {
-            error!("Could not fetch public key for user certificate signing: {:?}", e);
-            // Make this error
-            return Ok(());
-        },
-        (_, Err(e)) => {
-            error!("Could not fetch public key for host certificate signing: {:?}", e);
-            // Make this error
-            return Ok(());
-        }
-    };
-
     println!("Starting Rustica on: {}", settings.address);
-    settings.server.signer.print_signing_info();
+    println!("{}", settings.server.signer);
     println!("{}", settings.server.authorizer.info());
 
     let logging_configuration = settings.logging_configuration;
@@ -58,7 +52,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     Server::builder()
-        .tls_config(ServerTlsConfig::new().identity(identity).client_ca_root(client_ca_cert))?
+        .tls_config(
+            ServerTlsConfig::new()
+                .identity(identity)
+                .client_ca_root(client_ca_cert),
+        )?
+        .max_frame_size(1024 * 1024 * 4) // 4 MiB
         .add_service(GRPCRusticaServer::new(settings.server))
         .serve(settings.address)
         .await?;

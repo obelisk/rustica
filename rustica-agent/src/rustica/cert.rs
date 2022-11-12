@@ -5,7 +5,6 @@ use sshcerts::Certificate;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
-use tokio::runtime::Runtime;
 
 impl RusticaServer {
     pub async fn refresh_certificate_async(&self, signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
@@ -18,7 +17,7 @@ impl RusticaServer {
 
         let request = tonic::Request::new(CertificateRequest {
             cert_type: options.cert_type as u32,
-            key_id: String::from(""),           // Rustica Server ignores this field
+            key_id: options.authority.clone(),
             critical_options: HashMap::new(),
             extensions: Certificate::standard_extensions(),
             servers: options.hosts.clone(),
@@ -46,7 +45,7 @@ impl RusticaServer {
     }
 
     pub fn get_custom_certificate(&self, signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
-        Runtime::new().unwrap().block_on(async {
+        self.runtime.block_on(async {
             self.refresh_certificate_async(signatory, options).await
         })
     }

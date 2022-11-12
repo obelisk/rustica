@@ -4,3 +4,7 @@ members = [
     "rustica",
     "rustica-agent",
 ]
+
+[profile.release]
+strip = "debuginfo"
+lto = true

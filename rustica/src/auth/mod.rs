@@ -52,6 +52,7 @@ pub struct Authorization {
     pub extensions: HashMap<String, String>,
     pub force_command: Option<String>,
     pub force_source_ip: bool,
+    pub authority: String,
 }
 
 #[derive(Debug)]
@@ -64,6 +65,7 @@ pub struct AuthorizationRequestProperties {
     pub valid_before: u64,
     pub valid_after: u64,
     pub cert_type: CertType,
+    pub authority: String,
 }
 
 #[derive(Debug)]

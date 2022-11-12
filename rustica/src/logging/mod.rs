@@ -41,6 +41,8 @@ pub struct CertificateIssued {
     pub fingerprint: String,
     /// The fingerprint of the signing certificate
     pub signed_by: String,
+    /// The configured authority name for the signer
+    pub authority: String,
     /// Certificate type, either User or Host
     pub certificate_type: String,
     /// The MTLS identities of the action taken
