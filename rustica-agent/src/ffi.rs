@@ -677,3 +677,67 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
 
     true
 }
+
+/// Fetch a string that will configure a git repository for code
+/// signing under the given key
+/// # Safety
+#[no_mangle]
+pub unsafe extern "C" fn ffi_get_git_config_string_from_private_key(
+    private_key: *const c_char,
+) -> *const c_char {
+    let private_key = CStr::from_ptr(private_key);
+    let public_key = match private_key.to_str() {
+        Err(_) => return std::ptr::null(),
+        Ok(s) => {
+            if let Ok(p) = PrivateKey::from_string(s) {
+                p.pubkey.clone()
+            } else {
+                return std::ptr::null();
+            }
+        }
+    };
+
+    let git_config = match CString::new(crate::git_config_from_public_key(&public_key)) {
+        Ok(c) => c,
+        Err(_) => return std::ptr::null(), // Happens if the string contains a null byte. Should never happen but better to handle than not
+    };
+
+    git_config.into_raw()
+}
+
+/// Fetch a string that will configure a git repository for code
+/// signing under the given key
+/// # Safety
+#[no_mangle]
+pub unsafe extern "C" fn ffi_get_git_config_string_from_serial_and_slot(
+    serial: u32,
+    slot: u8,
+) -> *const c_char {
+    let public_key = match &mut Yubikey::open(serial) {
+        Ok(yk) => {
+            let slot = match RetiredSlotId::try_from(slot) {
+                Ok(s) => SlotId::Retired(s),
+                Err(_) => return std::ptr::null(),
+            };
+
+            match yk.ssh_cert_fetch_pubkey(&slot) {
+                Ok(pk) => pk,
+                Err(_) => return std::ptr::null(),
+            }
+        }
+        Err(_) => return std::ptr::null(),
+    };
+
+    let git_config = match CString::new(crate::git_config_from_public_key(&public_key)) {
+        Ok(c) => c,
+        Err(_) => return std::ptr::null(), // Happens if the string contains a null byte. Should never happen but better to handle than not
+    };
+
+    git_config.into_raw()
+}
+
+/// Free a string allocated by Rust
+#[no_mangle]
+pub unsafe extern "C" fn ffi_free_rust_string(string_ptr: *mut c_char) {
+    drop(CString::from_raw(string_ptr));
+}
