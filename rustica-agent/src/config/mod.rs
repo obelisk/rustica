@@ -1,4 +1,5 @@
 mod fidosetup;
+mod gitconfig;
 mod immediatemode;
 mod listpivkeys;
 mod multimode;
@@ -37,6 +38,8 @@ pub enum ConfigurationError {
     InvalidFidoKeyName,
     MultiModeError(multimode::Error),
     NoMode,
+    YubikeyError(String),
+    UnableToDetermineKey,
 }
 
 pub struct RunConfig {
@@ -53,6 +56,7 @@ pub enum RusticaAgentAction {
     ProvisionAndRegisterFido(fidosetup::ProvisionAndRegisterFidoConfig),
     ListPIVKeys(listpivkeys::ListPIVKeysConfig),
     ListFidoDevices,
+    GitConfig(PublicKey),
 }
 
 impl From<std::io::Error> for ConfigurationError {
@@ -332,6 +336,11 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     let list_fido_devices =
         Command::new("list-fido-devices").about("List all connected FIDO2 devices. Used for pointing private keys to the correct device when multiple are connected");
 
+    let git_config = gitconfig::add_configuration(
+        Command::new("git-config")
+            .about("Show the git configuration for code-signing with the provided key"),
+    );
+
     let command_configuration = command_configuration
         .subcommand(immediate_mode)
         .subcommand(multi_mode)
@@ -340,7 +349,9 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         .subcommand(register_mode)
         .subcommand(single_mode)
         .subcommand(list_piv_keys)
-        .subcommand(list_fido_devices);
+        .subcommand(list_fido_devices)
+        .subcommand(git_config);
+    let mut cc_help = command_configuration.clone();
 
     let matches = command_configuration.get_matches();
 
@@ -376,5 +387,10 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         return Ok(RusticaAgentAction::ListFidoDevices);
     }
 
+    if let Some(git_config) = matches.subcommand_matches("git-config") {
+        return gitconfig::configure_git_config(git_config);
+    }
+
+    cc_help.print_help().unwrap();
     Err(ConfigurationError::NoMode)
 }

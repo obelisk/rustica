@@ -20,6 +20,9 @@ use std::os::unix::prelude::PermissionsExt;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     match config::configure() {
+        Ok(RusticaAgentAction::GitConfig(public_key)) => {
+            println!("{}", git_config_from_public_key(&public_key))
+        }
         Ok(RusticaAgentAction::ListFidoDevices) => {
             for device in list_fido_devices() {
                 println!("{} - {}", device.path, device.product_string);
@@ -152,6 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let socket = UnixListener::bind(config.socket_path)?;
             Agent::run(config.handler, socket);
         }
+        Err(config::ConfigurationError::NoMode) => (),
         Err(e) => println!("Error: {:?}", e),
     };
 
