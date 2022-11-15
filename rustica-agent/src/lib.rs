@@ -275,6 +275,7 @@ impl SshAgentHandler for Handler {
                     key_blob: self.pubkey.encode().to_vec(),
                     key_comment: format!("Only key available, Certificate refresh error: {e}, "),
                 });
+                identities.append(&mut extra_identities);
             }
         }
         return Ok(Response::Identities(identities));
