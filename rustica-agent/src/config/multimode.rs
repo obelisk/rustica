@@ -41,7 +41,7 @@ fn get_keys_from_dir(directory: &str) -> Result<(Vec<PublicKey>, Vec<PrivateKey>
         };
 
         // If it's a .pub, try to parse it as a public key
-        if key_path.ends_with(".pub") {
+        if key_path.display().to_string().ends_with(".pub") {
             match PublicKey::from_path(&key_path) {
                 Ok(key) => public_keys.push(key),
                 Err(e) => println!("Error for {}: {e}", key_path.to_string_lossy()),
@@ -54,6 +54,12 @@ fn get_keys_from_dir(directory: &str) -> Result<(Vec<PublicKey>, Vec<PrivateKey>
             }
         }
     }
+
+    println!(
+        "Loaded: {} public keys, and {} private keys",
+        public_keys.len(),
+        private_keys.len()
+    );
 
     return Ok((public_keys, private_keys));
 }
