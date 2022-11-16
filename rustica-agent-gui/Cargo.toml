@@ -9,5 +9,6 @@ edition = "2021"
 eframe = "0.19.0"
 home = "0.5"
 rustica-agent = {path = "../rustica-agent"}
+sshcerts = {git = "https://github.com/obelisk/sshcerts", branch = "bug_fixes_2022_07_06", features = ["yubikey-support", "fido-support"]}
 toml = "0.5"
 tracing-subscriber = "0.3"

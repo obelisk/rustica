@@ -3104,6 +3104,7 @@ dependencies = [
  "eframe",
  "home",
  "rustica-agent",
+ "sshcerts 0.12.0",
  "toml",
  "tracing-subscriber",
 ]
