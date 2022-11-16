@@ -4,6 +4,8 @@ use std::sync::Mutex;
 
 use std::os::unix::net::{UnixListener, UnixStream};
 
+use crossbeam_channel::Receiver;
+
 use super::protocol::Request;
 
 use super::handler::SshAgentHandler;
@@ -23,6 +25,10 @@ impl Agent {
 	}
 
 	pub fn run<T:SshAgentHandler + 'static>(handler: T, listener: UnixListener) {
+		return Self::run_with_termination_channel(handler, listener, None);
+	}
+
+	pub fn run_with_termination_channel<T:SshAgentHandler + 'static>(handler: T, listener: UnixListener, term_channel: Option<Receiver<()>>) {
 		let arc_handler = Arc::new(Mutex::new(handler));
 		// accept the connections and spawn a new thread for each one 
 		for stream in listener.incoming() {
