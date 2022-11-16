@@ -3,6 +3,7 @@
 members = [
     "rustica",
     "rustica-agent",
+    "rustica-agent-cli",
 ]
 
 [profile.release]

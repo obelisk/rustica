@@ -2119,12 +2119,8 @@ version = "0.10.0"
 dependencies = [
  "base64 0.12.3",
  "byteorder",
- "clap",
  "env_logger",
- "futures-core",
- "futures-util",
  "hex",
- "lexical-core",
  "log",
  "prost 0.9.0",
  "ring",
@@ -2136,6 +2132,20 @@ dependencies = [
  "toml",
  "tonic 0.6.2",
  "tonic-build 0.6.2",
+ "yubikey",
+]
+
+[[package]]
+name = "rustica-agent-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "hex",
+ "log",
+ "rustica-agent",
+ "sshcerts 0.12.0",
+ "toml",
  "yubikey",
 ]
 
