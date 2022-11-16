@@ -1,4 +1,4 @@
-# RusticaAgent
+# Rustica Agent Command Line Interface
 
 ## Introduction
 This is the agent portion of the project and manages keys as well as talking to Rustica and remote SSH hosts. It supports using a Yubikey for hardware backed SSH keys as well as adding external key files after the agent has started.

@@ -1,0 +1,13 @@
+[package]
+name = "rustica-agent-gui"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eframe = "0.19.0"
+home = "0.5"
+rustica-agent = {path = "../rustica-agent"}
+toml = "0.5"
+tracing-subscriber = "0.3"
