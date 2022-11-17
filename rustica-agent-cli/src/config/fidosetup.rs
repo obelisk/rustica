@@ -1,12 +1,11 @@
 use std::env;
 
-use clap::{Arg, ArgMatches, Command};
-use rustica_agent::RusticaServer;
-use tokio::runtime::Handle;
-
 use super::{
     parse_config_from_args, parse_server_from_args, ConfigurationError, RusticaAgentAction,
 };
+
+use clap::{Arg, ArgMatches, Command};
+use rustica_agent::RusticaServer;
 
 pub enum SKType {
     Ed25519,

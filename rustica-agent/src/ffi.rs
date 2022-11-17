@@ -15,7 +15,6 @@ use sshcerts::fido::generate::generate_new_ssh_key;
 use sshcerts::ssh::PrivateKey;
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
 use tokio::{
-    net::UnixListener,
     runtime::Runtime,
     sync::mpsc::{channel, Sender},
 };
@@ -653,7 +652,7 @@ pub unsafe extern "C" fn shutdown_rustica_agent(rai: *mut RusticaAgentInstance) 
     let rustica_agent_instance = Box::from_raw(rai);
     let shutdown_sender = rustica_agent_instance.shutdown_sender.clone();
     rustica_agent_instance.runtime.spawn(async move {
-        shutdown_sender.send(()).await;
+        shutdown_sender.send(()).await.unwrap();
         println!("Sent shutdown message");
     });
 

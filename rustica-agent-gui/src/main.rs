@@ -1,15 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::{collections::HashMap, os::unix::net::UnixListener, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
-use eframe::egui::{self, Sense};
+use eframe::egui::{self /*Sense*/};
 
 use egui::ComboBox;
 
 use home::home_dir;
-use rustica_agent::{rustica, Agent, CertificateConfig, RusticaServer, Signatory};
+use rustica_agent::{Agent, CertificateConfig, RusticaServer, Signatory};
 use sshcerts::PrivateKey;
-use tokio::runtime::Runtime;
+use tokio::{
+    runtime::Runtime,
+    sync::mpsc::{channel, Sender},
+};
 
 #[derive(Debug)]
 enum RusticaAgentGuiError {
@@ -37,6 +40,7 @@ struct RusticaAgentGui {
     environments: Vec<PathBuf>,
     selected_environment: Option<usize>,
     runtime: Runtime,
+    shutdown_rustica: Option<Sender<()>>,
 }
 
 fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError>
@@ -88,6 +92,7 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         environments,
         selected_environment,
         runtime: tokio::runtime::Runtime::new().unwrap(),
+        shutdown_rustica: None,
     })
 }
 
@@ -173,16 +178,37 @@ impl eframe::App for RusticaAgentGui {
                                         certificate_priority: false,
                                     };
 
-                                    let socket = UnixListener::bind(
-                                        self.agent_dir.clone().join("rustica-agent.sock"),
-                                    )
-                                    .unwrap();
-                                    //Agent::run(handler, socket);
+                                    let socket_path = self
+                                        .agent_dir
+                                        .clone()
+                                        .join("rustica-agent.sock")
+                                        .to_string_lossy()
+                                        .to_string();
+
+                                    let (sds, sdr) = channel::<()>(1);
+                                    self.runtime.spawn(async move {
+                                        Agent::run_with_termination_channel(
+                                            handler,
+                                            socket_path,
+                                            Some(sdr),
+                                        )
+                                        .await;
+                                    });
+
+                                    self.shutdown_rustica = Some(sds);
                                 }
                                 Err(e) => {
-                                    println!("Could not parse config file")
+                                    println!("Could not parse config file: {e}")
                                 }
                             };
+                        }
+                    }
+                    if ui.button("Stop Rustica").clicked() {
+                        if let Some(sds) = &self.shutdown_rustica {
+                            let sds = sds.to_owned();
+                            self.runtime.block_on(async move {
+                                sds.send(()).await.unwrap();
+                            })
                         }
                     }
                 } else {
