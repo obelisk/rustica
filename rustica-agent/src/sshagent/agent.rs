@@ -44,6 +44,7 @@ impl Agent {
             loop {
                 select! {
                     _ = term_channel.recv() => {
+                        println!("Received termination request. Exiting...");
                         return
                     },
                     v = listener.accept() => {
@@ -56,8 +57,9 @@ impl Agent {
                                     Err(e) => debug!("handler: {:?}", e),
                                 }
                             }
-                            Err(_) => {
+                            Err(e) => {
                                 // connection failed
+                                println!("Encountered an error: {e}. Exiting...");
                                 return;
                             }
                         }
@@ -76,8 +78,9 @@ impl Agent {
                                     Err(e) => debug!("handler: {:?}", e),
                                 }
                             }
-                            Err(_) => {
+                            Err(e) => {
                                 // connection failed
+                                println!("Encountered an error: {e}. Exiting...");
                                 return;
                             }
                         }

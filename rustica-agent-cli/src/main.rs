@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.socket_path
             );
 
-            let (_, shutdown_receiver) = channel(1);
+            let (_sds, shutdown_receiver) = channel(1);
             Agent::run_with_termination_channel(
                 config.handler,
                 config.socket_path,
