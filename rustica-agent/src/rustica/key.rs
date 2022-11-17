@@ -1,4 +1,4 @@
-use super::error::{RefreshError};
+use super::error::RefreshError;
 use super::{RegisterKeyRequest, RegisterU2fKeyRequest, RusticaServer, Signatory};
 
 pub mod rustica {
@@ -20,10 +20,15 @@ pub struct U2FAttestation {
     pub alg: i32,
 }
 
-
 impl RusticaServer {
-    pub async fn register_key_async(&self, signatory: &mut Signatory, attestation: &PIVAttestation) -> Result<(), RefreshError> {
-        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await.unwrap();
+    pub async fn register_key_async(
+        &self,
+        signatory: &mut Signatory,
+        attestation: &PIVAttestation,
+    ) -> Result<(), RefreshError> {
+        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory)
+            .await
+            .unwrap();
 
         let request = RegisterKeyRequest {
             certificate: attestation.certificate.clone(),
@@ -37,15 +42,24 @@ impl RusticaServer {
         Ok(())
     }
 
-
-    pub fn register_key(&self, signatory: &mut Signatory, key: &PIVAttestation) -> Result<(), RefreshError> {
-        self.runtime.block_on(async {
-            self.register_key_async(signatory, key).await
-        })
+    pub fn register_key(
+        &self,
+        signatory: &mut Signatory,
+        key: &PIVAttestation,
+    ) -> Result<(), RefreshError> {
+        self.handle
+            .block_on(async { self.register_key_async(signatory, key).await })
     }
 
-    pub async fn register_u2f_key_async(&self, signatory: &mut Signatory, application: &str, attestation: &U2FAttestation) -> Result<(), RefreshError> {
-        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await.unwrap();
+    pub async fn register_u2f_key_async(
+        &self,
+        signatory: &mut Signatory,
+        application: &str,
+        attestation: &U2FAttestation,
+    ) -> Result<(), RefreshError> {
+        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory)
+            .await
+            .unwrap();
 
         let request = RegisterU2fKeyRequest {
             auth_data: attestation.auth_data.clone(),
@@ -63,9 +77,15 @@ impl RusticaServer {
         Ok(())
     }
 
-    pub fn register_u2f_key(&self, signatory: &mut Signatory, application: &str, key: &U2FAttestation) -> Result<(), RefreshError> {
-        self.runtime.block_on(async {
-            self.register_u2f_key_async(signatory, application, key).await
+    pub fn register_u2f_key(
+        &self,
+        signatory: &mut Signatory,
+        application: &str,
+        key: &U2FAttestation,
+    ) -> Result<(), RefreshError> {
+        self.handle.block_on(async {
+            self.register_u2f_key_async(signatory, application, key)
+                .await
         })
     }
 }

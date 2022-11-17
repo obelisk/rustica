@@ -1,14 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::{path::{PathBuf}, collections::HashMap, os::unix::net::UnixListener};
+use std::{collections::HashMap, os::unix::net::UnixListener, path::PathBuf};
 
 use eframe::egui::{self, Sense};
 
 use egui::ComboBox;
 
 use home::home_dir;
-use rustica_agent::{rustica, RusticaServer, CertificateConfig, Signatory, Agent};
+use rustica_agent::{rustica, Agent, CertificateConfig, RusticaServer, Signatory};
 use sshcerts::PrivateKey;
+use tokio::runtime::Runtime;
 
 #[derive(Debug)]
 enum RusticaAgentGuiError {
@@ -31,31 +32,34 @@ impl std::fmt::Display for RusticaAgentGuiError {
 
 impl std::error::Error for RusticaAgentGuiError {}
 
-
 struct RusticaAgentGui {
     agent_dir: PathBuf,
     environments: Vec<PathBuf>,
     selected_environment: Option<usize>,
+    runtime: Runtime,
 }
 
-fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError> where T: Into<&'a PathBuf> {
+fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError>
+where
+    T: Into<&'a PathBuf>,
+{
     let path: &PathBuf = path.into();
     match (path.exists(), path.is_dir()) {
         (false, _) => {
-            std::fs::create_dir(&path).map_err(|e| RusticaAgentGuiError::UnableToCreateDir(e.to_string()))?;
+            std::fs::create_dir(&path)
+                .map_err(|e| RusticaAgentGuiError::UnableToCreateDir(e.to_string()))?;
             return Ok(vec![]);
-        },
-        (true, false) => return Err(RusticaAgentGuiError::RequiredDirIsFile(Box::new(path.to_owned()))),
-        (true, true) => {
-            Ok(path
-                .read_dir()
-                .map_err(|_| RusticaAgentGuiError::CouldNotReadFolder(Box::new(path.to_owned())))?
-                .filter_map(|file| {
-                    file.ok().map(|f| {
-                        f.path()
-                    })
-                }).collect())
-        },
+        }
+        (true, false) => {
+            return Err(RusticaAgentGuiError::RequiredDirIsFile(Box::new(
+                path.to_owned(),
+            )))
+        }
+        (true, true) => Ok(path
+            .read_dir()
+            .map_err(|_| RusticaAgentGuiError::CouldNotReadFolder(Box::new(path.to_owned())))?
+            .filter_map(|file| file.ok().map(|f| f.path()))
+            .collect()),
     }
 }
 
@@ -69,21 +73,29 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
     // Make sure the keys directory exists and is alright
     let keys_folder = rustica_agent_home.join("keys");
     check_create_dir(&keys_folder)?;
-        
 
     // Make sure the config directory exists and is alright
     let config_folder = rustica_agent_home.join("environments");
     let environments = check_create_dir(&config_folder)?;
-    let selected_environment = if !environments.is_empty() { Some(0) } else { None };
+    let selected_environment = if !environments.is_empty() {
+        Some(0)
+    } else {
+        None
+    };
 
-    Ok(RusticaAgentGui { agent_dir: home_dir.join(".rusticaagent"), environments, selected_environment })
+    Ok(RusticaAgentGui {
+        agent_dir: home_dir.join(".rusticaagent"),
+        environments,
+        selected_environment,
+        runtime: tokio::runtime::Runtime::new().unwrap(),
+    })
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     tracing_subscriber::fmt::init();
 
-    let agent = load_environments()?;//.into_iter().map(|x| x.to_string_lossy().to_string()).collect();
+    let agent = load_environments()?; //.into_iter().map(|x| x.to_string_lossy().to_string()).collect();
 
     let options = eframe::NativeOptions::default();
     eframe::run_native(
@@ -95,21 +107,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 impl eframe::App for RusticaAgentGui {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Heading for the application
             ui.heading("Rustica Agent");
-            
+
             // Create the UI for selecting different environments
             ui.horizontal(|ui| {
                 if let Some(mut selected_environment) = self.selected_environment {
-                ComboBox::from_label("Choose an environment").show_index(
-                    ui,
-                    &mut selected_environment,
-                    self.environments.len(),
-                    |i| self.environments[i].to_string_lossy().to_string())
+                    ComboBox::from_label("Choose an environment").show_index(
+                        ui,
+                        &mut selected_environment,
+                        self.environments.len(),
+                        |i| self.environments[i].to_string_lossy().to_string(),
+                    )
                 } else {
                     ui.label("There are no environments, please add one")
                 };
@@ -140,13 +152,14 @@ impl eframe::App for RusticaAgentGui {
                                         c.ca_pem.unwrap(),
                                         c.mtls_cert.unwrap(),
                                         c.mtls_key.unwrap(),
+                                        self.runtime.handle().to_owned(),
                                     );
 
                                     let private_key = PrivateKey::from_path(key_path).unwrap();
 
                                     let pubkey = private_key.pubkey.clone();
                                     let signatory = Signatory::Direct(private_key);
-                                
+
                                     let handler = rustica_agent::Handler {
                                         server,
                                         cert: None,
@@ -157,13 +170,15 @@ impl eframe::App for RusticaAgentGui {
                                         identities: HashMap::new(),
                                         piv_identities: HashMap::new(),
                                         notification_function: None,
-                                        certificate_priority: false
+                                        certificate_priority: false,
                                     };
 
-                                    let socket = UnixListener::bind(self.agent_dir.clone().join("rustica-agent.sock")).unwrap();
-                                    Agent::run(handler, socket);
-        
-                                },
+                                    let socket = UnixListener::bind(
+                                        self.agent_dir.clone().join("rustica-agent.sock"),
+                                    )
+                                    .unwrap();
+                                    //Agent::run(handler, socket);
+                                }
                                 Err(e) => {
                                     println!("Could not parse config file")
                                 }
@@ -174,7 +189,6 @@ impl eframe::App for RusticaAgentGui {
                     ui.label("There is no key, you'll need to generate and enroll one");
                 }
             }
-            
 
             ui.label(format!("Rustica Status Here"));
         });

@@ -3065,9 +3065,9 @@ dependencies = [
 name = "rustica-agent"
 version = "0.10.0"
 dependencies = [
+ "async-trait",
  "base64 0.12.3",
  "byteorder",
- "crossbeam-channel",
  "env_logger",
  "hex",
  "log",
@@ -3094,6 +3094,7 @@ dependencies = [
  "log",
  "rustica-agent",
  "sshcerts 0.12.0",
+ "tokio",
  "toml",
  "yubikey",
 ]
@@ -3106,6 +3107,7 @@ dependencies = [
  "home",
  "rustica-agent",
  "sshcerts 0.12.0",
+ "tokio",
  "toml",
  "tracing-subscriber",
 ]

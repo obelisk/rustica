@@ -11,15 +11,16 @@ use sshcerts::{
     fido::{generate::generate_new_ssh_key, list_fido_devices},
     Certificate,
 };
+use tokio::sync::mpsc::channel;
 
 use std::fs::File;
 use std::io::Write;
-use std::os::unix::net::UnixListener;
 use std::os::unix::prelude::PermissionsExt;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    match config::configure() {
+    match config::configure().await {
         Ok(RusticaAgentAction::GitConfig(public_key)) => {
             println!("{}", git_config_from_public_key(&public_key))
         }
@@ -54,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(_) => (),
                 None => {
                     println!("Provisioning Error");
-                    return Err(Box::new(SigningError));
+                    return Err(Box::new(SigningError))?;
                 }
             };
         }
@@ -104,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Err(e) => {
                     error!("Key could not be registered. Server said: {}", e);
-                    return Err(Box::new(e));
+                    return Err(Box::new(e))?;
                 }
             };
         }
@@ -116,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(_) => println!("Key was successfully registered"),
                 Err(e) => {
                     error!("Key could not be registered. Server said: {}", e);
-                    return Err(Box::new(e));
+                    return Err(Box::new(e))?;
                 }
             };
         }
@@ -127,7 +128,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(RusticaAgentAction::Immediate(mut config)) => {
             match config
                 .server
-                .get_custom_certificate(&mut config.signatory, &config.certificate_options)
+                .refresh_certificate_async(&mut config.signatory, &config.certificate_options)
+                .await
             {
                 Ok(x) => {
                     let cert = Certificate::from_string(&x.cert)?;
@@ -139,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("{:#}", &cert);
                     }
                 }
-                Err(e) => return Err(Box::new(e)),
+                Err(e) => return Err(Box::new(e))?,
             };
         }
         // Normal operation: Starts RusticaAgent as an SSHAgent and waits to answer
@@ -152,11 +154,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.socket_path
             );
 
-            let socket = UnixListener::bind(config.socket_path)?;
-            Agent::run(config.handler, socket);
+            let (shutdown_sender, shutdown_receiver) = channel(1);
+            Agent::run_with_termination_channel(
+                config.handler,
+                config.socket_path,
+                Some(shutdown_receiver),
+            )
+            .await;
         }
         Err(config::ConfigurationError::NoMode) => (),
         Err(e) => println!("Error: {:?}", e),
+        _ => println!("Something else"),
     };
 
     Ok(())

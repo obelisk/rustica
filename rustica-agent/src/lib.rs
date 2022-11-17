@@ -5,6 +5,7 @@ pub mod ffi;
 pub mod rustica;
 pub mod sshagent;
 
+use async_trait::async_trait;
 use serde_derive::Deserialize;
 
 pub use sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
@@ -16,6 +17,7 @@ pub use rustica::{
 
 use sshcerts::ssh::{CertType, Certificate, PrivateKey, PublicKey, SSHCertificateSigner};
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
+use tokio::runtime::Handle;
 
 use std::collections::HashMap;
 use std::{convert::TryFrom, env};
@@ -58,7 +60,7 @@ pub struct RusticaServer {
     pub ca: String,
     pub mtls_cert: String,
     pub mtls_key: String,
-    pub runtime: tokio::runtime::Runtime,
+    pub handle: Handle,
 }
 
 #[derive(Debug)]
@@ -137,13 +139,19 @@ impl std::fmt::Debug for Handler {
 }
 
 impl RusticaServer {
-    pub fn new(address: String, ca: String, mtls_cert: String, mtls_key: String) -> Self {
+    pub fn new(
+        address: String,
+        ca: String,
+        mtls_cert: String,
+        mtls_key: String,
+        handle: Handle,
+    ) -> Self {
         Self {
             address,
             ca,
             mtls_cert,
             mtls_key,
-            runtime: tokio::runtime::Runtime::new().unwrap(),
+            handle,
         }
     }
 }
@@ -172,6 +180,7 @@ impl From<Option<Options>> for CertificateConfig {
     }
 }
 
+#[async_trait]
 impl SshAgentHandler for Handler {
     fn add_identity(&mut self, private_key: PrivateKey) -> Result<Response, AgentError> {
         let public_key = private_key.pubkey.encode();
@@ -179,7 +188,7 @@ impl SshAgentHandler for Handler {
         Ok(Response::Success)
     }
 
-    fn identities(&mut self) -> Result<Response, AgentError> {
+    async fn identities(&mut self) -> Result<Response, AgentError> {
         let mut identities = vec![];
         // Build identities from the private keys we have loaded
         let mut extra_identities: Vec<Identity> = self
@@ -230,7 +239,8 @@ impl SshAgentHandler for Handler {
         // Grab a new certificate from the server because we don't have a valid one
         match self
             .server
-            .get_custom_certificate(&mut self.signatory, &self.certificate_options)
+            .refresh_certificate_async(&mut self.signatory, &self.certificate_options)
+            .await
         {
             Ok(response) => {
                 let parsed_cert =

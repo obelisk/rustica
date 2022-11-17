@@ -13,9 +13,11 @@ pub struct RegisterConfig {
     pub attestation: PIVAttestation,
 }
 
-pub fn configure_register(matches: &ArgMatches) -> Result<RusticaAgentAction, ConfigurationError> {
+pub async fn configure_register(
+    matches: &ArgMatches,
+) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config)?;
+    let server = parse_server_from_args(&matches, &config).await?;
 
     let slot = matches.value_of("slot").map(|x| x.to_string());
     let file = matches.value_of("file").map(|x| x.to_string());
