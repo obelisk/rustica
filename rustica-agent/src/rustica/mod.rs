@@ -2,21 +2,17 @@ pub mod cert;
 pub mod error;
 pub mod key;
 
+use std::time::Duration;
+
 pub use error::RefreshError;
 
-pub use rustica_proto::rustica_client::{RusticaClient};
+pub use rustica_proto::rustica_client::RusticaClient;
 pub use rustica_proto::{
-    CertificateRequest,
-    CertificateResponse,
-    Challenge,
-    ChallengeRequest,
-    RegisterKeyRequest,
+    CertificateRequest, CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest,
     RegisterU2fKeyRequest,
 };
 
-use sshcerts::ssh::{
-    Certificate as SSHCertificate,
-};
+use sshcerts::ssh::Certificate as SSHCertificate;
 
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
@@ -31,7 +27,10 @@ pub struct RusticaCert {
     pub comment: String,
 }
 
-pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut Signatory) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
+pub async fn complete_rustica_challenge(
+    server: &RusticaServer,
+    signatory: &mut Signatory,
+) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
     let ssh_pubkey = match signatory {
         Signatory::Yubikey(signer) => {
             signer.yk.reconnect()?;
@@ -39,12 +38,15 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
                 Ok(pkey) => pkey,
                 Err(_) => return Err(RefreshError::SigningError),
             }
-        },
+        }
         Signatory::Direct(ref privkey) => privkey.pubkey.clone(),
     };
-    
+
     let encoded_key = format!("{}", ssh_pubkey);
-    debug!("Requesting cert for key with fingerprint: {}", ssh_pubkey.fingerprint());
+    debug!(
+        "Requesting cert for key with fingerprint: {}",
+        ssh_pubkey.fingerprint()
+    );
     let request = tonic::Request::new(ChallengeRequest {
         pubkey: encoded_key.to_string(),
     });
@@ -57,8 +59,15 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
     };
 
     let ca = Certificate::from_pem(&server.ca);
-    let tls = ClientTlsConfig::new().ca_certificate(ca).identity(client_identity);
-    let channel = channel.tls_config(tls)?.connect().await?;
+    let tls = ClientTlsConfig::new()
+        .ca_certificate(ca)
+        .identity(client_identity);
+    let channel = channel
+        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
+        .tls_config(tls)?
+        .connect()
+        .await?;
 
     let mut client = RusticaClient::new(channel);
     let response = client.challenge(request).await?;
@@ -74,20 +83,29 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
                 challenge_time: response.time,
                 challenge: response.challenge,
                 challenge_signature: String::new(),
-        }))
+            },
+        ));
     }
 
     debug!("{}", &response.challenge);
 
-    let mut challenge_certificate = SSHCertificate::from_string(&response.challenge).map_err(|_| RefreshError::SigningError)?;
+    let mut challenge_certificate =
+        SSHCertificate::from_string(&response.challenge).map_err(|_| RefreshError::SigningError)?;
     challenge_certificate.signature_key = challenge_certificate.key.clone();
 
     let resigned_certificate = match signatory {
         Signatory::Yubikey(signer) => {
-            let signature = signer.yk.ssh_cert_signer(&challenge_certificate.tbs_certificate(), &signer.slot).map_err(|_| RefreshError::SigningError)?;
-            challenge_certificate.add_signature(&signature).map_err(|_| RefreshError::SigningError)?
-        },
-        Signatory::Direct(privkey) => challenge_certificate.sign(privkey).map_err(|_| RefreshError::SigningError)?,
+            let signature = signer
+                .yk
+                .ssh_cert_signer(&challenge_certificate.tbs_certificate(), &signer.slot)
+                .map_err(|_| RefreshError::SigningError)?;
+            challenge_certificate
+                .add_signature(&signature)
+                .map_err(|_| RefreshError::SigningError)?
+        }
+        Signatory::Direct(privkey) => challenge_certificate
+            .sign(privkey)
+            .map_err(|_| RefreshError::SigningError)?,
     };
 
     Ok((
@@ -97,5 +115,6 @@ pub async fn complete_rustica_challenge(server: &RusticaServer, signatory: &mut 
             challenge_time: response.time,
             challenge: format!("{}", resigned_certificate),
             challenge_signature: String::new(),
-    }))
+        },
+    ))
 }

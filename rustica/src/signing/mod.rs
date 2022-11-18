@@ -1,11 +1,14 @@
+use std::collections::HashMap;
+
 /// This is the signing module of the Rustica project. The module is designed
 /// to be easily extended, allowing the creation of new signing submodules with
 /// minimal code changes. The interfaces are also async with access to a tokio
 /// runtime (provided by the server module) so key signing occuring on remote
 /// systems can be simply implemented.
+use async_trait::async_trait;
 
-use sshcerts::ssh::{CertType, Certificate, PublicKey};
 use serde::Deserialize;
+use sshcerts::ssh::{CertType, Certificate, PublicKey};
 
 #[cfg(feature = "amazon-kms")]
 mod amazon_kms;
@@ -13,44 +16,101 @@ mod file;
 #[cfg(feature = "yubikey-support")]
 mod yubikey;
 
-/// Represents the configuration of the signing module. Fields that introduce
-/// new dependencies are gated by features to help reduce final binary size as
-/// well as reducing attack surface.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum SignerType {
+    File(file::Config),
+    #[cfg(feature = "yubikey-support")]
+    Yubikey(yubikey::Config),
+    #[cfg(feature = "amazon-kms")]
+    AmazonKMS(amazon_kms::Config),
+}
+
+impl SignerType {
+    async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
+        match self {
+            Self::File(x) => x.into_signer().await,
+            #[cfg(feature = "yubikey-support")]
+            Self::Yubikey(x) => x.into_signer().await,
+            #[cfg(feature = "amazon-kms")]
+            Self::AmazonKMS(f) => f.into_signer().await,
+        }
+    }
+}
+
+#[async_trait]
+pub trait SignerConfig {
+    async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError>;
+}
+
+/// Any code that wants to be able to sign certificates for Rustica must implement
+/// this trait. The trait is async to allow calls out to external services during
+/// sign but fetching public keys must be fast and low cost.
+#[async_trait]
+pub trait Signer {
+    /// Take in a certificate and sign it turning it into a valid certificate. This call
+    /// is async allowing calls to be made over the network or to other blocking resources.
+    /// This call however should execute as fast as possible and have a strict timeout as
+    /// the runtime this is executing on is the one fulfilling certificate requests from
+    /// users.
+    async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError>;
+
+    /// This function is intentionally not async. This is to discourage this call being reliant
+    /// on further network dependence as it is called earlier in the stack than `sign`. Creating
+    /// a `Signer` from a config is async so memoization of the public key should be done in
+    /// there. See the AWS signer as an example.
+    fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey;
+}
+
+#[derive(Deserialize)]
+pub struct ExternalSigningConfig {
+    pub server: String,
+    pub port: String,
+    pub ca: String,
+    pub mtls_cert: String,
+    pub mtls_key: String,
+}
+
+/// Represents the configuration of how Rustica will sign certificates for
+/// clients.
+///
+/// The reason this is an enum of one is to support a completely external
+/// signing system in the future if none of the internal options work for
+/// you.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum SigningSystemConfiguration {
+    Internal(HashMap<String, SignerType>),
+}
+
+/// Represents the configuration the Rustica signing system. We have a
+/// default authority so if people pass an empty string for key_id(authority)
+/// we maintain backwards compatibility.
+///
+/// The reason this is an enum of one is to support a completely external
+/// signing system in the future if none of the internal options work for
+/// you.
 #[derive(Deserialize)]
 pub struct SigningConfiguration {
-    /// The file signer uses private keys stored inside the Rustica
-    /// configuration to sign certificate requests. This is currently the only
-    /// signer which is present regardless of the features enabled at build
-    /// time. It supports Ecdsa256, Ecdsa384, and Ed25519.
-    pub file: Option<file::FileSigner>,
-    /// The Yubikey signer uses a connected Yubikey 4/5 to sign requests. It
-    /// currently only supports Ecdsa256 and Ecdsa384. To use the Yubikey
-    /// signer, the `yubikey-support` feature must be enabled.
-    #[cfg(feature = "yubikey-support")]
-    pub yubikey: Option<yubikey::YubikeySigner>,
-    /// The AmazonKMS signer uses customer managed keys stored in AWS to handle
-    /// signing operations. It supports Ecdsa256 and Ecdsa384. Ecdsa521 is not
-    /// currently supported due to a lack of support in the Ring crypto
-    /// dependency. This signer is also an example of how to write a signing
-    /// module that is async. To use the AmazonKMS signer, the `amazon-kms`
-    /// feature must be enabled.
-    #[cfg(feature = "amazon-kms")]
-    pub amazonkms: Option<amazon_kms::Config>,
+    pub default_authority: String,
+    pub signing_configuration: SigningSystemConfiguration,
+}
+
+pub struct SigningMechanism {
+    pub default_authority: String,
+    pub signing_system: SigningSystem,
 }
 
 /// A `SigningConfiguration` can be coerced into a `SigningMechanism` to
 /// handle the signing operations as well as other convenience functions
 /// such as fetching public keys or printing info about how signing is
-///configured.
-pub enum SigningMechanism {
-    /// The file configuration converted into a SigningMechanism
-    File(file::FileSigner),
-    /// The Yubikey configuration converted into a SigningMechanism
-    #[cfg(feature = "yubikey-support")]
-    Yubikey(yubikey::YubikeySigner),
-    /// The AmazonKMS configuration converted into a SigningMechanism
-    #[cfg(feature = "amazon-kms")]
-    AmazonKMS(amazon_kms::AmazonKMSSigner),
+/// configured.
+///
+/// The reason this is an enum of one is to support a completely external
+/// signing system in the future if none of the internal options work for
+/// you.
+pub enum SigningSystem {
+    Internal(HashMap<String, Box<dyn Signer + Send + Sync>>),
 }
 
 #[derive(Debug)]
@@ -69,6 +129,9 @@ pub enum SigningError {
     /// expected data
     #[allow(dead_code)]
     ParsingError,
+    UnknownAuthority,
+    DuplicatedKey(String, String),
+    IdenticalUserHostKey(String),
 }
 
 impl std::fmt::Display for SigningError {
@@ -77,102 +140,126 @@ impl std::fmt::Display for SigningError {
             SigningError::AccessError(e) => write!(f, "Could not access the private key material: {}", e),
             SigningError::SigningFailure => write!(f, "The signing operation on the provided certificate failed"),
             SigningError::ParsingError => write!(f, "The signature could not be parsed"),
+            SigningError::UnknownAuthority => write!(f, "Unknown authority was requested for signing or public key"),
+            SigningError::DuplicatedKey(a1, a2) => write!(f, "Authorities {a1} and {a2} share at least one key. This is not allowed as it almost always a misconfiguration leading to access that is not correctly restricted"),
+            SigningError::IdenticalUserHostKey(authority) => write!(f, "Authority {authority} has an identical key for both user and host certificates. This is not allowed as it's much safer to use separate keys for both."),
         }
     }
 }
 
+impl std::fmt::Display for SigningMechanism {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut output = String::new();
+        match &self.signing_system {
+            SigningSystem::Internal(authorities) => {
+                for signer in authorities.iter() {
+                    output.push_str(&format!("Authority: {}\n", signer.0));
+                    output.push_str(&format!(
+                        "\tUser CA Fingerprint (SHA256): {}\n",
+                        signer
+                            .1
+                            .get_signer_public_key(CertType::User)
+                            .fingerprint()
+                            .hash
+                    ));
+                    output.push_str(&format!(
+                        "\tHost CA Fingerprint (SHA256): {}\n",
+                        signer
+                            .1
+                            .get_signer_public_key(CertType::Host)
+                            .fingerprint()
+                            .hash
+                    ));
+                }
+            }
+        };
+        write!(f, "{}", output)
+    }
+}
+
 impl SigningMechanism {
-    /// Takes in a certificate and handles the getting a signature from the 
+    /// Takes in a certificate and handles the getting a signature from the
     /// configured SigningMechanism.
-    pub async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
-        match self {
-            SigningMechanism::File(file) => file.sign(cert),
-            #[cfg(feature = "yubikey-support")]
-            SigningMechanism::Yubikey(yubikey) => yubikey.sign(cert),
-            #[cfg(feature = "amazon-kms")]
-            SigningMechanism::AmazonKMS(amazonkms) => amazonkms.sign(cert).await,
+    pub async fn sign(
+        &self,
+        authority: &str,
+        cert: Certificate,
+    ) -> Result<Certificate, SigningError> {
+        match &self.signing_system {
+            SigningSystem::Internal(authorities) => {
+                if let Some(authority) = authorities.get(authority) {
+                    authority.sign(cert).await
+                } else {
+                    Err(SigningError::UnknownAuthority)
+                }
+            }
         }
     }
 
     /// Return an sshcerts::PublicKey type for the signing key asked for,
     /// either User or Host
-    pub fn get_signer_public_key(&self, cert_type: CertType) -> Result<PublicKey, SigningError> {
-        match self {
-            SigningMechanism::File(file) => Ok(file.get_signer_public_key(cert_type)),
-            #[cfg(feature = "yubikey-support")]
-            SigningMechanism::Yubikey(yubikey) => yubikey.get_signer_public_key(cert_type),
-            #[cfg(feature = "amazon-kms")]
-            SigningMechanism::AmazonKMS(amazonkms) => Ok(amazonkms.get_signer_public_key(cert_type)),
-        }
-    }
-
-    /// Print out information about the current configuration of the signing
-    /// system. This is generally only called once from main before starting
-    /// the main Rustica server.
-    pub fn print_signing_info(&self) {
-        match self {
-            SigningMechanism::File(file) => {
-                println!("User CA Fingerprint (SHA256): {}", file.get_signer_public_key(CertType::User).fingerprint().hash);
-                println!("Host CA Fingerprint (SHA256): {}", file.get_signer_public_key(CertType::Host).fingerprint().hash);
-                println!("Configured signer: file");
-            },
-            #[cfg(feature = "yubikey-support")]
-            SigningMechanism::Yubikey(yubikey) => {
-                println!("User CA Fingerprint (SHA256): {}", yubikey.get_signer_public_key(CertType::User).unwrap().fingerprint().hash);
-                println!("Host CA Fingerprint (SHA256): {}", yubikey.get_signer_public_key(CertType::Host).unwrap().fingerprint().hash);
-                println!("Configured signer: yubikey");
-            },
-            #[cfg(feature = "amazon-kms")]
-            SigningMechanism::AmazonKMS(amazonkms) => {
-                println!("User CA Fingerprint (SHA256): {}", amazonkms.get_signer_public_key(CertType::User).fingerprint().hash);
-                println!("Host CA Fingerprint (SHA256): {}", amazonkms.get_signer_public_key(CertType::Host).fingerprint().hash);
-                println!("Configured signer: amazon-kms");
-            },
+    pub fn get_signer_public_key(
+        &self,
+        authority: &str,
+        cert_type: CertType,
+    ) -> Result<PublicKey, SigningError> {
+        match &self.signing_system {
+            SigningSystem::Internal(authorities) => {
+                if let Some(authority) = authorities.get(authority) {
+                    Ok(authority.get_signer_public_key(cert_type))
+                } else {
+                    Err(SigningError::UnknownAuthority)
+                }
+            }
         }
     }
 }
 
 impl SigningConfiguration {
-    /// Convert the `SigningConfiguration` into a `SigningMechanism` by calling
-    /// the appropriate initalizers then wrapping the returned object in the
-    /// `SigningMechanism` enum varient.
-    pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, ()> {
-        // Try and create a file based SigningMechanism
-        let file_sm = self.file.map(SigningMechanism::File);
+    pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, SigningError> {
+        match self.signing_configuration {
+            SigningSystemConfiguration::Internal(authorities) => {
+                let mut converted_authorities = HashMap::new();
+                let mut public_keys: HashMap<String, String> = HashMap::new();
+                for authority in authorities.into_iter() {
+                    let signer = authority.1.into_signer().await?;
+                    let user_hash = signer
+                        .get_signer_public_key(CertType::User)
+                        .fingerprint()
+                        .hash;
+                    let host_hash = signer
+                        .get_signer_public_key(CertType::Host)
+                        .fingerprint()
+                        .hash;
 
-        // Try and create a yubikey based SigningMechanism
-        let yubikey_sm = {
-            #[cfg(feature = "yubikey-support")]
-            {self.yubikey.map(SigningMechanism::Yubikey)}
-            #[cfg(not(feature = "yubikey-support"))]
-            None
-        };
-
-        // Try and create a AmazonKMS based SigningMechanism
-        let amazonkms_sm = {
-            #[cfg(feature = "amazon-kms")]
-            match self.amazonkms {
-                Some(config) => {
-                    if let Ok(amazonkms) = amazon_kms::AmazonKMSSigner::new(config).await {
-                        Some(SigningMechanism::AmazonKMS(amazonkms))
-                    } else {
-                        None
+                    if user_hash == host_hash {
+                        return Err(SigningError::IdenticalUserHostKey(authority.0));
                     }
-                },
-                _ => None,
-            }
-            #[cfg(not(feature = "amazon-kms"))]
-            None
-        };
 
-        // If a feature is not enabled, that type will always be None here
-        // making it easy to check that no two signing systems have been
-        // accidentally configured causing ambiguity on which should be used
-        match (file_sm, yubikey_sm, amazonkms_sm) {
-            (Some(file), None, None) => Ok(file),
-            (None, Some(yubikey), None) => Ok(yubikey),
-            (None, None, Some(amazonkms)) => Ok(amazonkms),
-            _ => Err(()),
+                    if let Some(existing) = public_keys.get(&user_hash) {
+                        return Err(SigningError::DuplicatedKey(
+                            authority.0,
+                            existing.to_owned(),
+                        ));
+                    }
+
+                    if let Some(existing) = public_keys.get(&host_hash) {
+                        return Err(SigningError::DuplicatedKey(
+                            authority.0,
+                            existing.to_owned(),
+                        ));
+                    }
+
+                    public_keys.insert(user_hash, authority.0.to_owned());
+                    public_keys.insert(host_hash, authority.0.to_owned());
+                    converted_authorities.insert(authority.0, signer);
+                }
+
+                Ok(SigningMechanism {
+                    default_authority: self.default_authority,
+                    signing_system: SigningSystem::Internal(converted_authorities),
+                })
+            }
         }
     }
 }

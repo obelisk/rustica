@@ -1,0 +1,23 @@
+FROM rust:1.65 as builder
+
+RUN apt update
+RUN apt install -y pkg-config libpcsclite-dev
+#RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
+
+RUN rustup component add rustfmt
+RUN mkdir /rustica
+COPY proto /tmp/proto
+COPY rustica /tmp/rustica
+WORKDIR /tmp/rustica
+
+RUN cargo build --features="yubikey-support,webhook,amazon-kms,influx,local-db" --release
+
+
+FROM ubuntu:20.04
+RUN apt update
+RUN apt install -y libpcsclite-dev 
+
+COPY --from=builder /tmp/rustica/target/release/rustica /rustica
+USER 1000
+ENTRYPOINT [ "/rustica" ]
+

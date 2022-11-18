@@ -57,11 +57,14 @@ require_rustica_proof = false
 # external authorizer, a call will not be made to inform it of this event.
 require_attestation_chain = true
 
+[signing]
+default_authority = "example_test_environment"
+
 # Rustica has many ways it can sign SSH certificates which are sent to
 # clients. This method uses private keys embedded in the configuration
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
-[signing."file"]
+[signing.signing_configuration.example_test_environment]
 # The key that will be used to sign certificates given to user clients. 
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
