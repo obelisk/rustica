@@ -41,6 +41,7 @@ struct RusticaAgentGui {
     selected_environment: Option<usize>,
     runtime: Runtime,
     shutdown_rustica: Option<Sender<()>>,
+    certificate_priority: bool,
 }
 
 fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError>
@@ -93,6 +94,7 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         selected_environment,
         runtime: tokio::runtime::Runtime::new().unwrap(),
         shutdown_rustica: None,
+        certificate_priority: true,
     })
 }
 
@@ -145,9 +147,24 @@ impl eframe::App for RusticaAgentGui {
                 let config_path = PathBuf::from(&self.environments[*selected_env]);
                 let config_name = config_path.file_name().unwrap().to_os_string();
 
+                let toggle_label = match self.certificate_priority {
+                    true => "Certificate Priority Enabled",
+                    false => "Certificate Priority Disabled",
+                };
+                ui.toggle_value(&mut self.certificate_priority, toggle_label);
+
                 let key_path = self.agent_dir.clone().join("keys").join(config_name);
                 if key_path.exists() && key_path.is_file() {
-                    if ui.button("Start Rustica").clicked() {
+                    ui.horizontal(|ui| {
+                        if ui.button("Stop").clicked() {
+                        if let Some(sds) = &self.shutdown_rustica {
+                            let sds = sds.to_owned();
+                            self.runtime.block_on(async move {
+                                sds.send(()).await.unwrap();
+                            })
+                        }
+                    }
+                        if ui.button("Start").clicked() {
                         if let Some(selected_env) = self.selected_environment.as_ref() {
                             let config = std::fs::read(&self.environments[*selected_env]).unwrap();
                             match toml::from_slice::<rustica_agent::Config>(&config) {
@@ -175,15 +192,19 @@ impl eframe::App for RusticaAgentGui {
                                         identities: HashMap::new(),
                                         piv_identities: HashMap::new(),
                                         notification_function: None,
-                                        certificate_priority: false,
+                                        certificate_priority: self.certificate_priority,
                                     };
 
-                                    let socket_path = self
-                                        .agent_dir
-                                        .clone()
-                                        .join("rustica-agent.sock")
-                                        .to_string_lossy()
-                                        .to_string();
+                                    let socket_path =
+                                        self.agent_dir.clone().join("rustica-agent.sock");
+
+                                    if socket_path.exists() {
+                                        if let Err(e) = std::fs::remove_file(&socket_path) {
+                                            println!("Couldn't remove old socket file, Rustica might fail to start: {e}");
+                                        }
+                                    }
+
+                                    let socket_path = socket_path.to_string_lossy().to_string();
 
                                     let (sds, sdr) = channel::<()>(1);
                                     self.runtime.spawn(async move {
@@ -203,14 +224,7 @@ impl eframe::App for RusticaAgentGui {
                             };
                         }
                     }
-                    if ui.button("Stop Rustica").clicked() {
-                        if let Some(sds) = &self.shutdown_rustica {
-                            let sds = sds.to_owned();
-                            self.runtime.block_on(async move {
-                                sds.send(()).await.unwrap();
-                            })
-                        }
-                    }
+                    });
                 } else {
                     ui.label("There is no key, you'll need to generate and enroll one");
                 }
