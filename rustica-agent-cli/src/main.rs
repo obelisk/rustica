@@ -75,7 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match prf
                 .server
-                .register_u2f_key(&mut signatory, &prf.app_name, &u2f_attestation)
+                .register_u2f_key_async(&mut signatory, &prf.app_name, &u2f_attestation)
+                .await
             {
                 Ok(_) => {
                     println!("Key was successfully registered!");
@@ -112,7 +113,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(RusticaAgentAction::Register(mut config)) => {
             match config
                 .server
-                .register_key(&mut config.signatory, &config.attestation)
+                .register_key_async(&mut config.signatory, &config.attestation)
+                .await
             {
                 Ok(_) => println!("Key was successfully registered"),
                 Err(e) => {
