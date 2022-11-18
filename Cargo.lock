@@ -3103,6 +3103,7 @@ dependencies = [
 name = "rustica-agent-gui"
 version = "0.1.0"
 dependencies = [
+ "base64 0.12.3",
  "eframe",
  "home",
  "rustica-agent",

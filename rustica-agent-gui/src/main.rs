@@ -42,6 +42,9 @@ struct RusticaAgentGui {
     runtime: Runtime,
     shutdown_rustica: Option<Sender<()>>,
     certificate_priority: bool,
+    status: String,
+    new_env_name: String,
+    new_env_content: String,
 }
 
 fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError>
@@ -95,6 +98,9 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         runtime: tokio::runtime::Runtime::new().unwrap(),
         shutdown_rustica: None,
         certificate_priority: true,
+        status: String::new(),
+        new_env_name: String::new(),
+        new_env_content: String::new(),
     })
 }
 
@@ -133,16 +139,35 @@ impl eframe::App for RusticaAgentGui {
                     ui.label("There are no environments, please add one")
                 };
                 ui.add(egui::Separator::default());
-                let response = ui.add(egui::Button::new("Import"));
-
-                response.context_menu(|ui| {
-                    ui.heading("Import Base64 Encoded Environment");
-
-                    if ui.button("Close the menu").clicked() {
-                        ui.close_menu();
+                ui.vertical_centered(|ui| {
+                    {
+                        ui.label("Environment Name");
+                        ui.text_edit_singleline(&mut self.new_env_name);
+                    }
+    
+                    {
+                        ui.label("Environment Data");
+                        ui.text_edit_singleline(&mut self.new_env_content);
+                    }
+                    
+                    if ui.button("Import").clicked() {
+                        match base64::decode(&self.new_env_content) {
+                            Ok(cfg) => {
+                                let env_dir = self.agent_dir.join("environments");
+                                let env_path = env_dir.join(&self.new_env_name);
+                                if let Err(e) = std::fs::write(env_path, cfg) {
+                                    self.status = format!("Could not add environemnt: {}", e);
+                                } else {
+                                    self.status = format!("New environment added");
+                                    self.environments = check_create_dir(&env_dir).unwrap();
+                                }
+                            },
+                            Err(_) => self.status = format!("Could not decode configuration"),
+                        };
                     }
                 });
             });
+            ui.add(egui::Separator::default());
             if let Some(selected_env) = self.selected_environment.as_ref() {
                 let config_path = PathBuf::from(&self.environments[*selected_env]);
                 let config_name = config_path.file_name().unwrap().to_os_string();
@@ -230,7 +255,7 @@ impl eframe::App for RusticaAgentGui {
                 }
             }
 
-            ui.label(format!("Rustica Status Here"));
+            ui.label(&self.status);
         });
     }
 }
