@@ -1,7 +1,7 @@
-# Rustica Agent Command Line Interface
+# Rustica Agent CLI
 
 ## Introduction
-This is the agent portion of the project and manages keys as well as talking to Rustica and remote SSH hosts. It supports using a Yubikey for hardware backed SSH keys as well as adding external key files after the agent has started.
+This is the canonical agent for Rustica. Used for generating, registering, providing, and fetching certificates for your (generally hardware) keys. Generally when new features are added, they are added and tested here first, before being ported to any of the other agent crates.
 
 ## Limitations
 RusticaAgent does not support the normal array of SSH-Agent calls, the currently supported calls are:

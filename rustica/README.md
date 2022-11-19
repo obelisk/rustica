@@ -63,3 +63,8 @@ Compiles in support for Rustica to handle authorization without talking to an ex
 [authorization."database"]
 path = "examples/example.db"
 ```
+
+## HomeLab
+One of the best ways to get familiar with Rustica is to run it in a homelab using a Yubikey 5 as your server side signing authority. The recommended way to achieve this is to use the homelab Dockerfile and mount the PCSC socket inside the docker container.
+
+This will give you the benefites of service resilliancy but you also do not have to run your container in privileged mode.
