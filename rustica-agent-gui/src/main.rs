@@ -8,7 +8,7 @@ use egui::ComboBox;
 
 use home::home_dir;
 use rustica_agent::{Agent, CertificateConfig, RusticaServer, Signatory};
-use sshcerts::PrivateKey;
+use sshcerts::{fido::{FidoDeviceDescriptor, list_fido_devices}, PrivateKey};
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{channel, Sender},
@@ -35,6 +35,7 @@ impl std::fmt::Display for RusticaAgentGuiError {
 
 impl std::error::Error for RusticaAgentGuiError {}
 
+
 struct RusticaAgentGui {
     agent_dir: PathBuf,
     environments: Vec<PathBuf>,
@@ -45,6 +46,8 @@ struct RusticaAgentGui {
     status: String,
     new_env_name: String,
     new_env_content: String,
+    fido_devices: Vec<FidoDeviceDescriptor>,
+    selected_fido_device: Option<usize>,
 }
 
 fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError>
@@ -91,6 +94,13 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         None
     };
 
+    let fido_devices = list_fido_devices();
+    let selected_fido_device = if !fido_devices.is_empty() {
+        Some(0)
+    } else {
+        None
+    };
+
     Ok(RusticaAgentGui {
         agent_dir: home_dir.join(".rusticaagent"),
         environments,
@@ -101,6 +111,8 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         status: String::new(),
         new_env_name: String::new(),
         new_env_content: String::new(),
+        fido_devices,
+        selected_fido_device,
     })
 }
 
@@ -128,15 +140,20 @@ impl eframe::App for RusticaAgentGui {
 
             // Create the UI for selecting different environments
             ui.horizontal(|ui| {
-                if let Some(mut selected_environment) = self.selected_environment {
-                    ComboBox::from_label("Choose an environment").show_index(
-                        ui,
-                        &mut selected_environment,
-                        self.environments.len(),
-                        |i| self.environments[i].to_string_lossy().to_string(),
-                    )
+                if let Some(selected_environment) = self.selected_environment {
+                    ComboBox::from_label("Choose an environment")
+                    .selected_text(format!("{}", &self.environments[selected_environment].to_string_lossy().to_string()))
+                    .show_ui(ui, |ui| {
+                        
+                        for i in 0..self.environments.len() {
+                            let value = ui.selectable_value(&mut &self.environments[i], &self.environments[selected_environment], &self.environments[i].to_string_lossy().to_string());
+                            if value.clicked() {
+                                self.selected_environment = Some(i);
+                            }
+                        }
+                    });
                 } else {
-                    ui.label("There are no environments, please add one")
+                    ui.label("There are no environments, please add one");
                 };
                 ui.add(egui::Separator::default());
                 ui.vertical_centered(|ui| {
@@ -178,6 +195,21 @@ impl eframe::App for RusticaAgentGui {
                 };
                 ui.toggle_value(&mut self.certificate_priority, toggle_label);
 
+                if let Some(selected_fido_device) = self.selected_fido_device {
+                    ComboBox::from_label("Choose a FIDO key")
+                    .selected_text(format!("{}", &self.fido_devices[selected_fido_device].product_string.clone()))
+                    .show_ui(ui, |ui| {
+                        for i in 0..self.fido_devices.len() {
+                            let value = ui.selectable_value(&mut &self.fido_devices[i], &self.fido_devices[selected_fido_device], &self.fido_devices[i].product_string.clone());
+                            if value.clicked() {
+                                self.selected_fido_device = Some(i);
+                            }
+                        }
+                    });
+                } else {
+                    ui.label("There are no connected FIDO devices");
+                };
+
                 let key_path = self.agent_dir.clone().join("keys").join(config_name);
                 if key_path.exists() && key_path.is_file() {
                     ui.horizontal(|ui| {
@@ -190,63 +222,70 @@ impl eframe::App for RusticaAgentGui {
                         }
                     }
                         if ui.button("Start").clicked() {
-                        if let Some(selected_env) = self.selected_environment.as_ref() {
-                            let config = std::fs::read(&self.environments[*selected_env]).unwrap();
-                            match toml::from_slice::<rustica_agent::Config>(&config) {
-                                Ok(c) => {
-                                    let server = RusticaServer::new(
-                                        c.server.unwrap(),
-                                        c.ca_pem.unwrap(),
-                                        c.mtls_cert.unwrap(),
-                                        c.mtls_key.unwrap(),
-                                        self.runtime.handle().to_owned(),
-                                    );
+                        match self.selected_fido_device.as_ref() {
+                            Some(fido_device) => { 
+                                let config = std::fs::read(&self.environments[*selected_env]).unwrap();
+                                match toml::from_slice::<rustica_agent::Config>(&config) {
+                                    Ok(c) => {
+                                        let server = RusticaServer::new(
+                                            c.server.unwrap(),
+                                            c.ca_pem.unwrap(),
+                                            c.mtls_cert.unwrap(),
+                                            c.mtls_key.unwrap(),
+                                            self.runtime.handle().to_owned(),
+                                        );
 
-                                    let private_key = PrivateKey::from_path(key_path).unwrap();
+                                        let mut private_key = PrivateKey::from_path(key_path).unwrap();
 
-                                    let pubkey = private_key.pubkey.clone();
-                                    let signatory = Signatory::Direct(private_key);
+                                        private_key.set_device_path(&self.fido_devices[*fido_device].path);
 
-                                    let handler = rustica_agent::Handler {
-                                        server,
-                                        cert: None,
-                                        pubkey,
-                                        signatory,
-                                        stale_at: 0,
-                                        certificate_options: CertificateConfig::from(c.options),
-                                        identities: HashMap::new(),
-                                        piv_identities: HashMap::new(),
-                                        notification_function: None,
-                                        certificate_priority: self.certificate_priority,
-                                    };
+                                        let pubkey = private_key.pubkey.clone();
+                                        let signatory = Signatory::Direct(private_key);
 
-                                    let socket_path =
-                                        self.agent_dir.clone().join("rustica-agent.sock");
+                                        let handler = rustica_agent::Handler {
+                                            server,
+                                            cert: None,
+                                            pubkey,
+                                            signatory,
+                                            stale_at: 0,
+                                            certificate_options: CertificateConfig::from(c.options),
+                                            identities: HashMap::new(),
+                                            piv_identities: HashMap::new(),
+                                            notification_function: None,
+                                            certificate_priority: self.certificate_priority,
+                                        };
 
-                                    if socket_path.exists() {
-                                        if let Err(e) = std::fs::remove_file(&socket_path) {
-                                            println!("Couldn't remove old socket file, Rustica might fail to start: {e}");
+                                        let socket_path =
+                                            self.agent_dir.clone().join("rustica-agent.sock");
+
+                                        if socket_path.exists() {
+                                            if let Err(e) = std::fs::remove_file(&socket_path) {
+                                                println!("Couldn't remove old socket file, Rustica might fail to start: {e}");
+                                            }
                                         }
+
+                                        let socket_path = socket_path.to_string_lossy().to_string();
+
+                                        let (sds, sdr) = channel::<()>(1);
+                                        self.runtime.spawn(async move {
+                                            Agent::run_with_termination_channel(
+                                                handler,
+                                                socket_path,
+                                                Some(sdr),
+                                            )
+                                            .await;
+                                        });
+
+                                        self.shutdown_rustica = Some(sds);
                                     }
-
-                                    let socket_path = socket_path.to_string_lossy().to_string();
-
-                                    let (sds, sdr) = channel::<()>(1);
-                                    self.runtime.spawn(async move {
-                                        Agent::run_with_termination_channel(
-                                            handler,
-                                            socket_path,
-                                            Some(sdr),
-                                        )
-                                        .await;
-                                    });
-
-                                    self.shutdown_rustica = Some(sds);
-                                }
-                                Err(e) => {
-                                    println!("Could not parse config file: {e}")
-                                }
-                            };
+                                    Err(e) => {
+                                        println!("Could not parse config file: {e}")
+                                    }
+                                };
+                            }
+                            _ => {
+                                self.status = format!("You must have both an environment and FIDO device selected");
+                            }
                         }
                     }
                     });
