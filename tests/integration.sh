@@ -27,7 +27,7 @@ cd ../..
 docker run --name rustica_test_ssh_server -p 2424:22 rustica_test_ssh_server:latest &
 
 # Verify that Rustica is not running and that this should fail
-if ./target/debug/rustica-agent immediate --config examples/rustica_agent_local.toml > /tmp/rustica_log 2>&1; then
+if ./target/debug/rustica-agent-cli immediate --config examples/rustica_agent_local.toml > /tmp/rustica_log 2>&1; then
     echo "FAIL: Some other Rustica instance is running!"
     exit 1
 else
@@ -40,7 +40,7 @@ RUSTICA_PID=$!
 sleep 2
 
 # Test that we can fetch a certificate
-if ./target/debug/rustica-agent immediate --config examples/rustica_agent_local.toml > /tmp/rustica_agent_log 2>&1; then
+if ./target/debug/rustica-agent-cli immediate --config examples/rustica_agent_local.toml > /tmp/rustica_agent_log 2>&1; then
     echo "PASS: Successfully pulled a certificate from Rustica"
 else 
     echo "FAIL: Could not pull a certificate from Rustica"
@@ -53,7 +53,7 @@ else
 fi
 
 # Test that we can fetch a certificate and write it to a file
-if ./target/debug/rustica-agent immediate --config examples/rustica_agent_local.toml --out /tmp/testing_cert > /dev/null 2>&1; then
+if ./target/debug/rustica-agent-cli immediate --config examples/rustica_agent_local.toml --out /tmp/testing_cert > /dev/null 2>&1; then
     echo "PASS: Successfully saved a certificate to a file"
     if ssh-keygen -Lf /tmp/testing_cert > /dev/null; then
         echo "PASS: Validated ssh-keygen parses saved certificate"
@@ -74,7 +74,7 @@ SOCKET_PATH="/tmp/rustica_agent_$SOCKET_RND"
 echo "PASS: Using the following socket path for this test run: $SOCKET_PATH"
 
 # Start RusticaAgent
-./target/debug/rustica-agent single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
+./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
 AGENT_PID=$!
 sleep 2
 
@@ -106,7 +106,7 @@ fi
 kill $AGENT_PID
 wait $AGENT_PID 2>/dev/null
 rm $SSH_AUTH_SOCK
-./target/debug/rustica-agent single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 & 
+./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 & 
 AGENT_PID=$!
 sleep 2
 
@@ -132,7 +132,7 @@ fi
 kill $AGENT_PID
 wait $AGENT_PID 2>/dev/null
 rm $SSH_AUTH_SOCK
-./target/debug/rustica-agent single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 & 
+./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 & 
 AGENT_PID=$!
 sleep 2
 
@@ -163,7 +163,7 @@ wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
 RUSTICA_PID=$!
 sleep 2
 
-./target/debug/rustica-agent single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
+./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
 AGENT_PID=$!
 sleep 2
 

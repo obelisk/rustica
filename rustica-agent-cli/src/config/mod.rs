@@ -13,6 +13,7 @@ use sshcerts::yubikey::piv::Yubikey;
 use sshcerts::{CertType, PrivateKey, PublicKey};
 
 use rustica_agent::*;
+use tokio::runtime::Handle;
 
 use std::convert::TryFrom;
 use std::env;
@@ -247,7 +248,7 @@ fn parse_certificate_config_from_args(
     Ok(certificate_options)
 }
 
-fn parse_server_from_args(
+async fn parse_server_from_args(
     matches: &ArgMatches,
     config: &Config,
 ) -> Result<RusticaServer, ConfigurationError> {
@@ -279,7 +280,15 @@ fn parse_server_from_args(
         (None, None) => return Err(ConfigurationError::MissingServerCertificateAuthority),
     };
 
-    Ok(RusticaServer::new(address, ca, mtls_cert, mtls_key))
+    let runtime_handle = Handle::current();
+
+    Ok(RusticaServer::new(
+        address,
+        ca,
+        mtls_cert,
+        mtls_key,
+        runtime_handle,
+    ))
 }
 
 fn parse_socket_path_from_args(matches: &ArgMatches, config: &Config) -> String {
@@ -294,7 +303,7 @@ fn parse_socket_path_from_args(matches: &ArgMatches, config: &Config) -> String 
     }
 }
 
-pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
+pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     let command_configuration = Command::new("rustica-agent")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Mitchell Grenier <mitchell@confurious.io>")
@@ -356,15 +365,15 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     let matches = command_configuration.get_matches();
 
     if let Some(immediate_mode_cmd) = matches.subcommand_matches("immediate") {
-        return immediatemode::configure_immediate(immediate_mode_cmd);
+        return immediatemode::configure_immediate(immediate_mode_cmd).await;
     }
 
     if let Some(multi_mode_cmd) = matches.subcommand_matches("multi") {
-        return multimode::configure_multimode(&multi_mode_cmd);
+        return multimode::configure_multimode(&multi_mode_cmd).await;
     }
 
     if let Some(fido_setup_mode_cmd) = matches.subcommand_matches("fido-setup") {
-        return fidosetup::configure_fido_setup(&fido_setup_mode_cmd);
+        return fidosetup::configure_fido_setup(&fido_setup_mode_cmd).await;
     }
 
     if let Some(provision_piv_mode) = matches.subcommand_matches("provision-piv") {
@@ -372,11 +381,11 @@ pub fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     }
 
     if let Some(register_mode) = matches.subcommand_matches("register") {
-        return register::configure_register(&register_mode);
+        return register::configure_register(&register_mode).await;
     }
 
     if let Some(single_mode) = matches.subcommand_matches("single") {
-        return singlemode::configure_singlemode(&single_mode);
+        return singlemode::configure_singlemode(&single_mode).await;
     }
 
     if let Some(list_piv_keys) = matches.subcommand_matches("list-piv-keys") {

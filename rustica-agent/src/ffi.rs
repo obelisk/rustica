@@ -14,6 +14,10 @@ use crate::rustica::key::U2FAttestation;
 use sshcerts::fido::generate::generate_new_ssh_key;
 use sshcerts::ssh::PrivateKey;
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
+use tokio::{
+    runtime::Runtime,
+    sync::mpsc::{channel, Sender},
+};
 
 use std::fs::File;
 use std::{collections::HashMap, os::unix::prelude::PermissionsExt};
@@ -22,7 +26,11 @@ use std::{convert::TryFrom, slice};
 // FFI related imports
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_long};
-use std::os::unix::net::UnixListener;
+
+pub struct RusticaAgentInstance {
+    runtime: Runtime,
+    shutdown_sender: Sender<()>,
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn unlock_yubikey(
@@ -256,11 +264,19 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         }
     };
 
+    let runtime = match Runtime::new() {
+        Ok(rt) => rt,
+        _ => return false,
+    };
+
+    let runtime_handle = runtime.handle().to_owned();
+
     let server = RusticaServer::new(
         config.server.unwrap(),
         config.ca_pem.unwrap(),
         config.mtls_cert.unwrap(),
         config.mtls_key.unwrap(),
+        runtime_handle,
     );
 
     let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
@@ -386,11 +402,19 @@ pub unsafe extern "C" fn generate_and_enroll(
 
     let mut signatory = Signatory::Yubikey(YubikeySigner { yk, slot });
 
+    let runtime = match Runtime::new() {
+        Ok(rt) => rt,
+        _ => return false,
+    };
+
+    let runtime_handle = runtime.handle().to_owned();
+
     let server = RusticaServer::new(
         config.server.unwrap(),
         config.ca_pem.unwrap(),
         config.mtls_cert.unwrap(),
         config.mtls_key.unwrap(),
+        runtime_handle,
     );
 
     match server.register_key(&mut signatory, &key_config) {
@@ -419,7 +443,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
     certificate_priority: bool,
-) -> bool {
+) -> *const RusticaAgentInstance {
     return start_direct_rustica_agent_with_piv_idents(
         private_key,
         config_data,
@@ -454,7 +478,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     piv_slots: *const u8,
     piv_pins: *const c_long,
     piv_key_count: c_int,
-) -> bool {
+) -> *const RusticaAgentInstance {
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
@@ -463,30 +487,32 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
 
     let cf = CStr::from_ptr(config_data);
     let config_data = match cf.to_str() {
-        Err(_) => return false,
-        Ok(s) => s,
+        Err(_) => return std::ptr::null(),
+        Ok(s) => s.to_owned(),
     };
 
     let sp = CStr::from_ptr(socket_path);
     let socket_path = match sp.to_str() {
-        Err(_) => return false,
-        Ok(s) => s,
+        Err(_) => return std::ptr::null(),
+        Ok(s) => s.to_owned(),
     };
+
+    println!("Socket path: {socket_path}");
 
     let authority = CStr::from_ptr(authority);
     let authority = match authority.to_str() {
-        Err(_) => return false,
+        Err(_) => return std::ptr::null(),
         Ok(s) => s.to_owned(),
     };
 
     let private_key = CStr::from_ptr(private_key);
     let mut private_key = match private_key.to_str() {
-        Err(_) => return false,
+        Err(_) => return std::ptr::null(),
         Ok(s) => {
             if let Ok(p) = PrivateKey::from_string(s) {
                 p
             } else {
-                return false;
+                return std::ptr::null();
             }
         }
     };
@@ -494,20 +520,20 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     if !pin.is_null() {
         let pin = CStr::from_ptr(pin);
         let pin = match pin.to_str() {
-            Err(_) => return false,
-            Ok(s) => s,
+            Err(_) => return std::ptr::null(),
+            Ok(s) => s.to_owned(),
         };
-        private_key.set_pin(pin);
+        private_key.set_pin(&pin);
     }
 
     if !device.is_null() {
         let device = CStr::from_ptr(device);
         let device = match device.to_str() {
-            Err(_) => return false,
-            Ok(s) => s,
+            Err(_) => return std::ptr::null(),
+            Ok(s) => s.to_owned(),
         };
 
-        private_key.set_device_path(device);
+        private_key.set_device_path(&device);
     }
 
     let piv_key_count = piv_key_count as usize;
@@ -533,7 +559,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     for maybe_slot in slice::from_raw_parts(piv_slots, piv_key_count) {
         match SlotId::try_from(*maybe_slot) {
             Ok(s) => key_slots.push(s),
-            Err(_) => return false,
+            Err(_) => return std::ptr::null(),
         };
     }
 
@@ -545,12 +571,12 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     {
         let mut yk = match Yubikey::open(serial) {
             Ok(yk) => yk,
-            Err(_) => return false,
+            Err(_) => return std::ptr::null(),
         };
 
         let pubkey = match yk.ssh_cert_fetch_pubkey(&slot) {
             Ok(pk) => pk,
-            Err(_) => return false,
+            Err(_) => return std::ptr::null(),
         };
 
         piv_identities.insert(
@@ -571,9 +597,16 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         println!("{}", key.1.public_key.fingerprint().hash);
     }
 
-    let config: Config = toml::from_str(config_data).unwrap();
+    let config: Config = toml::from_str(&config_data).unwrap();
     let mut certificate_options = CertificateConfig::from(config.options);
     certificate_options.authority = authority;
+
+    let runtime = match Runtime::new() {
+        Ok(rt) => rt,
+        _ => return std::ptr::null(),
+    };
+
+    let runtime_handle = runtime.handle().to_owned();
 
     let handler = Handler {
         cert: None,
@@ -585,6 +618,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
             config.ca_pem.unwrap(),
             config.mtls_cert.unwrap(),
             config.mtls_key.unwrap(),
+            runtime_handle,
         ),
         signatory: Signatory::Direct(private_key),
         identities: HashMap::new(),
@@ -593,8 +627,36 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         certificate_priority,
     };
 
-    let socket = UnixListener::bind(socket_path).unwrap();
-    Agent::run(handler, socket);
+    let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
+
+    runtime.spawn(async move {
+        Agent::run_with_termination_channel(
+            handler,
+            socket_path.to_string(),
+            Some(shutdown_receiver),
+        )
+        .await;
+        println!("Rustica Agent has shutdown");
+    });
+
+    let agent_instance = Box::new(RusticaAgentInstance {
+        runtime,
+        shutdown_sender,
+    });
+
+    let agent_instance_pointer: *const RusticaAgentInstance = Box::leak(agent_instance);
+
+    agent_instance_pointer
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn shutdown_rustica_agent(rai: *mut RusticaAgentInstance) -> bool {
+    let rustica_agent_instance = Box::from_raw(rai);
+    let shutdown_sender = rustica_agent_instance.shutdown_sender.clone();
+    rustica_agent_instance.runtime.spawn(async move {
+        shutdown_sender.send(()).await.unwrap();
+        println!("Sent shutdown message");
+    });
 
     true
 }
@@ -612,7 +674,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
     certificate_priority: bool,
-) -> bool {
+) -> *const RusticaAgentInstance {
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
@@ -621,13 +683,13 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
 
     let cf = CStr::from_ptr(config_data);
     let config_data = match cf.to_str() {
-        Err(_) => return false,
+        Err(_) => return std::ptr::null(),
         Ok(s) => s,
     };
 
     let authority = CStr::from_ptr(authority);
     let authority = match authority.to_str() {
-        Err(_) => return false,
+        Err(_) => return std::ptr::null(),
         Ok(s) => s.to_owned(),
     };
 
@@ -640,8 +702,15 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     let slot = SlotId::try_from(slot).unwrap();
     let pubkey = match yk.ssh_cert_fetch_pubkey(&slot) {
         Ok(cert) => cert,
-        Err(_) => return false,
+        Err(_) => return std::ptr::null(),
     };
+
+    let runtime = match Runtime::new() {
+        Ok(rt) => rt,
+        _ => return std::ptr::null(),
+    };
+
+    let runtime_handle = runtime.handle().to_owned();
 
     let handler = Handler {
         cert: None,
@@ -653,6 +722,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
             config.ca_pem.unwrap(),
             config.mtls_cert.unwrap(),
             config.mtls_key.unwrap(),
+            runtime_handle,
         ),
         signatory: Signatory::Yubikey(YubikeySigner {
             yk: Yubikey::open(yubikey_serial).unwrap(),
@@ -668,14 +738,30 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
 
     let sp = CStr::from_ptr(socket_path);
     let socket_path = match sp.to_str() {
-        Err(_) => return false,
+        Err(_) => return std::ptr::null(),
         Ok(s) => s,
     };
 
-    let socket = UnixListener::bind(socket_path).unwrap();
-    Agent::run(handler, socket);
+    let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
 
-    true
+    runtime.spawn(async move {
+        Agent::run_with_termination_channel(
+            handler,
+            socket_path.to_string(),
+            Some(shutdown_receiver),
+        )
+        .await;
+        println!("Rustica Agent has shutdown");
+    });
+
+    let agent_instance = Box::new(RusticaAgentInstance {
+        runtime,
+        shutdown_sender,
+    });
+
+    let agent_instance_pointer: *const RusticaAgentInstance = Box::leak(agent_instance);
+
+    agent_instance_pointer
 }
 
 /// Fetch a string that will configure a git repository for code
