@@ -2,7 +2,7 @@
 
 use std::{collections::{HashMap, HashSet}, path::PathBuf};
 
-use eframe::egui::{self, Grid, Sense /*Sense*/};
+use eframe::egui::{self, Grid, Sense, TextEdit /*Sense*/};
 
 use egui::ComboBox;
 
@@ -53,6 +53,7 @@ struct RusticaAgentGui {
     fido_devices: Vec<FidoDeviceDescriptor>,
     selected_fido_device: Option<usize>,
     piv_keys: HashMap<Vec<u8>, YubikeyPIVKeyDescriptorWithUse>,
+    unlock_pin: String,
 }
 
 fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError>
@@ -124,6 +125,7 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         fido_devices,
         selected_fido_device,
         piv_keys,
+        unlock_pin: String::new(),
     })
 }
 
@@ -226,7 +228,12 @@ impl eframe::App for RusticaAgentGui {
                     ui.add(egui::Separator::default());
                     ui.vertical_centered(|ui| {
                         ui.label("Additional Keys");
-                        Grid::new("my_grid")
+                        ui.horizontal(|ui| {
+                            ui.label("Unlock Pin");
+                            ui.add(TextEdit::singleline(&mut self.unlock_pin).password(true));
+                        });
+                        
+                        Grid::new("additional_keys_list")
                             .num_columns(5)
                             .spacing([40.0, 4.0])
                             .striped(true)
