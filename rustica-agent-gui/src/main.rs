@@ -1,13 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::{HashMap, HashSet}, path::PathBuf};
 
-use eframe::egui::{self /*Sense*/};
+use eframe::egui::{self, Grid, Sense /*Sense*/};
 
 use egui::ComboBox;
 
 use home::home_dir;
-use rustica_agent::{Agent, CertificateConfig, RusticaServer, Signatory};
+use rustica_agent::{Agent, CertificateConfig, RusticaServer, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys};
 use sshcerts::{fido::{FidoDeviceDescriptor, list_fido_devices}, PrivateKey};
 use tokio::{
     runtime::Runtime,
@@ -35,6 +35,10 @@ impl std::fmt::Display for RusticaAgentGuiError {
 
 impl std::error::Error for RusticaAgentGuiError {}
 
+struct YubikeyPIVKeyDescriptorWithUse {
+    descriptor: YubikeyPIVKeyDescriptor,
+    in_use: bool,
+}
 
 struct RusticaAgentGui {
     agent_dir: PathBuf,
@@ -48,6 +52,7 @@ struct RusticaAgentGui {
     new_env_content: String,
     fido_devices: Vec<FidoDeviceDescriptor>,
     selected_fido_device: Option<usize>,
+    piv_keys: HashMap<Vec<u8>, YubikeyPIVKeyDescriptorWithUse>,
 }
 
 fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError>
@@ -101,6 +106,11 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         None
     };
 
+    let piv_keys = get_all_piv_keys().unwrap_or_default().into_iter().map(|x| (x.0, YubikeyPIVKeyDescriptorWithUse {
+        descriptor: x.1,
+        in_use: false,
+    })).collect();
+
     Ok(RusticaAgentGui {
         agent_dir: home_dir.join(".rusticaagent"),
         environments,
@@ -113,6 +123,7 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         new_env_content: String::new(),
         fido_devices,
         selected_fido_device,
+        piv_keys,
     })
 }
 
@@ -189,26 +200,56 @@ impl eframe::App for RusticaAgentGui {
                 let config_path = PathBuf::from(&self.environments[*selected_env]);
                 let config_name = config_path.file_name().unwrap().to_os_string();
 
-                let toggle_label = match self.certificate_priority {
-                    true => "Certificate Priority Enabled",
-                    false => "Certificate Priority Disabled",
-                };
-                ui.toggle_value(&mut self.certificate_priority, toggle_label);
+                ui.horizontal(|ui| {
+                    let toggle_label = match self.certificate_priority {
+                        true => "Certificate Priority Enabled",
+                        false => "Certificate Priority Disabled",
+                    };
+                    ui.toggle_value(&mut self.certificate_priority, toggle_label);
+                });
 
-                if let Some(selected_fido_device) = self.selected_fido_device {
-                    ComboBox::from_label("Choose a FIDO key")
-                    .selected_text(format!("{}", &self.fido_devices[selected_fido_device].product_string.clone()))
-                    .show_ui(ui, |ui| {
-                        for i in 0..self.fido_devices.len() {
-                            let value = ui.selectable_value(&mut &self.fido_devices[i], &self.fido_devices[selected_fido_device], &self.fido_devices[i].product_string.clone());
-                            if value.clicked() {
-                                self.selected_fido_device = Some(i);
+                ui.horizontal(|ui| {
+                    if let Some(selected_fido_device) = self.selected_fido_device {
+                        ComboBox::from_label("Choose a FIDO key")
+                        .selected_text(format!("{}", &self.fido_devices[selected_fido_device].product_string.clone()))
+                        .show_ui(ui, |ui| {
+                            for i in 0..self.fido_devices.len() {
+                                let value = ui.selectable_value(&mut &self.fido_devices[i], &self.fido_devices[selected_fido_device], &self.fido_devices[i].product_string.clone());
+                                if value.clicked() {
+                                    self.selected_fido_device = Some(i);
+                                }
                             }
-                        }
+                        });
+                    } else {
+                        ui.label("There are no connected FIDO devices");
+                    };
+                    ui.add(egui::Separator::default());
+                    ui.vertical_centered(|ui| {
+                        ui.label("Additional Keys");
+                        Grid::new("my_grid")
+                            .num_columns(5)
+                            .spacing([40.0, 4.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.label("Serial");
+                                ui.label("Slot");
+                                ui.label("Subject");
+                                ui.label("Unlock");
+                                ui.label("Use");
+                                ui.end_row();
+                                for (_, ui_key_handle) in &mut self.piv_keys {
+                                    ui.label(ui_key_handle.descriptor.serial.to_string());
+                                    ui.label(format!("{:?}", ui_key_handle.descriptor.slot));
+                                    ui.label(format!("{}", ui_key_handle.descriptor.subject));
+                                    if ui.button("Unlock").clicked() {
+                                        println!("Unlock key: {}", ui_key_handle.descriptor.serial);
+                                    }
+                                    ui.checkbox(&mut ui_key_handle.in_use, "");
+                                    ui.end_row();
+                                }
+                            });
                     });
-                } else {
-                    ui.label("There are no connected FIDO devices");
-                };
+                });
 
                 let key_path = self.agent_dir.clone().join("keys").join(config_name);
                 if key_path.exists() && key_path.is_file() {
