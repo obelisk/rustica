@@ -112,9 +112,11 @@ fn get_signatory(
     ))
 }
 
-pub fn configure_multimode(matches: &ArgMatches) -> Result<RusticaAgentAction, ConfigurationError> {
+pub async fn configure_multimode(
+    matches: &ArgMatches,
+) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config)?;
+    let server = parse_server_from_args(&matches, &config).await?;
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let socket_path = parse_socket_path_from_args(matches, &config);
 

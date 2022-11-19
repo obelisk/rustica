@@ -13,9 +13,11 @@ pub struct ImmediateConfig {
     pub out: Option<String>,
 }
 
-pub fn configure_immediate(matches: &ArgMatches) -> Result<RusticaAgentAction, ConfigurationError> {
+pub async fn configure_immediate(
+    matches: &ArgMatches,
+) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config)?;
+    let server = parse_server_from_args(&matches, &config).await?;
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let out = matches.value_of("out").map(|x| x.to_string());
     let slot = matches.value_of("slot").map(|x| x.to_string());

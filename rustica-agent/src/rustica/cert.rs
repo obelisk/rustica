@@ -1,5 +1,5 @@
 use super::error::{RefreshError, ServerError};
-use super::{CertificateRequest, Signatory, RusticaCert};
+use super::{CertificateRequest, RusticaCert, Signatory};
 use crate::{CertificateConfig, RusticaServer};
 use sshcerts::Certificate;
 
@@ -7,7 +7,11 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 impl RusticaServer {
-    pub async fn refresh_certificate_async(&self, signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
+    pub async fn refresh_certificate_async(
+        &self,
+        signatory: &mut Signatory,
+        options: &CertificateConfig,
+    ) -> Result<RusticaCert, RefreshError> {
         let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await?;
 
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
@@ -31,11 +35,10 @@ impl RusticaServer {
         let response = response.into_inner();
 
         if response.error_code != 0 {
-            return Err(RefreshError::RusticaServerError(
-                ServerError {
-                    code: response.error_code,
-                    message: response.error,
-                }))
+            return Err(RefreshError::RusticaServerError(ServerError {
+                code: response.error_code,
+                message: response.error,
+            }));
         }
 
         Ok(RusticaCert {
@@ -44,9 +47,12 @@ impl RusticaServer {
         })
     }
 
-    pub fn get_custom_certificate(&self, signatory: &mut Signatory, options: &CertificateConfig) -> Result<RusticaCert, RefreshError> {
-        self.runtime.block_on(async {
-            self.refresh_certificate_async(signatory, options).await
-        })
+    pub fn get_custom_certificate(
+        &self,
+        signatory: &mut Signatory,
+        options: &CertificateConfig,
+    ) -> Result<RusticaCert, RefreshError> {
+        self.handle
+            .block_on(async { self.refresh_certificate_async(signatory, options).await })
     }
 }

@@ -1,11 +1,11 @@
 use std::env;
 
-use clap::{Arg, ArgMatches, Command};
-use rustica_agent::RusticaServer;
-
 use super::{
     parse_config_from_args, parse_server_from_args, ConfigurationError, RusticaAgentAction,
 };
+
+use clap::{Arg, ArgMatches, Command};
+use rustica_agent::RusticaServer;
 
 pub enum SKType {
     Ed25519,
@@ -21,11 +21,11 @@ pub struct ProvisionAndRegisterFidoConfig {
     pub out: Option<String>,
 }
 
-pub fn configure_fido_setup(
+pub async fn configure_fido_setup(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config)?;
+    let server = parse_server_from_args(&matches, &config).await?;
 
     let app_name = matches.value_of("application").unwrap().to_string();
 

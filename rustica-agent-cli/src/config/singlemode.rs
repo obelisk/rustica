@@ -9,11 +9,11 @@ use super::{
     RusticaAgentAction,
 };
 
-pub fn configure_singlemode(
+pub async fn configure_singlemode(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config)?;
+    let server = parse_server_from_args(&matches, &config).await?;
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let socket_path = parse_socket_path_from_args(matches, &config);
 
@@ -26,7 +26,13 @@ pub fn configure_singlemode(
             Ok(cert) => cert,
             Err(_) => return Err(ConfigurationError::YubikeyNoKeypairFound),
         },
-        Signatory::Direct(privkey) => privkey.pubkey.clone(),
+        Signatory::Direct(privkey) => {
+            if let Some(path) = matches.value_of("fido-device-path") {
+                privkey.set_device_path(path);
+            }
+
+            privkey.pubkey.clone()
+        }
     };
 
     let handler = Handler {
@@ -69,6 +75,13 @@ pub fn add_configuration(cmd: Command) -> Command {
             .help("Used instead of a slot to provide a private key via file")
             .long("file")
             .short('f')
+            .takes_value(true),
+    )
+    .arg(
+        Arg::new("fido-device-path")
+            .help("The device path to use for FIDO2 keys. If not provided, we'll pick a device randomly. Should be set when multiple FIDO2 devices connected.")
+            .long("fido")
+            .required(false)
             .takes_value(true),
     )
 }

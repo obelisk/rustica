@@ -3,23 +3,28 @@
 Rustica is a Yubikey backed SSHCA written in Rust. It is designed to be used with the accompanying `rustica-agent` tool for certificate handling but speaks gRPC so other integrations are possible.
 
 ## Features
-- Multiple Ways To Secure Private Keys
+- Multiple Ways To Secure Server Private Keys
     - File
     - Yubikey 4/5 (non HSM)
     - AmazonKMS
+- Multiple Ways To Secure Client Private Keys
+    - File
+    - Yubikey PIV
+    - FIDO
 - Multiple Ways To Store Permissions
-    - Built in SQLite Database
+    - Built in SQLite Database Support
     - External Authorization Server
 - Multiple Supported Logging Systems
     - Stdout
     - InfluxDB
     - Splunk
-    - External JSON Webhook
+    - JSON Webhook
 - Just In Time Certificate Generation
 - Use Different Keys For User and Hosts
 - gRPC With mTLS
-- Docker Scratch Container Support
-- Extensive Feature Support 
+- Docker Scratch Container Support (if used without server-side Yubikey signing)
+- Extensive Feature Support
+- Serve Multiple CAs of Different Kinds Simultaneously (e.g Yubikey + AmazonKMS)
 
 ### Protected Key Material
 Malicious access to the Rustica private key would result in serious compromise and thus Rustica provides two ways to mitigate this risk with Yubikey and AmazonKMS support. These signing modules use keys that cannot be exported resulting in more control over how the private key is being used. If using AmazonKMS, Amazon logs can be compared with Rustica logs to provide assurance no misuse has occured.
@@ -39,12 +44,9 @@ When using either AmazonKMS or file based keys, Rustica can be compiled to a sta
 ### Extensive Feature Support
 Compile in only what you need to reduce binary size and dependency bloat. If you're planning on using AmazonKMS for storing your keys, Rustica can be compiled without Yubikey dependencies and vice versa. The same is also true for authorization, if using a remote authorization service, Rustica can be compiled without Diesel and SQLite.
 
-### EXPERIMENTAL: Host Restriction
-It is possible to grant a principal to a user that is only valid for certain hostnames. This is achieved by setting the restricted host permission in the database. When in use, the certificate generated will have the `force-command` CriticalOption enabled. This will force the user to run a bash script, loaded inside the cert, that contains all hostnames she is allowed to log in to. If the hostname name of the remote host does not match any in the list, the connection is closed.
-
 ## Key Support
 The following key types have client support via FIDO:
-- ECDSA 256
+- ECDSA 256 (untested)
 - Ed25519
 
 The following key types have Yubikey support (client and server):
@@ -60,7 +62,7 @@ The following key types have no support:
 - ECDSA 521
 
 ## Running An Example Deployment
-This repository comes with a set of configuration files and database to be used as an example. New certificates can be easily generated using the scripts in `resources/`. 
+This repository comes with a set of configuration files and database to be used as an example. New certificates can be easily generated using the scripts in `resources/`. The integration tests also contain information about spinning up a Rustica deployment.
 
 ### Start Rustica
 `rustica --config examples/rustica_local_file.toml`
