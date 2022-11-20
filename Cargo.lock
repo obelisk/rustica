@@ -3269,6 +3269,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.12.3",
  "eframe",
+ "hex",
  "home",
  "rustica-agent",
  "sshcerts 0.12.0",

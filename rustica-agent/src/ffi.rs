@@ -579,6 +579,8 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
             Err(_) => return std::ptr::null(),
         };
 
+        let subject = yk.fetch_subject(&slot).unwrap_or_default();
+
         piv_identities.insert(
             pubkey.encode().to_vec(),
             YubikeyPIVKeyDescriptor {
@@ -586,6 +588,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
                 serial,
                 slot,
                 pin,
+                subject,
             },
         );
     }

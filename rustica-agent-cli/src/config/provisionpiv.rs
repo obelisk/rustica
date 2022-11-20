@@ -2,6 +2,7 @@ use std::env;
 
 use clap::{Arg, ArgMatches, Command};
 use rustica_agent::{slot_validator, Signatory, YubikeySigner};
+use yubikey::PinPolicy;
 
 use super::{get_signatory, ConfigurationError, RusticaAgentAction};
 
@@ -10,7 +11,17 @@ pub struct ProvisionPIVConfig {
     pub pin: String,
     pub management_key: Vec<u8>,
     pub require_touch: bool,
+    pub pin_policy: PinPolicy,
     pub subject: String,
+}
+
+pub fn pin_policy_parser(policy: &str) -> Result<PinPolicy, String> {
+    match policy {
+        "always" | "a" => Ok(PinPolicy::Always),
+        "once" | "o" => Ok(PinPolicy::Once),
+        "never" | "n" => Ok(PinPolicy::Never),
+        _ => Err(format!("{policy} is not a policy for pin I understand")),
+    }
 }
 
 pub fn configure_provision_piv(
@@ -38,12 +49,18 @@ pub fn configure_provision_piv(
         Err(_e) => "123456".to_string(),
     };
 
+    let pin_policy = matches
+        .get_one("pin-policy")
+        .map(|x: &PinPolicy| x.clone())
+        .unwrap_or(PinPolicy::Once);
+
     let provision_config = ProvisionPIVConfig {
         yubikey,
         pin,
         management_key,
         subject,
         require_touch,
+        pin_policy,
     };
 
     return Ok(RusticaAgentAction::ProvisionPIV(provision_config));
@@ -69,7 +86,7 @@ pub fn add_configuration(cmd: Command) -> Command {
     )
     .arg(
         Arg::new("pin-env")
-            .help("Specify the pin")
+            .help("Specify a different pin environment variable")
             .default_value("YK_PIN")
             .long("pinenv")
             .short('p')
@@ -81,6 +98,16 @@ pub fn add_configuration(cmd: Command) -> Command {
             .help("Require the key to always be tapped. If this is not selected, a tap will be required if not tapped in the last 15 seconds.")
             .long("require-touch")
             .short('r')
+    )
+    .arg(
+        Arg::new("pin-policy")
+            .help("Require the pin be provided to use this key. Can be \"always\", \"once\", or \"never\". The chosen policy cannot be changed later and may affect the ability to enroll the key with a backend.")
+            .long("pin-policy")
+            .short('P')
+            .value_parser(pin_policy_parser)
+            .multiple_occurrences(false)
+            .multiple_values(false)
+            .takes_value(true)
     )
     .arg(
         Arg::new("subject")
