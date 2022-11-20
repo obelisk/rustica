@@ -1,14 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::{collections::{HashMap, HashSet}, path::PathBuf};
+use std::{collections::{HashMap, HashSet}, path::PathBuf, hash::Hash};
 
-use eframe::egui::{self, Grid, Sense, TextEdit /*Sense*/};
+use eframe::egui::{self, Grid, Sense, TextEdit, Button /*Sense*/};
 
 use egui::ComboBox;
 
 use home::home_dir;
 use rustica_agent::{Agent, CertificateConfig, RusticaServer, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys};
-use sshcerts::{fido::{FidoDeviceDescriptor, list_fido_devices}, PrivateKey};
+use sshcerts::{fido::{FidoDeviceDescriptor, list_fido_devices}, PrivateKey, yubikey::piv::Yubikey};
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{channel, Sender},
@@ -35,6 +35,7 @@ impl std::fmt::Display for RusticaAgentGuiError {
 
 impl std::error::Error for RusticaAgentGuiError {}
 
+#[derive(Clone)]
 struct YubikeyPIVKeyDescriptorWithUse {
     descriptor: YubikeyPIVKeyDescriptor,
     in_use: bool,
@@ -241,15 +242,33 @@ impl eframe::App for RusticaAgentGui {
                                 ui.label("Serial");
                                 ui.label("Slot");
                                 ui.label("Subject");
-                                ui.label("Unlock");
+                                ui.label("Unlock Key");
                                 ui.label("Use");
                                 ui.end_row();
                                 for (_, ui_key_handle) in &mut self.piv_keys {
                                     ui.label(ui_key_handle.descriptor.serial.to_string());
                                     ui.label(format!("{:?}", ui_key_handle.descriptor.slot));
                                     ui.label(format!("{}", ui_key_handle.descriptor.subject));
-                                    if ui.button("Unlock").clicked() {
-                                        println!("Unlock key: {}", ui_key_handle.descriptor.serial);
+                                    if ui_key_handle.descriptor.pin.is_none() {
+                                        if ui.button("Unlock").clicked() {
+                                            let pin_bytes = self.unlock_pin.as_bytes().to_owned();
+                                            let yk = Yubikey::open(ui_key_handle.descriptor.serial);
+                                            if let Ok(mut yk) = yk {
+                                                match yk.unlock(&pin_bytes, &hex::decode("010203040506070801020304050607080102030405060708").unwrap()) {
+                                                    Ok(_) => ui_key_handle.descriptor.pin = Some(self.unlock_pin.clone()),
+                                                    Err(_) => {
+                                                        match yk.yk.get_pin_retries() {
+                                                            Ok(retries) => self.status = format!("Unlock failed, {retries} tries remaining"),
+                                                            Err(e) => self.status = format!("Could not get pin retries: {e}"),
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                self.status = "Could not open Yubikey. Still connected?".to_owned();
+                                            }
+                                        }
+                                    } else {
+                                        ui.add(Button::new("Unlock").sense(Sense::hover()));
                                     }
                                     ui.checkbox(&mut ui_key_handle.in_use, "");
                                     ui.end_row();
@@ -298,7 +317,7 @@ impl eframe::App for RusticaAgentGui {
                                             stale_at: 0,
                                             certificate_options: CertificateConfig::from(c.options),
                                             identities: HashMap::new(),
-                                            piv_identities: HashMap::new(),
+                                            piv_identities: self.piv_keys.iter().filter_map(|x| if x.1.in_use {Some((x.0.clone(), x.1.descriptor.clone()))} else {None}).collect(),
                                             notification_function: None,
                                             certificate_priority: self.certificate_priority,
                                         };

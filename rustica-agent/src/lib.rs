@@ -76,7 +76,7 @@ pub enum Signatory {
     Direct(PrivateKey),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct YubikeyPIVKeyDescriptor {
     pub serial: u32,
     pub slot: SlotId,
