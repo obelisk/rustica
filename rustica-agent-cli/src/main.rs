@@ -51,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &config.subject,
                 &config.management_key,
                 config.require_touch,
+                config.pin_policy,
             ) {
                 Some(_) => (),
                 None => {

@@ -2,13 +2,13 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
-use eframe::egui::{self /*Sense*/};
+use eframe::egui::{self, Grid, Sense, TextEdit, Button /*Sense*/};
 
 use egui::ComboBox;
 
 use home::home_dir;
-use rustica_agent::{Agent, CertificateConfig, RusticaServer, Signatory};
-use sshcerts::{fido::{FidoDeviceDescriptor, list_fido_devices}, PrivateKey};
+use rustica_agent::{Agent, CertificateConfig, RusticaServer, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys};
+use sshcerts::{fido::{FidoDeviceDescriptor, list_fido_devices}, PrivateKey, yubikey::piv::Yubikey};
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{channel, Sender},
@@ -35,6 +35,11 @@ impl std::fmt::Display for RusticaAgentGuiError {
 
 impl std::error::Error for RusticaAgentGuiError {}
 
+#[derive(Clone)]
+struct YubikeyPIVKeyDescriptorWithUse {
+    descriptor: YubikeyPIVKeyDescriptor,
+    in_use: bool,
+}
 
 struct RusticaAgentGui {
     agent_dir: PathBuf,
@@ -48,6 +53,8 @@ struct RusticaAgentGui {
     new_env_content: String,
     fido_devices: Vec<FidoDeviceDescriptor>,
     selected_fido_device: Option<usize>,
+    piv_keys: HashMap<Vec<u8>, YubikeyPIVKeyDescriptorWithUse>,
+    unlock_pin: String,
 }
 
 fn check_create_dir<'a, T>(path: T) -> Result<Vec<PathBuf>, RusticaAgentGuiError>
@@ -101,6 +108,11 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         None
     };
 
+    let piv_keys = get_all_piv_keys().unwrap_or_default().into_iter().map(|x| (x.0, YubikeyPIVKeyDescriptorWithUse {
+        descriptor: x.1,
+        in_use: false,
+    })).collect();
+
     Ok(RusticaAgentGui {
         agent_dir: home_dir.join(".rusticaagent"),
         environments,
@@ -113,6 +125,8 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
         new_env_content: String::new(),
         fido_devices,
         selected_fido_device,
+        piv_keys,
+        unlock_pin: String::new(),
     })
 }
 
@@ -189,26 +203,79 @@ impl eframe::App for RusticaAgentGui {
                 let config_path = PathBuf::from(&self.environments[*selected_env]);
                 let config_name = config_path.file_name().unwrap().to_os_string();
 
-                let toggle_label = match self.certificate_priority {
-                    true => "Certificate Priority Enabled",
-                    false => "Certificate Priority Disabled",
-                };
-                ui.toggle_value(&mut self.certificate_priority, toggle_label);
+                ui.horizontal(|ui| {
+                    let toggle_label = match self.certificate_priority {
+                        true => "Certificate Priority Enabled",
+                        false => "Certificate Priority Disabled",
+                    };
+                    ui.toggle_value(&mut self.certificate_priority, toggle_label);
+                });
 
-                if let Some(selected_fido_device) = self.selected_fido_device {
-                    ComboBox::from_label("Choose a FIDO key")
-                    .selected_text(format!("{}", &self.fido_devices[selected_fido_device].product_string.clone()))
-                    .show_ui(ui, |ui| {
-                        for i in 0..self.fido_devices.len() {
-                            let value = ui.selectable_value(&mut &self.fido_devices[i], &self.fido_devices[selected_fido_device], &self.fido_devices[i].product_string.clone());
-                            if value.clicked() {
-                                self.selected_fido_device = Some(i);
+                ui.horizontal(|ui| {
+                    if let Some(selected_fido_device) = self.selected_fido_device {
+                        ComboBox::from_label("Choose a FIDO key")
+                        .selected_text(format!("{}", &self.fido_devices[selected_fido_device].product_string.clone()))
+                        .show_ui(ui, |ui| {
+                            for i in 0..self.fido_devices.len() {
+                                let value = ui.selectable_value(&mut &self.fido_devices[i], &self.fido_devices[selected_fido_device], &self.fido_devices[i].product_string.clone());
+                                if value.clicked() {
+                                    self.selected_fido_device = Some(i);
+                                }
                             }
-                        }
+                        });
+                    } else {
+                        ui.label("There are no connected FIDO devices");
+                    };
+                    ui.add(egui::Separator::default());
+                    ui.vertical_centered(|ui| {
+                        ui.label("Additional Keys");
+                        ui.horizontal(|ui| {
+                            ui.label("Unlock Pin");
+                            ui.add(TextEdit::singleline(&mut self.unlock_pin).password(true));
+                        });
+                        
+                        Grid::new("additional_keys_list")
+                            .num_columns(5)
+                            .spacing([40.0, 4.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                ui.label("Serial");
+                                ui.label("Slot");
+                                ui.label("Subject");
+                                ui.label("Unlock Key");
+                                ui.label("Use");
+                                ui.end_row();
+                                for (_, ui_key_handle) in &mut self.piv_keys {
+                                    ui.label(ui_key_handle.descriptor.serial.to_string());
+                                    ui.label(format!("{:?}", ui_key_handle.descriptor.slot));
+                                    ui.label(format!("{}", ui_key_handle.descriptor.subject));
+                                    if ui_key_handle.descriptor.pin.is_none() {
+                                        if ui.button("Unlock").clicked() {
+                                            let pin_bytes = self.unlock_pin.as_bytes().to_owned();
+                                            let yk = Yubikey::open(ui_key_handle.descriptor.serial);
+                                            if let Ok(mut yk) = yk {
+                                                match yk.unlock(&pin_bytes, &hex::decode("010203040506070801020304050607080102030405060708").unwrap()) {
+                                                    Ok(_) => ui_key_handle.descriptor.pin = Some(self.unlock_pin.clone()),
+                                                    Err(_) => {
+                                                        match yk.yk.get_pin_retries() {
+                                                            Ok(retries) => self.status = format!("Unlock failed, {retries} tries remaining"),
+                                                            Err(e) => self.status = format!("Could not get pin retries: {e}"),
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                self.status = "Could not open Yubikey. Still connected?".to_owned();
+                                            }
+                                        }
+                                    } else {
+                                        ui.add(Button::new("Unlock").sense(Sense::hover()));
+                                    }
+                                    ui.checkbox(&mut ui_key_handle.in_use, "");
+                                    ui.end_row();
+                                }
+                            });
                     });
-                } else {
-                    ui.label("There are no connected FIDO devices");
-                };
+                });
 
                 let key_path = self.agent_dir.clone().join("keys").join(config_name);
                 if key_path.exists() && key_path.is_file() {
@@ -250,7 +317,7 @@ impl eframe::App for RusticaAgentGui {
                                             stale_at: 0,
                                             certificate_options: CertificateConfig::from(c.options),
                                             identities: HashMap::new(),
-                                            piv_identities: HashMap::new(),
+                                            piv_identities: self.piv_keys.iter().filter_map(|x| if x.1.in_use {Some((x.0.clone(), x.1.descriptor.clone()))} else {None}).collect(),
                                             notification_function: None,
                                             certificate_priority: self.certificate_priority,
                                         };

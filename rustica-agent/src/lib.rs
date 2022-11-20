@@ -76,12 +76,13 @@ pub enum Signatory {
     Direct(PrivateKey),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct YubikeyPIVKeyDescriptor {
     pub serial: u32,
     pub slot: SlotId,
     pub public_key: PublicKey,
     pub pin: Option<String>,
+    pub subject: String,
 }
 
 #[derive(Debug)]
@@ -431,6 +432,7 @@ pub fn provision_new_key(
     subj: &str,
     mgm_key: &[u8],
     require_touch: bool,
+    pin_policy: PinPolicy,
 ) -> Option<PIVAttestation> {
     println!("Provisioning new NISTP384 key in slot: {:?}", &yubikey.slot);
 
@@ -451,7 +453,7 @@ pub fn provision_new_key(
         subj,
         AlgorithmId::EccP384,
         policy,
-        PinPolicy::Never,
+        pin_policy,
     ) {
         Ok(_) => {
             let certificate = yubikey.yk.fetch_attestation(&yubikey.slot);
@@ -527,11 +529,13 @@ pub fn get_all_piv_keys(
                 for slot in 0x82..0x96_u8 {
                     let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
                     if let Ok(pubkey) = yk.ssh_cert_fetch_pubkey(&slot) {
+                        let subject = yk.fetch_subject(&slot).unwrap_or_default();
                         let descriptor = YubikeyPIVKeyDescriptor {
                             serial,
                             slot,
                             public_key: pubkey.clone(),
                             pin: pin.clone(),
+                            subject,
                         };
                         all_keys.insert(pubkey.encode().to_vec(), descriptor);
                     }
