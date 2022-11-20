@@ -432,6 +432,7 @@ pub fn provision_new_key(
     subj: &str,
     mgm_key: &[u8],
     require_touch: bool,
+    pin_policy: PinPolicy,
 ) -> Option<PIVAttestation> {
     println!("Provisioning new NISTP384 key in slot: {:?}", &yubikey.slot);
 
@@ -452,7 +453,7 @@ pub fn provision_new_key(
         subj,
         AlgorithmId::EccP384,
         policy,
-        PinPolicy::Never,
+        pin_policy,
     ) {
         Ok(_) => {
             let certificate = yubikey.yk.fetch_attestation(&yubikey.slot);
