@@ -830,3 +830,50 @@ pub unsafe extern "C" fn ffi_get_git_config_string_from_serial_and_slot(
 pub unsafe extern "C" fn ffi_free_rust_string(string_ptr: *mut c_char) {
     drop(CString::from_raw(string_ptr));
 }
+
+/// Check if the device path will require a pin to generate a new key
+/// # Safety
+#[no_mangle]
+pub unsafe extern "C" fn ffi_does_device_need_pin(device: *const c_char) -> i32 {
+    let device_path = if !device.is_null() {
+        let device = CStr::from_ptr(device);
+        match device.to_str() {
+            Err(_) => return -1,
+            Ok(s) => s.to_owned(),
+        }
+    } else {
+        return -1;
+    };
+
+    match sshcerts::fido::device_requires_pin(&device_path) {
+        Ok(true) => return 1,
+        Ok(false) => return 0,
+        Err(e) => {
+            println!("Could not determine if pin is needed: {e}");
+            return -1;
+        }
+    }
+}
+
+/// Check if the device path will require a pin to generate a new key
+/// # Safety
+#[no_mangle]
+pub unsafe extern "C" fn ffi_device_pin_retries(device: *const c_char) -> i32 {
+    let device_path = if !device.is_null() {
+        let device = CStr::from_ptr(device);
+        match device.to_str() {
+            Err(_) => return -1,
+            Ok(s) => s.to_owned(),
+        }
+    } else {
+        return -1;
+    };
+
+    match sshcerts::fido::device_pin_retries(&device_path) {
+        Ok(x) => return x,
+        Err(e) => {
+            println!("Could find how many pin retries are available: {e}");
+            return -1;
+        }
+    }
+}

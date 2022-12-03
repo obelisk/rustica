@@ -26,9 +26,7 @@ impl RusticaServer {
         signatory: &mut Signatory,
         attestation: &PIVAttestation,
     ) -> Result<(), RefreshError> {
-        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory)
-            .await
-            .unwrap();
+        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await?;
 
         let request = RegisterKeyRequest {
             certificate: attestation.certificate.clone(),
@@ -57,9 +55,7 @@ impl RusticaServer {
         application: &str,
         attestation: &U2FAttestation,
     ) -> Result<(), RefreshError> {
-        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory)
-            .await
-            .unwrap();
+        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await?;
 
         let request = RegisterU2fKeyRequest {
             auth_data: attestation.auth_data.clone(),
