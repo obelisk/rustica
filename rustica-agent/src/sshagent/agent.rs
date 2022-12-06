@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use tokio::net::UnixListener;
 use tokio::net::UnixStream;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::Mutex;
 
 use super::protocol::Request;
 
@@ -15,13 +12,13 @@ pub struct Agent;
 
 impl Agent {
     async fn handle_client<T: SshAgentHandler>(
-        handler: Arc<Mutex<T>>,
+        handler: &mut T,
         mut stream: UnixStream,
     ) -> HandleResult<()> {
         loop {
             let req = Request::read(&mut stream).await?;
             trace!("request: {:?}", req);
-            let response = handler.lock().await.handle_request(req).await?;
+            let response = handler.handle_request(req).await?;
             trace!("handler: {:?}", response);
             response.write(&mut stream).await?;
         }
@@ -32,13 +29,11 @@ impl Agent {
     }
 
     pub async fn run_with_termination_channel<T: SshAgentHandler + 'static>(
-        handler: T,
+        mut handler: T,
         socket_path: String,
         term_channel: Option<Receiver<()>>,
     ) {
         let listener = UnixListener::bind(socket_path).unwrap();
-        let arc_handler = Arc::new(Mutex::new(handler));
-        // accept the connections and spawn a new thread for each one
 
         if let Some(mut term_channel) = term_channel {
             loop {
@@ -50,9 +45,8 @@ impl Agent {
                     v = listener.accept() => {
                         match v {
                             Ok(stream) => {
-                                let ref_handler = arc_handler.clone();
-                                println!("Got connection from: {:?}", stream.1);
-                                match Agent::handle_client(ref_handler, stream.0).await {
+                                debug!("Got connection from: {:?}", stream.1);
+                                match Agent::handle_client(&mut handler, stream.0).await {
                                     Ok(_) => {}
                                     Err(e) => debug!("handler: {:?}", e),
                                 }
@@ -72,8 +66,7 @@ impl Agent {
                     v = listener.accept() => {
                         match v {
                             Ok(stream) => {
-                                let ref_handler = arc_handler.clone();
-                                match Agent::handle_client(ref_handler, stream.0).await {
+                                match Agent::handle_client(&mut handler, stream.0).await {
                                     Ok(_) => {}
                                     Err(e) => debug!("handler: {:?}", e),
                                 }
