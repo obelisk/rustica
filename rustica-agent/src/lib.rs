@@ -184,12 +184,14 @@ impl From<Option<Options>> for CertificateConfig {
 #[async_trait]
 impl SshAgentHandler for Handler {
     fn add_identity(&mut self, private_key: PrivateKey) -> Result<Response, AgentError> {
+        trace!("Add Identity call");
         let public_key = private_key.pubkey.encode();
         self.identities.insert(public_key, private_key);
         Ok(Response::Success)
     }
 
     async fn identities(&mut self) -> Result<Response, AgentError> {
+        trace!("Identities call");
         let mut identities = vec![];
         // Build identities from the private keys we have loaded
         let mut extra_identities: Vec<Identity> = self
@@ -230,7 +232,11 @@ impl SshAgentHandler for Handler {
                 identities.append(&mut extra_identities);
 
                 return Ok(Response::Identities(identities));
+            } else {
+                debug!("Certificate is stale, fetching new one");
             }
+        } else {
+            debug!("No certificate found");
         }
 
         if let Some(f) = &self.notification_function {
@@ -256,6 +262,7 @@ impl SshAgentHandler for Handler {
                     key_comment: response.comment.clone(),
                 };
                 self.cert = Some(cert_ident.clone());
+                self.stale_at = parsed_cert.valid_before;
 
                 // Add our signatory backed public key as well for systems that
                 // don't understand certificates or to make them available when
@@ -299,6 +306,7 @@ impl SshAgentHandler for Handler {
         data: Vec<u8>,
         _flags: u32,
     ) -> Result<Response, AgentError> {
+        trace!("Sign call");
         // Tri check to find how to sign the request. Since starting rustica with a file based
         // key is the same process as keys added afterwards, we do this to prevent duplication
         // of the private key based signing code.
