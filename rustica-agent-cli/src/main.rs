@@ -3,6 +3,8 @@ extern crate log;
 
 mod config;
 
+use notify_rust::Notification;
+
 use crate::config::RusticaAgentAction;
 use rustica_agent::rustica::key::U2FAttestation;
 use rustica_agent::*;
@@ -149,13 +151,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         // Normal operation: Starts RusticaAgent as an SSHAgent and waits to answer
         // requests from SSH clients.
-        Ok(RusticaAgentAction::Run(config)) => {
+        Ok(RusticaAgentAction::Run(mut config)) => {
             println!("Starting Rustica Agent");
             println!("Access Fingerprint: {}", config.pubkey.fingerprint().hash);
             println!(
                 "SSH_AUTH_SOCK={}; export SSH_AUTH_SOCK;",
                 config.socket_path
             );
+
+            let notification_f = move || {
+                println!("Trying to send a notification");
+                if let Err(e) = Notification::new()
+                    .summary("RusticaAgent")
+                    .body("An application is requesting a signature. Please tap your Yubikey.")
+                    .show()
+                {
+                    error!("Notification system errored: {e}");
+                }
+            };
+
+            config.handler.notification_function = Some(Box::new(notification_f));
 
             let (_sds, shutdown_receiver) = channel(1);
             Agent::run_with_termination_channel(
