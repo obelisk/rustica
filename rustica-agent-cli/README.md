@@ -17,3 +17,6 @@ An example configuration files can be found in the root/examples directory.
 
 ## Sub Commands
 There are several subcommands available for determining proper configuration as well as handling key registration of both PIV and FIDO keys with the Rustica backend. Run `rustica-agent-cli --help` to see more details.
+
+## Running via systemd
+See [the systemd resources for more information](../resources/systemd-config/README.md)
