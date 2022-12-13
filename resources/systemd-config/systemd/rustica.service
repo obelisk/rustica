@@ -1,0 +1,23 @@
+[Unit]
+Description=Rustica SSH key agent
+
+[Service]
+Type=simple
+
+Environment=SSH_AUTH_SOCK=%t/rustica-ssh-agent.socket
+Environment=YK_PIN=123456
+Environment=RUSTICA_CERT_FOR=<CERT_FOR_VALUE>
+
+# Change the execstart to the path of where your rustica agent cli lives
+# You can specify just the cli name if it lives within one of the standard /bin paths
+# You _cannot_ use environment variables within the command line
+ExecStart=/home/myuser/src/rustica/target/debug/rustica-agent-cli multi \
+--dir ${HOME}/.ssh/rustica_ssh_keys/ \
+--config ${HOME}/.config/rustica-agent/config.toml \
+--certfor $RUSTICA_CERT_FOR \
+--socket $SSH_AUTH_SOCK
+
+ExecStopPost=rm -f $SSH_AUTH_SOCK 
+
+[Install]
+WantedBy=default.target

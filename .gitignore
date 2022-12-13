@@ -4,7 +4,9 @@
 *.pem
 *.key
 *.env
-/resources/
+/resources/**/*
 !/resources/create_certs.sh
 !/resources/package.sh
+!/resources/systemd-config/
+!/resources/systemd-config/**/*
 /kubernetes
