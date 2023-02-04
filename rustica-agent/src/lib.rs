@@ -252,64 +252,39 @@ impl SshAgentHandler for Handler {
             f()
         }
 
-        // Iterate over all configured servers incase one is unavailable
-        for server in &self.servers {
-            // Grab a new certificate from the server because we don't have a valid one
-            let identity = match server
-                .refresh_certificate_async(&mut self.signatory, &self.certificate_options)
-                .await
-            {
-                Ok(response) => {
-                    let parsed_cert =
-                        Certificate::from_string(&response.cert).map_err(|e| AgentError {
-                            details: e.to_string(),
-                        })?;
-                    info!("{:#}", parsed_cert);
-                    let cert: Vec<&str> = response.cert.split(' ').collect();
-                    let raw_cert = base64::decode(cert[1]).unwrap_or_default();
-                    let cert_ident = Identity {
-                        key_blob: raw_cert,
-                        key_comment: response.comment.clone(),
-                    };
-                    self.cert = Some(cert_ident.clone());
-                    self.stale_at = parsed_cert.valid_before;
-
-                    // Add our signatory backed public key as well for systems that
-                    // don't understand certificates or to make them available when
-                    // perhaps fetching a new certificate is not possible. Useful
-                    // for Git commit signing.
-                    Some(Identity {
-                        key_blob: self.pubkey.encode().to_vec(),
-                        key_comment: String::new(),
-                    })
-                }
-                Err(e) => {
-                    error!("Refresh certificate error: {:?}", e);
-                    None
-                }
-            };
-            if let Some(identity) = identity {
-                let key_ident = Identity {
-                    key_blob: self.pubkey.encode().to_vec(),
-                    key_comment: String::new(),
-                };
-
-                if self.certificate_priority {
-                    identities.push(identity);
-                    identities.push(key_ident);
-                } else {
-                    identities.push(key_ident);
-                    identities.push(identity);
-                }
-                identities.append(&mut extra_identities);
-            }
-        }
-        // No server returned us a valid certificate so we are just going to
-        // return the key for signing purposes
-        return Ok(Response::Identities(vec![Identity {
+        let key = Identity {
             key_blob: self.pubkey.encode().to_vec(),
-            key_comment: "No server returned valid certificate. Only key available".to_string(),
-        }]));
+            key_comment: String::new(),
+        };
+
+        let certificate = fetch_new_certificate(
+            &self.servers,
+            &mut self.signatory,
+            &self.certificate_options,
+        )
+        .await
+        .map(|cert| {
+            let ident = Identity {
+                key_blob: cert.serialized,
+                key_comment: cert.comment.unwrap_or_default(),
+            };
+
+            // This is ugly doing a mutation in a map
+            // Look for a better way to do this.
+            self.cert = Some(ident.clone());
+            self.stale_at = cert.valid_before;
+
+            ident
+        });
+
+        match (certificate, self.certificate_priority) {
+            (Err(_), _) => Ok(Response::Identities(vec![Identity {
+                key_blob: self.pubkey.encode().to_vec(),
+                key_comment: "No server returned valid certificate. Only key available".to_string(),
+            }])),
+            (Ok(cert), false) => Ok(Response::Identities(vec![key, cert])),
+            (Ok(cert), true) => Ok(Response::Identities(vec![cert, key])),
+        }
     }
 
     /// Sign a request coming in from an SSH command.
