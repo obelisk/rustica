@@ -13,25 +13,18 @@ use sshcerts::yubikey::piv::Yubikey;
 use sshcerts::{CertType, PrivateKey, PublicKey};
 
 use rustica_agent::*;
-use tokio::runtime::Handle;
 
 use std::convert::TryFrom;
 use std::env;
-use std::fs::{self, File};
-use std::io::Read;
 use std::process;
 
 #[derive(Debug)]
 pub enum ConfigurationError {
-    BadConfiguration,
+    BadConfiguration(rustica_agent::RusticaAgentLibraryError),
     BadSlot,
     CannotAttestFileBasedKey,
     CannotProvisionFile,
     CannotReadFile(String),
-    MissingMTLSCertificate,
-    MissingMTLSKey,
-    MissingServerAddress,
-    MissingServerCertificateAuthority,
     MissingSSHKey,
     ParsingError,
     YubikeyManagementKeyInvalid,
@@ -114,41 +107,13 @@ fn get_signatory(
 }
 
 fn new_run_agent_subcommand<'a>(name: &'a str, about: &'a str) -> Command<'a> {
-    Command::new(name)
-        .about(about)
-        .arg(
-            Arg::new("config")
-                .help("Specify an alternate configuration file.")
-                .long("config")
-                .default_value("/etc/rustica/config.toml")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("server")
-                .help("Full address of Rustica server to use as CA")
-                .long("server")
-                .short('r')
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("capem")
-                .help("Path to PEM that contains CA of the server's certificate")
-                .long("capem")
-                .short('c')
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("mtlscert")
-                .help("Path to PEM that contains client cert")
-                .long("mtlscert")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("mtlskey")
-                .help("Path to PEM that contains client key")
-                .long("mtlskey")
-                .takes_value(true),
-        )
+    Command::new(name).about(about).arg(
+        Arg::new("config")
+            .help("Specify an alternate configuration file.")
+            .long("config")
+            .default_value("/etc/rustica/config.toml")
+            .takes_value(true),
+    )
 }
 
 pub fn add_request_options(cmd: Command) -> Command {
@@ -199,28 +164,8 @@ pub fn add_daemon_options(cmd: Command) -> Command {
 }
 
 fn parse_config_from_args(matches: &ArgMatches) -> Result<Config, ConfigurationError> {
-    let config = fs::read_to_string(matches.value_of("config").unwrap());
-    let config = match config {
-        Ok(content) => {
-            if let Ok(t) = toml::from_str(&content) {
-                t
-            } else {
-                return Err(ConfigurationError::BadConfiguration);
-            }
-        }
-        Err(_) => Config {
-            server: None,
-            ca_pem: None,
-            mtls_cert: None,
-            mtls_key: None,
-            slot: None,
-            key: None,
-            options: None,
-            socket: None,
-        },
-    };
-
-    Ok(config)
+    rustica_agent::config::parse_config_path(matches.value_of("config").unwrap())
+        .map_err(|e| ConfigurationError::BadConfiguration(e))
 }
 
 fn parse_certificate_config_from_args(
@@ -246,49 +191,6 @@ fn parse_certificate_config_from_args(
     }
 
     Ok(certificate_options)
-}
-
-async fn parse_server_from_args(
-    matches: &ArgMatches,
-    config: &Config,
-) -> Result<RusticaServer, ConfigurationError> {
-    let mtls_cert = match (matches.value_of("mtlscert"), &config.mtls_cert) {
-        (Some(mtls_cert), _) => fs::read_to_string(mtls_cert)?,
-        (_, Some(mtls_cert)) => mtls_cert.to_owned(),
-        (None, None) => return Err(ConfigurationError::MissingMTLSCertificate),
-    };
-
-    let mtls_key = match (matches.value_of("mtlskey"), &config.mtls_key) {
-        (Some(mtls_key), _) => fs::read_to_string(mtls_key)?,
-        (_, Some(mtls_key)) => mtls_key.to_owned(),
-        (None, None) => return Err(ConfigurationError::MissingMTLSKey),
-    };
-
-    let address = match (matches.value_of("server"), &config.server) {
-        (Some(server), _) => server.to_owned(),
-        (_, Some(server)) => server.to_owned(),
-        (None, None) => return Err(ConfigurationError::MissingServerAddress),
-    };
-
-    let ca = match (matches.value_of("capem"), &config.ca_pem) {
-        (Some(v), _) => {
-            let mut contents = String::new();
-            File::open(v)?.read_to_string(&mut contents)?;
-            contents
-        }
-        (_, Some(v)) => v.to_owned(),
-        (None, None) => return Err(ConfigurationError::MissingServerCertificateAuthority),
-    };
-
-    let runtime_handle = Handle::current();
-
-    Ok(RusticaServer::new(
-        address,
-        ca,
-        mtls_cert,
-        mtls_key,
-        runtime_handle,
-    ))
 }
 
 fn parse_socket_path_from_args(matches: &ArgMatches, config: &Config) -> String {

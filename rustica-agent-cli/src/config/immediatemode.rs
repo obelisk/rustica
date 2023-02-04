@@ -1,13 +1,14 @@
 use clap::{Arg, ArgMatches, Command};
 use rustica_agent::{slot_validator, CertificateConfig, RusticaServer, Signatory};
+use tokio::runtime::Handle;
 
 use super::{
-    get_signatory, parse_certificate_config_from_args, parse_config_from_args,
-    parse_server_from_args, ConfigurationError, RusticaAgentAction,
+    get_signatory, parse_certificate_config_from_args, parse_config_from_args, ConfigurationError,
+    RusticaAgentAction,
 };
 
 pub struct ImmediateConfig {
-    pub server: RusticaServer,
+    pub servers: Vec<RusticaServer>,
     pub certificate_options: CertificateConfig,
     pub signatory: Signatory,
     pub out: Option<String>,
@@ -17,7 +18,8 @@ pub async fn configure_immediate(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config).await?;
+    let servers = config.parse_servers(Handle::current());
+
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let out = matches.value_of("out").map(|x| x.to_string());
     let slot = matches.value_of("slot").map(|x| x.to_string());
@@ -26,7 +28,7 @@ pub async fn configure_immediate(
     let signatory = get_signatory(&slot, &config.slot, &file, &config.key)?;
 
     return Ok(RusticaAgentAction::Immediate(ImmediateConfig {
-        server,
+        servers,
         certificate_options,
         signatory,
         out,

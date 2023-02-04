@@ -1,5 +1,8 @@
-server = "https://localhost:50052"
+version = 2
 socket = "/tmp/rustica_socket_dev3"
+
+[[servers]]
+address = "https://localhost:50052"
 ca_pem = '''
 -----BEGIN CERTIFICATE-----
 MIIBJDCBzAIJAJGDT3qxW0/TMAoGCCqGSM49BAMCMBsxGTAXBgNVBAMMEEVudGVy

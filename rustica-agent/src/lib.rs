@@ -1,13 +1,17 @@
 #[macro_use]
 extern crate log;
 
+pub mod config;
 pub mod ffi;
 pub mod rustica;
 pub mod sshagent;
 
 use async_trait::async_trait;
-use serde_derive::Deserialize;
+use rustica::key::U2FAttestation;
 
+use config::Options;
+
+pub use config::Config;
 pub use sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 
 pub use rustica::{
@@ -23,27 +27,6 @@ use std::collections::HashMap;
 use std::{convert::TryFrom, env};
 
 use std::time::SystemTime;
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct Options {
-    pub principals: Option<Vec<String>>,
-    pub hosts: Option<Vec<String>>,
-    pub kind: Option<String>,
-    pub duration: Option<u64>,
-    pub authority: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Config {
-    pub server: Option<String>,
-    pub ca_pem: Option<String>,
-    pub mtls_cert: Option<String>,
-    pub mtls_key: Option<String>,
-    pub slot: Option<String>,
-    pub key: Option<String>,
-    pub options: Option<Options>,
-    pub socket: Option<String>,
-}
 
 #[derive(Debug)]
 pub struct CertificateConfig {
@@ -89,6 +72,12 @@ pub struct YubikeyPIVKeyDescriptor {
 pub enum RusticaAgentLibraryError {
     CouldNotOpenYubikey(u32),
     CouldNotEnumerateYubikeys(String),
+    NoServersReturnedCertificate,
+    ServerReturnedInvalidCertificate(sshcerts::error::Error),
+    NoServersCouldRegisterKey,
+    CouldNotReadConfigurationFile(String),
+    BadConfiguration(String),
+    UnknownConfigurationVersion(u64),
 }
 
 impl std::fmt::Display for RusticaAgentLibraryError {
@@ -100,6 +89,26 @@ impl std::fmt::Display for RusticaAgentLibraryError {
             RusticaAgentLibraryError::CouldNotEnumerateYubikeys(e) => {
                 write!(f, "Could not enumerate Yubikeys: {e}")
             }
+            RusticaAgentLibraryError::NoServersReturnedCertificate => write!(
+                f,
+                "All servers failed to return a certificate when requested"
+            ),
+            RusticaAgentLibraryError::ServerReturnedInvalidCertificate(e) => write!(
+                f,
+                "The requested server returned an invalid SSH certificate: {e}"
+            ),
+            RusticaAgentLibraryError::NoServersCouldRegisterKey => {
+                write!(f, "All servers failed to register the requested key")
+            }
+            RusticaAgentLibraryError::CouldNotReadConfigurationFile(e) => {
+                write!(f, "Could not read configuration file: {e}")
+            }
+            RusticaAgentLibraryError::BadConfiguration(e) => {
+                write!(f, "The configuration could not be parsed: {e}")
+            }
+            RusticaAgentLibraryError::UnknownConfigurationVersion(e) => {
+                write!(f, "Cannot use configuration version: {e}")
+            }
         }
     }
 }
@@ -108,7 +117,7 @@ impl std::error::Error for RusticaAgentLibraryError {}
 
 pub struct Handler {
     /// a GRPC client for making requests to a Rustica server
-    pub server: RusticaServer,
+    pub servers: Vec<RusticaServer>,
     /// A previously issued certificate
     pub cert: Option<Identity>,
     /// The public key we for the key we are providing a certificate for
@@ -133,7 +142,7 @@ pub struct Handler {
 impl std::fmt::Debug for Handler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Handler")
-            .field("server", &self.server)
+            .field("server", &self.servers)
             .field("cert", &self.cert)
             .finish()
     }
@@ -243,60 +252,64 @@ impl SshAgentHandler for Handler {
             f()
         }
 
-        // Grab a new certificate from the server because we don't have a valid one
-        match self
-            .server
-            .refresh_certificate_async(&mut self.signatory, &self.certificate_options)
-            .await
-        {
-            Ok(response) => {
-                let parsed_cert =
-                    Certificate::from_string(&response.cert).map_err(|e| AgentError {
-                        details: e.to_string(),
-                    })?;
-                info!("{:#}", parsed_cert);
-                let cert: Vec<&str> = response.cert.split(' ').collect();
-                let raw_cert = base64::decode(cert[1]).unwrap_or_default();
-                let cert_ident = Identity {
-                    key_blob: raw_cert,
-                    key_comment: response.comment.clone(),
-                };
-                self.cert = Some(cert_ident.clone());
-                self.stale_at = parsed_cert.valid_before;
+        // Iterate over all configured servers incase one is unavailable
+        for server in &self.servers {
+            // Grab a new certificate from the server because we don't have a valid one
+            let identity = match server
+                .refresh_certificate_async(&mut self.signatory, &self.certificate_options)
+                .await
+            {
+                Ok(response) => {
+                    let parsed_cert =
+                        Certificate::from_string(&response.cert).map_err(|e| AgentError {
+                            details: e.to_string(),
+                        })?;
+                    info!("{:#}", parsed_cert);
+                    let cert: Vec<&str> = response.cert.split(' ').collect();
+                    let raw_cert = base64::decode(cert[1]).unwrap_or_default();
+                    let cert_ident = Identity {
+                        key_blob: raw_cert,
+                        key_comment: response.comment.clone(),
+                    };
+                    self.cert = Some(cert_ident.clone());
+                    self.stale_at = parsed_cert.valid_before;
 
-                // Add our signatory backed public key as well for systems that
-                // don't understand certificates or to make them available when
-                // perhaps fetching a new certificate is not possible. Useful
-                // for Git commit signing.
+                    // Add our signatory backed public key as well for systems that
+                    // don't understand certificates or to make them available when
+                    // perhaps fetching a new certificate is not possible. Useful
+                    // for Git commit signing.
+                    Some(Identity {
+                        key_blob: self.pubkey.encode().to_vec(),
+                        key_comment: String::new(),
+                    })
+                }
+                Err(e) => {
+                    error!("Refresh certificate error: {:?}", e);
+                    None
+                }
+            };
+            if let Some(identity) = identity {
                 let key_ident = Identity {
                     key_blob: self.pubkey.encode().to_vec(),
                     key_comment: String::new(),
                 };
 
                 if self.certificate_priority {
-                    identities.push(cert_ident);
+                    identities.push(identity);
                     identities.push(key_ident);
                 } else {
                     identities.push(key_ident);
-                    identities.push(cert_ident);
+                    identities.push(identity);
                 }
                 identities.append(&mut extra_identities);
             }
-            Err(e) => {
-                error!("Refresh certificate error: {:?}", e);
-                // We used to error on this, but now we will just return without the certificate.
-                // We cannot really pass any dianostic information and not returning
-                // the certificate causes similar failures to the agent not working entirely
-                // except you can continue to use non-certificate functionality.
-                // for Git commit signing.
-                identities.push(Identity {
-                    key_blob: self.pubkey.encode().to_vec(),
-                    key_comment: format!("Only key available, Certificate refresh error: {e}, "),
-                });
-                identities.append(&mut extra_identities);
-            }
         }
-        return Ok(Response::Identities(identities));
+        // No server returned us a valid certificate so we are just going to
+        // return the key for signing purposes
+        return Ok(Response::Identities(vec![Identity {
+            key_blob: self.pubkey.encode().to_vec(),
+            key_comment: "No server returned valid certificate. Only key available".to_string(),
+        }]));
     }
 
     /// Sign a request coming in from an SSH command.
@@ -564,4 +577,83 @@ pub fn git_config_from_public_key(public_key: &PublicKey) -> String {
         "{base} gpg.format ssh && {base} commit.gpgsign true && {base} user.signingKey \"key::{}\"",
         public_key.to_string()
     )
+}
+
+/// Fetch a new certificate from one of the provided servers
+/// in the list. We will try them in order and error if none
+/// return a usable certificate
+pub async fn fetch_new_certificate(
+    servers: &[RusticaServer],
+    signatory: &mut Signatory,
+    options: &CertificateConfig,
+) -> Result<Certificate, RusticaAgentLibraryError> {
+    for server in servers.iter() {
+        match server.refresh_certificate_async(signatory, options).await {
+            Ok(response) => {
+                let parsed_cert = Certificate::from_string(&response.cert)
+                    .map_err(|e| RusticaAgentLibraryError::ServerReturnedInvalidCertificate(e))?;
+                return Ok(parsed_cert);
+            }
+            Err(e) => {
+                error!(
+                    "Could not fetch certificate from: {}. Gave error: {}",
+                    server.address,
+                    e.to_string()
+                )
+            }
+        }
+    }
+    Err(RusticaAgentLibraryError::NoServersReturnedCertificate)
+}
+
+/// Register a U2F key (along with its attestation) with a a remote server.
+/// Will return an error if none of the servers report the key was successfully
+/// registered. This will also only register the key with one server and will
+/// return successfully once one accepts the key.
+pub async fn register_u2f_key(
+    servers: &[RusticaServer],
+    signatory: &mut Signatory,
+    app_name: &str,
+    attestation: &U2FAttestation,
+) -> Result<(), RusticaAgentLibraryError> {
+    for server in servers.iter() {
+        match server
+            .register_u2f_key_async(signatory, app_name, &attestation)
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                error!(
+                    "Could not register U2F key with server: {}. Gave error: {}",
+                    server.address,
+                    e.to_string(),
+                )
+            }
+        }
+    }
+    Err(RusticaAgentLibraryError::NoServersCouldRegisterKey)
+}
+
+/// Register a PIV key (along with its attestation) with a a remote server.
+/// Will return an error if none of the servers report the key was successfully
+/// registered. This will also only register the key with one server and will
+/// return successfully once one accepts the key.
+pub async fn register_key(
+    servers: &[RusticaServer],
+    signatory: &mut Signatory,
+    attestation: &PIVAttestation,
+) -> Result<(), RusticaAgentLibraryError> {
+    for server in servers.iter() {
+        match server.register_key_async(signatory, &attestation).await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                error!(
+                    "Could not register key with server: {}. Gave error: {}",
+                    server.address,
+                    e.to_string(),
+                )
+            }
+        }
+    }
+    Err(RusticaAgentLibraryError::NoServersCouldRegisterKey)
 }

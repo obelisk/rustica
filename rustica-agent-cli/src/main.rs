@@ -9,10 +9,7 @@ use crate::config::RusticaAgentAction;
 use rustica_agent::rustica::key::U2FAttestation;
 use rustica_agent::*;
 
-use sshcerts::{
-    fido::{generate::generate_new_ssh_key, list_fido_devices},
-    Certificate,
-};
+use sshcerts::fido::{generate::generate_new_ssh_key, list_fido_devices};
 use tokio::sync::mpsc::channel;
 
 use std::fs::File;
@@ -76,10 +73,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 alg: new_fido_key.attestation.alg,
             };
 
-            match prf
-                .server
-                .register_u2f_key_async(&mut signatory, &prf.app_name, &u2f_attestation)
-                .await
+            match rustica_agent::register_u2f_key(
+                &prf.servers,
+                &mut signatory,
+                &prf.app_name,
+                &u2f_attestation,
+            )
+            .await
             {
                 Ok(_) => {
                     println!("Key was successfully registered!");
@@ -111,34 +111,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     error!("Key could not be registered. Server said: {}", e);
                     return Err(Box::new(e))?;
                 }
-            };
+            }
         }
         Ok(RusticaAgentAction::Register(mut config)) => {
-            match config
-                .server
-                .register_key_async(&mut config.signatory, &config.attestation)
-                .await
+            match rustica_agent::register_key(
+                &config.servers,
+                &mut config.signatory,
+                &config.attestation,
+            )
+            .await
             {
                 Ok(_) => println!("Key was successfully registered"),
                 Err(e) => {
                     error!("Key could not be registered. Server said: {}", e);
                     return Err(Box::new(e))?;
                 }
-            };
+            }
         }
         // Immediate operation: Immediately fetch a new certificate from the
         // server and optionally write it to a file. This is generally used
         // for debugging or in scripts where passing a certificate and key
         // file is easier than using an SSH agent.
         Ok(RusticaAgentAction::Immediate(mut config)) => {
-            match config
-                .server
-                .refresh_certificate_async(&mut config.signatory, &config.certificate_options)
-                .await
+            match rustica_agent::fetch_new_certificate(
+                &config.servers,
+                &mut config.signatory,
+                &config.certificate_options,
+            )
+            .await
             {
-                Ok(x) => {
-                    let cert = Certificate::from_string(&x.cert)?;
-
+                Ok(cert) => {
                     if let Some(out_file) = config.out {
                         let mut out = File::create(out_file)?;
                         out.write_all(cert.to_string().as_bytes())?;
@@ -147,7 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Err(e) => return Err(Box::new(e))?,
-            };
+            }
         }
         // Normal operation: Starts RusticaAgent as an SSHAgent and waits to answer
         // requests from SSH clients.
