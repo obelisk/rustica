@@ -1,7 +1,8 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::Config, list_yubikey_serials, CertificateConfig, Handler, Signatory,
-    YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::{parse_config, Config},
+    list_yubikey_serials, CertificateConfig, Handler, Signatory, YubikeyPIVKeyDescriptor,
+    YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -207,10 +208,10 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
     let cf = CStr::from_ptr(config_data);
     let config: Config = match cf.to_str() {
         Err(_) => return false,
-        Ok(s) => match toml::from_str(s) {
+        Ok(s) => match parse_config(s) {
             Ok(c) => c,
             Err(e) => {
-                println!("Error: Could not parse the configuration data: {}", e);
+                error!("Error: Could not parse the configuration data: {}", e);
                 return false;
             }
         },
@@ -351,7 +352,13 @@ pub unsafe extern "C" fn generate_and_enroll(
     let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
     let subject = CStr::from_ptr(subject);
 
-    let config: Config = toml::from_str(config_data).unwrap();
+    let config: Config = match parse_config(config_data) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return false;
+        }
+    };
 
     let alg = AlgorithmId::EccP384;
     let slot = SlotId::try_from(slot).unwrap();
@@ -601,7 +608,14 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         println!("{}", key.1.public_key.fingerprint().hash);
     }
 
-    let config: Config = toml::from_str(&config_data).unwrap();
+    let config: Config = match parse_config(&config_data) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return std::ptr::null();
+        }
+    };
+
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
         _ => return std::ptr::null(),
@@ -691,7 +705,13 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         Ok(s) => s.to_owned(),
     };
 
-    let config: Config = toml::from_str(config_data).unwrap();
+    let config: Config = match parse_config(&config_data) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return std::ptr::null();
+        }
+    };
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
