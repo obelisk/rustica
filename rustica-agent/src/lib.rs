@@ -201,8 +201,7 @@ impl SshAgentHandler for Handler {
 
     async fn identities(&mut self) -> Result<Response, AgentError> {
         trace!("Identities call");
-        // We start building identies with the manually loaded keys the user has
-        // provided
+        // We start building identies with the manually loaded keys
         let mut identities: Vec<Identity> = self
             .identities
             .iter()
@@ -212,23 +211,20 @@ impl SshAgentHandler for Handler {
             })
             .collect();
 
-        // Next, we will add any multimode keys we have where there is
-        // key material stored in the PIV slots of a Yubikey
+        // Then we add any multimode keys in Yubikey PIV slots
         identities.extend(self.piv_identities.iter().map(|x| Identity {
             key_blob: x.1.public_key.encode().to_vec(),
             key_comment: format!("Yubikey Serial: {} Slot: {:?}", x.1.serial, x.1.slot),
         }));
 
-        // If the time hasn't expired on our certificate, we don't need to fetch a new one
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        // Either fetch a new certificate or use the cached one if it has
-        // not yet expired.
+        // Fetch a new certificate or use the cached one if it's still valid
         let certificate = match (&self.cert, timestamp < self.stale_at) {
-            // In the case we have a certificate and it is not expired.
+            // In the case we have a certificate and it's not expired.
             (Some(cert), true) => Ok(cert.clone()),
             // All other cases require us to fetch a certificate from one
             // of the configured servers
@@ -240,6 +236,7 @@ impl SshAgentHandler for Handler {
                     f()
                 }
 
+                // Fetch a new certificate from one of the servers
                 fetch_new_certificate(
                     &self.servers,
                     &mut self.signatory,
@@ -267,8 +264,7 @@ impl SshAgentHandler for Handler {
             key_comment: String::new(),
         };
 
-        // The last keys we add are our key and certificate in which ever
-        // order the user has requested
+        // The last identities are our key and certificate in the requested order
         match (certificate, self.certificate_priority) {
             (Err(_), _) => identities.push(Identity {
                 key_blob: self.pubkey.encode().to_vec(),
