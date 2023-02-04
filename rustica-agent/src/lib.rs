@@ -201,9 +201,9 @@ impl SshAgentHandler for Handler {
 
     async fn identities(&mut self) -> Result<Response, AgentError> {
         trace!("Identities call");
-        let mut identities = vec![];
-        // Build identities from the private keys we have loaded
-        let mut extra_identities: Vec<Identity> = self
+        // We start building identies with the manually loaded keys the user has
+        // provided
+        let mut identities: Vec<Identity> = self
             .identities
             .iter()
             .map(|x| Identity {
@@ -212,7 +212,9 @@ impl SshAgentHandler for Handler {
             })
             .collect();
 
-        extra_identities.extend(self.piv_identities.iter().map(|x| Identity {
+        // Next, we will add any multimode keys we have where there is
+        // key material stored in the PIV slots of a Yubikey
+        identities.extend(self.piv_identities.iter().map(|x| Identity {
             key_blob: x.1.public_key.encode().to_vec(),
             key_comment: format!("Yubikey Serial: {} Slot: {:?}", x.1.serial, x.1.slot),
         }));
@@ -222,69 +224,63 @@ impl SshAgentHandler for Handler {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        if let Some(cert) = &self.cert {
-            if timestamp < self.stale_at {
-                debug!("Certificate has not expired, not refreshing");
-                let key_ident = Identity {
-                    key_blob: self.pubkey.encode().to_vec(),
-                    key_comment: String::new(),
-                };
 
-                if self.certificate_priority {
-                    identities.push(cert.clone());
-                    identities.push(key_ident);
-                } else {
-                    identities.push(key_ident);
-                    identities.push(cert.clone());
+        // Either fetch a new certificate or use the cached one if it has
+        // not yet expired.
+        let certificate = match (&self.cert, timestamp < self.stale_at) {
+            // In the case we have a certificate and it is not expired.
+            (Some(cert), true) => Ok(cert.clone()),
+            // All other cases require us to fetch a certificate from one
+            // of the configured servers
+            _ => {
+                // Send a notification in case the user is going to need to
+                // tap their key to prove ownership before receiving their
+                // certificate
+                if let Some(f) = &self.notification_function {
+                    f()
                 }
 
-                identities.append(&mut extra_identities);
+                fetch_new_certificate(
+                    &self.servers,
+                    &mut self.signatory,
+                    &self.certificate_options,
+                )
+                .await
+                .map(|cert| {
+                    let ident = Identity {
+                        key_blob: cert.serialized,
+                        key_comment: cert.comment.unwrap_or_default(),
+                    };
 
-                return Ok(Response::Identities(identities));
-            } else {
-                debug!("Certificate is stale, fetching new one");
+                    // This is ugly doing a mutation in a map
+                    // Look for a better way to do this.
+                    self.cert = Some(ident.clone());
+                    self.stale_at = cert.valid_before;
+
+                    ident
+                })
             }
-        } else {
-            debug!("No certificate found");
-        }
-
-        if let Some(f) = &self.notification_function {
-            f()
-        }
+        };
 
         let key = Identity {
             key_blob: self.pubkey.encode().to_vec(),
             key_comment: String::new(),
         };
 
-        let certificate = fetch_new_certificate(
-            &self.servers,
-            &mut self.signatory,
-            &self.certificate_options,
-        )
-        .await
-        .map(|cert| {
-            let ident = Identity {
-                key_blob: cert.serialized,
-                key_comment: cert.comment.unwrap_or_default(),
-            };
-
-            // This is ugly doing a mutation in a map
-            // Look for a better way to do this.
-            self.cert = Some(ident.clone());
-            self.stale_at = cert.valid_before;
-
-            ident
-        });
-
+        // The last keys we add are our key and certificate in which ever
+        // order the user has requested
         match (certificate, self.certificate_priority) {
-            (Err(_), _) => Ok(Response::Identities(vec![Identity {
+            (Err(_), _) => identities.push(Identity {
                 key_blob: self.pubkey.encode().to_vec(),
-                key_comment: "No server returned valid certificate. Only key available".to_string(),
-            }])),
-            (Ok(cert), false) => Ok(Response::Identities(vec![key, cert])),
-            (Ok(cert), true) => Ok(Response::Identities(vec![cert, key])),
-        }
+                key_comment: "No server returned valid certificate. Only your key is available"
+                    .to_string(),
+            }),
+            (Ok(cert), false) => identities.extend(vec![key, cert]),
+            (Ok(cert), true) => identities.extend(vec![cert, key]),
+        };
+
+        // Finally return all identities
+        Ok(Response::Identities(identities))
     }
 
     /// Sign a request coming in from an SSH command.
