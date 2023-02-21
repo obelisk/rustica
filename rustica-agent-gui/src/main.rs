@@ -7,7 +7,7 @@ use eframe::egui::{self, Grid, Sense, TextEdit, Button /*Sense*/};
 use egui::ComboBox;
 
 use home::home_dir;
-use rustica_agent::{Agent, CertificateConfig, RusticaServer, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys};
+use rustica_agent::{Agent, CertificateConfig, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys};
 use sshcerts::{fido::{FidoDeviceDescriptor, list_fido_devices}, PrivateKey, yubikey::piv::Yubikey};
 use tokio::{
     runtime::Runtime,
@@ -294,13 +294,7 @@ impl eframe::App for RusticaAgentGui {
                                 let config = std::fs::read(&self.environments[*selected_env]).unwrap();
                                 match toml::from_slice::<rustica_agent::Config>(&config) {
                                     Ok(c) => {
-                                        let server = RusticaServer::new(
-                                            c.server.unwrap(),
-                                            c.ca_pem.unwrap(),
-                                            c.mtls_cert.unwrap(),
-                                            c.mtls_key.unwrap(),
-                                            self.runtime.handle().to_owned(),
-                                        );
+                                        let servers = c.parse_servers(self.runtime.handle().to_owned());
 
                                         let mut private_key = PrivateKey::from_path(key_path).unwrap();
 
@@ -310,7 +304,7 @@ impl eframe::App for RusticaAgentGui {
                                         let signatory = Signatory::Direct(private_key);
 
                                         let handler = rustica_agent::Handler {
-                                            server,
+                                            servers,
                                             cert: None,
                                             pubkey,
                                             signatory,

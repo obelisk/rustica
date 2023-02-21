@@ -1,7 +1,8 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    list_yubikey_serials, CertificateConfig, Config, Handler, RusticaServer, Signatory,
-    YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::{parse_config, Config},
+    list_yubikey_serials, CertificateConfig, Handler, Signatory, YubikeyPIVKeyDescriptor,
+    YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -207,10 +208,10 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
     let cf = CStr::from_ptr(config_data);
     let config: Config = match cf.to_str() {
         Err(_) => return false,
-        Ok(s) => match toml::from_str(s) {
+        Ok(s) => match parse_config(s) {
             Ok(c) => c,
             Err(e) => {
-                println!("Error: Could not parse the configuration data: {}", e);
+                error!("Error: Could not parse the configuration data: {}", e);
                 return false;
             }
         },
@@ -271,13 +272,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let server = RusticaServer::new(
-        config.server.unwrap(),
-        config.ca_pem.unwrap(),
-        config.mtls_cert.unwrap(),
-        config.mtls_key.unwrap(),
-        runtime_handle,
-    );
+    let servers = config.parse_servers(runtime_handle);
 
     let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
     let u2f_attestation = U2FAttestation {
@@ -310,17 +305,23 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         return false;
     };
 
-    match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation) {
-        Ok(_) => {
-            println!("Key was successfully registered");
-            true
-        }
-        Err(e) => {
-            error!("Key could not be registered. Server said: {}", e);
-            std::fs::remove_file(out).unwrap();
-            false
+    for server in servers {
+        match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation) {
+            Ok(_) => {
+                println!(
+                    "Key was successfully registered with server: {}",
+                    server.address
+                );
+                return true;
+            }
+            Err(e) => {
+                error!("Key could not be registered. Server said: {}", e);
+            }
         }
     }
+
+    std::fs::remove_file(out).unwrap();
+    false
 }
 
 /// Generate and enroll a new key on the given yubikey in the given slot
@@ -351,7 +352,13 @@ pub unsafe extern "C" fn generate_and_enroll(
     let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
     let subject = CStr::from_ptr(subject);
 
-    let config: Config = toml::from_str(config_data).unwrap();
+    let config: Config = match parse_config(config_data) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return false;
+        }
+    };
 
     let alg = AlgorithmId::EccP384;
     let slot = SlotId::try_from(slot).unwrap();
@@ -409,24 +416,25 @@ pub unsafe extern "C" fn generate_and_enroll(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let server = RusticaServer::new(
-        config.server.unwrap(),
-        config.ca_pem.unwrap(),
-        config.mtls_cert.unwrap(),
-        config.mtls_key.unwrap(),
-        runtime_handle,
-    );
+    let servers = config.parse_servers(runtime_handle);
 
-    match server.register_key(&mut signatory, &key_config) {
-        Ok(_) => {
-            println!("Key was successfully registered");
-            true
-        }
-        Err(e) => {
-            error!("Key could not be registered. Server said: {}", e);
-            false
-        }
+    for server in servers {
+        match server.register_key(&mut signatory, &key_config) {
+            Ok(_) => {
+                println!(
+                    "Key was successfully registered with server: {}",
+                    server.address
+                );
+                return true;
+            }
+            Err(e) => {
+                error!("Key could not be registered. Server said: {}", e);
+            }
+        };
     }
+
+    error!("All servers failed to register key");
+    false
 }
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
@@ -600,29 +608,30 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         println!("{}", key.1.public_key.fingerprint().hash);
     }
 
-    let config: Config = toml::from_str(&config_data).unwrap();
-    let mut certificate_options = CertificateConfig::from(config.options);
-    certificate_options.authority = authority;
+    let config: Config = match parse_config(&config_data) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return std::ptr::null();
+        }
+    };
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
         _ => return std::ptr::null(),
     };
 
-    let runtime_handle = runtime.handle().to_owned();
+    let servers = config.parse_servers(runtime.handle().to_owned());
+
+    let mut certificate_options = CertificateConfig::from(config.options);
+    certificate_options.authority = authority;
 
     let handler = Handler {
         cert: None,
         stale_at: 0,
         pubkey: private_key.pubkey.clone(),
         certificate_options,
-        server: RusticaServer::new(
-            config.server.unwrap(),
-            config.ca_pem.unwrap(),
-            config.mtls_cert.unwrap(),
-            config.mtls_key.unwrap(),
-            runtime_handle,
-        ),
+        servers,
         signatory: Signatory::Direct(private_key),
         identities: HashMap::new(),
         piv_identities,
@@ -696,8 +705,22 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         Ok(s) => s.to_owned(),
     };
 
-    let config: Config = toml::from_str(config_data).unwrap();
+    let config: Config = match parse_config(&config_data) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return std::ptr::null();
+        }
+    };
 
+    let runtime = match Runtime::new() {
+        Ok(rt) => rt,
+        _ => return std::ptr::null(),
+    };
+
+    let runtime_handle = runtime.handle().to_owned();
+
+    let servers = config.parse_servers(runtime_handle);
     let mut certificate_options = CertificateConfig::from(config.options);
     certificate_options.authority = authority;
 
@@ -708,25 +731,12 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         Err(_) => return std::ptr::null(),
     };
 
-    let runtime = match Runtime::new() {
-        Ok(rt) => rt,
-        _ => return std::ptr::null(),
-    };
-
-    let runtime_handle = runtime.handle().to_owned();
-
     let handler = Handler {
         cert: None,
         stale_at: 0,
         pubkey,
         certificate_options,
-        server: RusticaServer::new(
-            config.server.unwrap(),
-            config.ca_pem.unwrap(),
-            config.mtls_cert.unwrap(),
-            config.mtls_key.unwrap(),
-            runtime_handle,
-        ),
+        servers,
         signatory: Signatory::Yubikey(YubikeySigner {
             yk: Yubikey::open(yubikey_serial).unwrap(),
             slot: SlotId::try_from(slot).unwrap(),
