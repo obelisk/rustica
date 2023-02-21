@@ -1,11 +1,10 @@
 use std::env;
 
-use super::{
-    parse_config_from_args, parse_server_from_args, ConfigurationError, RusticaAgentAction,
-};
+use super::{parse_config_from_args, ConfigurationError, RusticaAgentAction};
 
 use clap::{Arg, ArgMatches, Command};
 use rustica_agent::RusticaServer;
+use tokio::runtime::Handle;
 
 pub enum SKType {
     Ed25519,
@@ -13,7 +12,7 @@ pub enum SKType {
 }
 
 pub struct ProvisionAndRegisterFidoConfig {
-    pub server: RusticaServer,
+    pub servers: Vec<RusticaServer>,
     pub app_name: String,
     pub comment: String,
     pub key_type: SKType,
@@ -25,7 +24,7 @@ pub async fn configure_fido_setup(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config).await?;
+    let servers = config.parse_servers(Handle::current());
 
     let app_name = matches.value_of("application").unwrap().to_string();
 
@@ -48,7 +47,7 @@ pub async fn configure_fido_setup(
     };
 
     let provision_config = ProvisionAndRegisterFidoConfig {
-        server,
+        servers,
         app_name,
         comment,
         key_type,

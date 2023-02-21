@@ -2,18 +2,18 @@ use std::collections::HashMap;
 
 use clap::{Arg, ArgMatches, Command};
 use rustica_agent::{slot_validator, Handler, Signatory};
+use tokio::runtime::Handle;
 
 use super::{
     get_signatory, parse_certificate_config_from_args, parse_config_from_args,
-    parse_server_from_args, parse_socket_path_from_args, ConfigurationError, RunConfig,
-    RusticaAgentAction,
+    parse_socket_path_from_args, ConfigurationError, RunConfig, RusticaAgentAction,
 };
 
 pub async fn configure_singlemode(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let server = parse_server_from_args(&matches, &config).await?;
+    let servers = config.parse_servers(Handle::current());
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let socket_path = parse_socket_path_from_args(matches, &config);
 
@@ -36,7 +36,7 @@ pub async fn configure_singlemode(
     };
 
     let handler = Handler {
-        server,
+        servers,
         cert: None,
         pubkey: pubkey.clone(),
         signatory,
