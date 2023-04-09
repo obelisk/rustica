@@ -4,8 +4,8 @@ use author::{AddIdentityDataRequest, AuthorizeRequest};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 use super::{
-    Authorization, AuthorizationError, AuthorizationRequestProperties, KeyAttestation,
-    RegisterKeyRequestProperties,
+    SshAuthorization, AuthorizationError, SshAuthorizationRequestProperties, KeyAttestation,
+    RegisterKeyRequestProperties, X509Authorization, X509AuthorizationRequestProperties,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -25,10 +25,10 @@ pub struct AuthServer {
 }
 
 impl AuthServer {
-    pub async fn authorize(
+    pub async fn authorize_ssh_cert(
         &self,
-        auth_props: &AuthorizationRequestProperties,
-    ) -> Result<Authorization, AuthorizationError> {
+        auth_props: &SshAuthorizationRequestProperties,
+    ) -> Result<SshAuthorization, AuthorizationError> {
         let mut identities = HashMap::new();
         identities.insert(
             String::from("requester_ip"),
@@ -102,7 +102,7 @@ impl AuthServer {
             }
         };
 
-        // Find all extension keys, strip the "extension." prefix and create a new
+        // Fi extension keys, strip the "extension." prefix and create a new
         // hashmap with the values
         let extensions: HashMap<String, String> = approval_response
             .keys()
@@ -147,7 +147,7 @@ impl AuthServer {
             .parse::<u64>()
             .map_err(|_| AuthorizationError::AuthorizerError)?;
 
-        Ok(Authorization {
+        Ok(SshAuthorization {
             serial,
             principals: approval_response["principals"]
                 .split(',')
@@ -259,5 +259,12 @@ impl AuthServer {
                 Err(AuthorizationError::ExternalError(format!("{}", e)))
             }
         }
+    }
+
+    pub async fn authorize_x509_cert(
+        &self,
+        auth_props: &X509AuthorizationRequestProperties,
+    ) -> Result<X509Authorization, AuthorizationError> {
+        return Err(AuthorizationError::AuthorizerError);
     }
 }

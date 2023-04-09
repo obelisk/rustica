@@ -44,6 +44,10 @@ impl Signer for FileSigner {
             CertType::Host => self.host_key.pubkey.clone(),
         }
     }
+
+    fn get_x509_certificate_authority(&self) -> &rcgen::Certificate {
+        panic!("Unimplemented")
+    }
 }
 
 #[async_trait]
