@@ -91,6 +91,10 @@ impl Signer for YubikeySigner {
             CertType::Host => self.host_public_key.clone(),
         }
     }
+
+    fn get_x509_certificate_authority(&self) -> &rcgen::Certificate {
+        panic!("Unimplemented")
+    }
 }
 
 pub fn parse_slot<'de, D>(deserializer: D) -> Result<SlotId, D::Error>
