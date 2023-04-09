@@ -1,10 +1,11 @@
 use crate::auth::{
-    AuthorizationMechanism, AuthorizationRequestProperties, RegisterKeyRequestProperties,
+    AuthorizationMechanism, SshAuthorizationRequestProperties, RegisterKeyRequestProperties, X509AuthorizationRequestProperties,
 };
 use crate::error::RusticaServerError;
 use crate::logging::{
     CertificateIssued, InternalMessage, KeyInfo, KeyRegistrationFailure, Log, Severity,
 };
+use crate::rustica::{X509CertificateRequest, X509CertificateResponse};
 use crate::rustica::{
     rustica_server::Rustica, CertificateRequest, CertificateResponse, Challenge, ChallengeRequest,
     ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
@@ -15,10 +16,14 @@ use crate::verification::{verify_piv_certificate_chain, verify_u2f_certificate_c
 
 use crossbeam_channel::Sender;
 
+use rcgen::{CustomExtension, SanType, DistinguishedName, DnType, CertificateParams, IsCa};
 use sshcerts::ssh::{CertType, Certificate, PrivateKey, PublicKey};
 
 use ring::hmac;
+use x509_parser::oid_registry::Oid;
 use std::collections::HashMap;
+use std::str::FromStr;
+use std::time::{Duration, UNIX_EPOCH};
 use std::{sync::Arc, time::SystemTime};
 use tonic::transport::Certificate as TonicCertificate;
 use tonic::{Request, Response, Status};
@@ -84,7 +89,7 @@ fn extract_certificate_identities(
             Ok((_, cert)) => {
                 for ident in cert.tbs_certificate.subject.rdn_seq {
                     for attr in ident.set {
-                        if attr.attr_type == oid!(2.5.4 .3) {
+                        if attr.attr_type == oid!(2.5.4.3) {
                             // CommonName
                             // Certificates must have a common name
                             match attr.attr_value.as_str() {
@@ -377,7 +382,7 @@ impl Rustica for RusticaServer {
         };
 
         let fingerprint = ssh_pubkey.fingerprint().hash;
-        let auth_props = AuthorizationRequestProperties {
+        let auth_props = SshAuthorizationRequestProperties {
             fingerprint: fingerprint.clone(),
             mtls_identities: mtls_identities.clone(),
             requester_ip: remote_addr.to_string(),
@@ -410,7 +415,7 @@ impl Rustica for RusticaServer {
             Err(_) => return Ok(create_response(RusticaServerError::NotAuthorized)),
         };
 
-        let authorization = self.authorizer.authorize(&auth_props).await;
+        let authorization = self.authorizer.authorize_ssh_cert(&auth_props).await;
 
         let authorization = match authorization {
             Ok(auth) => auth,
@@ -688,5 +693,93 @@ impl Rustica for RusticaServer {
                 return Err(Status::unavailable("Could not register new key"));
             }
         }
+    }
+
+    /// Handler used when a host requests a new X509 certificate from Rustica
+    async fn x509_certificate(
+        &self,
+        request: Request<X509CertificateRequest>,
+    ) -> Result<Response<X509CertificateResponse>, Status> {
+        let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
+
+        let peer_certs = request.peer_certs().ok_or(Status::permission_denied(""))?;
+        let mtls_identities = extract_certificate_identities(&peer_certs).map_err(|_| Status::permission_denied(""))?;
+        let request = request.into_inner();
+
+        let key = verify_piv_certificate_chain(&request.attestation, &request.attestation_intermediate).map_err(|_| Status::permission_denied("Invalid attestation chain"))?;
+
+        // Check authorization
+        let auth_props = X509AuthorizationRequestProperties {
+            authority: request.key_id,
+            mtls_identities: mtls_identities.clone(),
+            requester_ip: remote_addr.to_string(),
+            attestation: request.attestation.to_vec(),
+            attestation_intermediate: request.attestation_intermediate.to_vec(),
+        };
+
+        let authorization = self.authorizer.authorize_x509_cert(&auth_props).await.unwrap();
+
+        // Create new certificate
+        let mut csr = match rcgen::CertificateSigningRequest::from_der(&request.csr) {
+            Ok(csr) => csr,
+            Err(_e) => return Err(Status::permission_denied("")), 
+        };
+
+        //let mut custom_extensions = vec![];
+        for entry in authorization.extensions.iter() {
+            /*if let Ok(oid) = Oid::from_str(entry.0.as_str()) {
+                let oid_ints: Vec<u64> = oid.iter().unwrap().collect();
+                let content = Utf8String::new(entry.1);
+                let mut content_bytes = vec![];
+                content.write_data(&mut content_bytes);
+                let ext = CustomExtension::from_oid_content(&oid_ints, content_bytes);
+                custom_extensions.push(ext);
+            }*/
+        }
+
+        csr.params.subject_alt_names = vec![SanType::Rfc822Name(authorization.common_name.clone())];
+        csr.params.serial_number = Some(authorization.serial as u64);
+        csr.params.is_ca = rcgen::IsCa::NoCa;
+        csr.params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
+        csr.params.extended_key_usages = vec![];
+        csr.params.name_constraints = None;
+        //csr.params.custom_extensions = custom_extensions;
+        csr.params.custom_extensions = vec![];
+        csr.params.distinguished_name = DistinguishedName::new();
+        csr.params.distinguished_name.push(DnType::OrganizationName, format!("Rustica-{}", &authorization.authority));
+        csr.params.distinguished_name.push(DnType::CommonName, &authorization.common_name);
+        csr.params.use_authority_key_identifier_extension = false;
+
+        csr.params.not_before = (UNIX_EPOCH + Duration::from_secs(authorization.valid_after)).into();
+        csr.params.not_after = (UNIX_EPOCH + Duration::from_secs(authorization.valid_before)).into();
+
+        let ca_cert = self.signer.get_x509_certificate_authority(&authorization.authority).map_err(|_| Status::permission_denied("message"))?;
+        let cert = csr.serialize_der_with_signer(ca_cert).unwrap();
+
+        // Assert that the CSR contains the same public key as the provided
+        // leaf. Ideally we would check this first but rcgen does not seem
+        // to provide anyway for that to happen.
+        let (_, new_certificate) = match X509Certificate::from_der(&cert) {
+            Ok(c) => c,
+            Err(_e) => return Err(Status::permission_denied("")),
+        };
+        
+        let (_, leaf) = match X509Certificate::from_der(&request.attestation) {
+            Ok(l) => l,
+            Err(_e) => return Err(Status::permission_denied("")), 
+        };
+
+        if new_certificate.tbs_certificate.subject_pki != leaf.tbs_certificate.subject_pki {
+            error!("{} submitted a CSR that did not match their leaf certificate", mtls_identities.join(", "));
+
+            return Err(Status::permission_denied(""));
+        }
+
+        // Return certificate
+        return Ok(Response::new(X509CertificateResponse {
+            certificate: cert,
+            error: "".to_owned(),
+            error_code: 0,
+        }))
     }
 }

@@ -26,9 +26,9 @@ impl std::fmt::Display for AuthorizationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AuthorizationError::CertType => write!(f, "Not authorized for this certificate type"),
-            AuthorizationError::NotAuthorized => write!(f, "Not authorized for this certificate type"),
-            AuthorizationError::AuthorizerError => write!(f, "Not authorized for this certificate type"),
-            AuthorizationError::ConnectionFailure => write!(f, "Not authorized for this certificate type"),
+            AuthorizationError::NotAuthorized => write!(f, "Not authorized"),
+            AuthorizationError::AuthorizerError => write!(f, "Authorization error"),
+            AuthorizationError::ConnectionFailure => write!(f, "Could not connect to authorization service"),
             AuthorizationError::DatabaseError(ref m) => write!(f, "Database error: {}", m),
             AuthorizationError::ExternalError(ref m) => write!(f, "{}", m),
         }
@@ -43,7 +43,7 @@ pub struct AuthorizationConfiguration {
 }
 
 #[derive(Debug)]
-pub struct Authorization {
+pub struct SshAuthorization {
     pub serial: u64,
     pub valid_before: u64,
     pub valid_after: u64,
@@ -56,7 +56,7 @@ pub struct Authorization {
 }
 
 #[derive(Debug)]
-pub struct AuthorizationRequestProperties {
+pub struct SshAuthorizationRequestProperties {
     pub fingerprint: String,
     pub mtls_identities: Vec<String>,
     pub requester_ip: String,
@@ -66,6 +66,27 @@ pub struct AuthorizationRequestProperties {
     pub valid_after: u64,
     pub cert_type: CertType,
     pub authority: String,
+}
+
+#[derive(Debug)]
+pub struct X509AuthorizationRequestProperties {
+    pub authority: String,
+    pub mtls_identities: Vec<String>,
+    pub requester_ip: String,
+    pub attestation: Vec<u8>,
+    pub attestation_intermediate: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct X509Authorization {
+    pub authority: String,
+    pub issuer: String,
+    pub common_name: String,
+    pub sans: Vec<String>,
+    pub serial: i64,
+    pub valid_before: u64,
+    pub valid_after: u64,
+    pub extensions: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -83,11 +104,19 @@ pub enum AuthorizationMechanism {
 }
 
 impl AuthorizationMechanism {
-    pub async fn authorize(&self, auth_props: &AuthorizationRequestProperties) -> Result<Authorization, AuthorizationError> {
+    pub async fn authorize_ssh_cert(&self, auth_props: &SshAuthorizationRequestProperties) -> Result<SshAuthorization, AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
-            AuthorizationMechanism::Local(local) => local.authorize(auth_props),
-            AuthorizationMechanism::External(external) => external.authorize(auth_props).await,
+            AuthorizationMechanism::Local(local) => local.authorize_ssh_cert(auth_props),
+            AuthorizationMechanism::External(external) => external.authorize_ssh_cert(auth_props).await,
+        }
+    }
+
+    pub async fn authorize_x509_cert(&self, auth_props: &X509AuthorizationRequestProperties) -> Result<X509Authorization, AuthorizationError> {
+        match &self {
+            #[cfg(feature = "local-db")]
+            AuthorizationMechanism::Local(local) => local.authorize_x509_cert(auth_props),
+            AuthorizationMechanism::External(external) => external.authorize_x509_cert(auth_props).await,
         }
     }
 

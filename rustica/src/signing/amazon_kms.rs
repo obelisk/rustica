@@ -11,6 +11,7 @@ use sshcerts::{
     ssh::CertType,
     utils::format_signature_for_ssh,
 };
+use tokio::runtime::Handle;
 
 use super::{Signer, SignerConfig, SigningError};
 
@@ -23,6 +24,7 @@ use aws_types::credentials::{ProvideCredentials};
 
 use serde::Deserialize;
 
+use rcgen::{Certificate as X509Certificate, CertificateParams, IsCa, DnType, RcgenError};
 
 /// Defines the configuration of the AmazonKMS signer
 #[derive(Clone, Debug, Deserialize)]
@@ -43,6 +45,11 @@ pub struct Config {
     host_key_signing_algorithm: String,
     /// The KMS key id to use as the host key
     host_key_id: String,
+    /// The signing algorithm to use. This should be ECDSA_SHA_256 and
+    /// ECDSA_SHA_384 for a Nistp256 and Nistp384 respectively
+    x509_key_signing_algorithm: String,
+    /// The KMS key id to use as the host key
+    x509_key_id: String,
 }
 
 /// Represents a fully configured AmazonKMS signer that when created with
@@ -58,10 +65,13 @@ pub struct AmazonKMSSigner {
     /// The public portion of the key that will be used to sign host
     /// certificates
     host_public_key: PublicKey,
-    /// The id to lookup the private portion of the user key in Amazon KMS
+    /// The id to lookup the private portion of the host key in Amazon KMS
     host_key_id: String,
     /// Host key signing algorithm. See config docs for more details.
     host_key_signing_algorithm: SigningAlgorithmSpec,
+    /// The public portion of the key that will be used to sign X509
+    /// certificates
+    x509_certificate: X509Certificate,
     /// A configured KMS client to use for signing and public key look up
     /// operations. Rustica does not instantiate keys meaning it does not
     /// need permission to create keys.
@@ -83,6 +93,59 @@ impl ProvideCredentials for Config {
     }
 }
 
+pub struct KmsRcgenRemoteSigner {
+    x509_public_key: Vec<u8>,
+    /// The id to lookup the private portion of the X509 key in Amazon KMS
+    x509_key_id: String,
+    /// X509 key signing algorithm. See config docs for more details.
+    x509_key_signing_algorithm: SigningAlgorithmSpec,
+    /// A configured KMS client to use for signing.
+    client: Client,
+    /// A handle to a tokio runtime we can use to make the KMS call
+    handle: Handle,
+}
+
+impl rcgen::RemoteKeyPair for KmsRcgenRemoteSigner {
+    fn public_key(&self) -> &[u8] {
+        &self.x509_public_key
+    }
+
+    fn sign(&self, msg :&[u8]) -> Result<Vec<u8>, RcgenError> {
+        let key_id = self.x509_key_id.clone();
+        let key_algo = self.x509_key_signing_algorithm.clone();
+        let data = msg.to_owned();
+        let client = self.client.clone();
+        let handle = self.handle.clone();
+
+        // This is really ugly but I don't have a better solution right now
+        // as RCGen does not provide an async signer so we have to wait for
+        // this to return. Spawning threads is expensive so there is probably
+        // a better way to do this with threadpooling but for now, at the scales
+        // this will be used for I don't think it'll be an issue
+        let signature = std::thread::spawn(move || {
+            handle.block_on( async {
+                client.sign().key_id(key_id).signing_algorithm(key_algo).message(Blob::new(data)).send().await
+            }
+        )}).join().unwrap();
+
+        // Amazon container type
+        let signature = match signature {
+            Ok(result) => result.signature,
+            Err(_) => return Err(RcgenError::RemoteKeyError),
+        };
+
+        // Was the signature successfully created
+        signature.map(|x| x.into_inner()).ok_or(RcgenError::RemoteKeyError)
+    }
+
+    fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
+        match self.x509_key_signing_algorithm {
+            SigningAlgorithmSpec::EcdsaSha384 => &rcgen::PKCS_ECDSA_P384_SHA384,
+            _ => &rcgen::PKCS_ECDSA_P256_SHA256,
+        }
+    }
+}
+
 #[async_trait]
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
@@ -91,10 +154,11 @@ impl SignerConfig for Config {
 
         let user_public_key = client.get_public_key().key_id(&self.user_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access user key".to_owned()))?.public_key;
         let host_public_key = client.get_public_key().key_id(&self.host_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access host key".to_owned()))?.public_key;
+        let x509_public_key = client.get_public_key().key_id(&self.x509_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access x509 key".to_owned()))?.public_key;
 
-        let (user_public_key, host_public_key) = match (user_public_key, host_public_key) {
-            (Some(upk), Some(hpk)) => (upk, hpk),
-            _ => return Err(SigningError::AccessError("User or host key was not returned correctly or at all".to_owned())),
+        let (user_public_key, host_public_key, x509_public_key) = match (user_public_key, host_public_key, x509_public_key) {
+            (Some(upk), Some(hpk), Some(x509)) => (upk, hpk, x509),
+            _ => return Err(SigningError::AccessError("One or more keys was not returned correctly or at all".to_owned())),
         };
 
         let user_public_key = sshcerts::x509::der_encoding_to_ssh_public_key(user_public_key.as_ref());
@@ -107,6 +171,7 @@ impl SignerConfig for Config {
 
         let user_key_signing_algorithm = SigningAlgorithmSpec::from(self.user_key_signing_algorithm.as_str());
         let host_key_signing_algorithm = SigningAlgorithmSpec::from(self.host_key_signing_algorithm.as_str());
+        let x509_key_signing_algorithm = SigningAlgorithmSpec::from(self.x509_key_signing_algorithm.as_str());
 
         if let SigningAlgorithmSpec::Unknown(_) = user_key_signing_algorithm {
             return Err(SigningError::AccessError("Unknown algorithm for user key".to_owned()))
@@ -116,6 +181,50 @@ impl SignerConfig for Config {
             return Err(SigningError::AccessError("Unknown algorithm for host key".to_owned()))
         }
 
+        if let SigningAlgorithmSpec::Unknown(_) = x509_key_signing_algorithm {
+            return Err(SigningError::AccessError("Unknown algorithm for X509 key".to_owned()))
+        }
+
+
+        let mut ca_params = CertificateParams::new(vec![]);
+        ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        ca_params.distinguished_name.push(DnType::CommonName, "Rustica");
+
+
+        // This slicing is a bit of an ugly hack that means we don't have to
+        // implement or import more DER parsing crates. Since DER encoding
+        // will always have the same length header for given key types, we can
+        // slice it off and get the compatible format we need (in this case, it
+        // is dictated by ring.)
+        let x509_public_key = match &x509_key_signing_algorithm {
+            SigningAlgorithmSpec::EcdsaSha256 => {
+                ca_params.alg = &rcgen::PKCS_ECDSA_P256_SHA256;
+                x509_public_key.as_ref()[25..].to_vec()
+            },
+            SigningAlgorithmSpec::EcdsaSha384 => {
+                ca_params.alg = &rcgen::PKCS_ECDSA_P384_SHA384;
+                x509_public_key.as_ref()[23..].to_vec()
+            },
+            _ => return Err(SigningError::AccessError("Unsupported algorithm for X509 key".to_owned())),
+        };
+
+        let x509_remote_signer = KmsRcgenRemoteSigner {
+            x509_key_id: self.x509_key_id,
+            x509_key_signing_algorithm,
+            x509_public_key,
+            client: Client::new(&aws_config),
+            handle: Handle::current(),
+        };
+
+        let kp = match rcgen::KeyPair::from_remote(Box::new(x509_remote_signer)) {
+            Ok(kp) => kp,
+            Err(_) => return Err(SigningError::AccessError("Could not create remote signer for X509 key".to_owned()))
+        };
+
+        ca_params.key_pair = Some(kp);
+        let x509_certificate = X509Certificate::from_params(ca_params).unwrap();
+         
+
         Ok(Box::new(AmazonKMSSigner {
             user_public_key,
             user_key_id: self.user_key_id,
@@ -123,6 +232,7 @@ impl SignerConfig for Config {
             host_public_key,
             host_key_id: self.host_key_id,
             host_key_signing_algorithm,
+            x509_certificate,
             client,
         }))
     }
@@ -164,5 +274,9 @@ impl Signer for AmazonKMSSigner {
             CertType::User => self.user_public_key.clone(),
             CertType::Host => self.host_public_key.clone(),
         }
+    }
+
+    fn get_x509_certificate_authority(&self) -> &X509Certificate {
+        return &self.x509_certificate
     }
 }

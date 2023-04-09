@@ -9,11 +9,13 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::SystemTime;
 use super::{
-    Authorization,
+    SshAuthorization,
     AuthorizationError,
-    AuthorizationRequestProperties,
+    SshAuthorizationRequestProperties,
     RegisterKeyRequestProperties,
     KeyAttestation,
+    X509AuthorizationRequestProperties,
+    X509Authorization,
 };
 
 use sshcerts::ssh::CertType;
@@ -29,7 +31,7 @@ fn establish_connection(path: &str) -> SqliteConnection {
 }
 
 impl LocalDatabase {
-    pub fn authorize(&self, req: &AuthorizationRequestProperties) -> Result<Authorization, AuthorizationError> {
+    pub fn authorize_ssh_cert(&self, req: &SshAuthorizationRequestProperties) -> Result<SshAuthorization, AuthorizationError> {
         let fp = &req.fingerprint;
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(ts) => ts.as_secs(),
@@ -88,7 +90,7 @@ impl LocalDatabase {
                     }
                 };
 
-                Ok(Authorization {
+                Ok(SshAuthorization {
                     serial: 0x000000000000000,
                     // When principal is unrestricted, we just pass their requested principals through
                     principals: if results[0].principal_unrestricted {req.principals.clone()} else {principals},
@@ -160,5 +162,12 @@ impl LocalDatabase {
             Ok(_) => Ok(()),
             Err(e) => Err(AuthorizationError::DatabaseError(format!("{}", e))),
         }
+    }
+
+    pub fn authorize_x509_cert(
+        &self,
+        auth_props: &X509AuthorizationRequestProperties,
+    ) -> Result<X509Authorization, AuthorizationError> {
+        return Err(AuthorizationError::AuthorizerError);
     }
 }

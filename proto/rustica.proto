@@ -60,9 +60,31 @@ message RegisterU2FKeyRequest {
 
 message RegisterU2FKeyResponse {}
 
+message X509CertificateRequest {
+    // Which signing configuration are they requesting an X509 certificate from
+    // to support the new multi-environment system
+    string key_id = 1;
+    // The CSR proves possession of the private key as well as requesting other
+    // elements of the final certificate 
+    bytes csr = 2;
+    // The attestation is a certificate generated from the F9 slot signed by the
+    // F9 slot
+    bytes attestation = 3;
+    // The certificate from the F9 slot, signed by the trusted root authority
+    // Generally this will be the Yubico Root CA.
+    bytes attestation_intermediate = 4;
+}
+
+message X509CertificateResponse {
+    bytes certificate = 1;
+    string error = 2;
+    int64 error_code = 3;
+}
+
 service Rustica {
     rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
     rpc Certificate(CertificateRequest) returns (CertificateResponse);
     rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
     rpc RegisterU2FKey(RegisterU2FKeyRequest) returns (RegisterU2FKeyResponse);
+    rpc X509Certificate(X509CertificateRequest) returns (X509CertificateResponse);
 }

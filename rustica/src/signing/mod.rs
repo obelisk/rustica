@@ -60,6 +60,11 @@ pub trait Signer {
     /// a `Signer` from a config is async so memoization of the public key should be done in
     /// there. See the AWS signer as an example.
     fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey;
+
+    /// Return the CA certificate used for signing X509 certificate requests.
+    /// This function may hide away async code (as it does in the KMS signer)
+    /// due to using the remote KeyPair trait imported from the rcgen crate
+    fn get_x509_certificate_authority(&self) -> &rcgen::Certificate;
 }
 
 #[derive(Deserialize)]
@@ -170,6 +175,10 @@ impl std::fmt::Display for SigningMechanism {
                             .fingerprint()
                             .hash
                     ));
+                    output.push_str(&format!(
+                        "\tX509 Certificate Authority:\n{}\n",
+                        signer.1.get_x509_certificate_authority().serialize_pem().unwrap()
+                    ));
                 }
             }
         };
@@ -207,6 +216,22 @@ impl SigningMechanism {
             SigningSystem::Internal(authorities) => {
                 if let Some(authority) = authorities.get(authority) {
                     Ok(authority.get_signer_public_key(cert_type))
+                } else {
+                    Err(SigningError::UnknownAuthority)
+                }
+            }
+        }
+    }
+
+    /// Return the X509 certificate authority certificate to sign X509 requests
+    pub fn get_x509_certificate_authority(
+        &self,
+        authority: &str,
+    ) -> Result<&rcgen::Certificate, SigningError> {
+        match &self.signing_system {
+            SigningSystem::Internal(authorities) => {
+                if let Some(authority) = authorities.get(authority) {
+                    Ok(authority.get_x509_certificate_authority())
                 } else {
                     Err(SigningError::UnknownAuthority)
                 }
