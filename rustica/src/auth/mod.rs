@@ -6,6 +6,7 @@ use crate::key::Key;
 
 pub use super::key::KeyAttestation;
 
+use rcgen::CustomExtension;
 use sshcerts::ssh::CertType;
 
 use serde::Deserialize;
@@ -89,7 +90,7 @@ pub struct X509Authorization {
     pub serial: i64,
     pub valid_before: u64,
     pub valid_after: u64,
-    pub extensions: HashMap<String, String>,
+    pub extensions: Vec<CustomExtension>,
 }
 
 #[derive(Debug)]

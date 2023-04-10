@@ -205,7 +205,7 @@ impl LocalDatabase {
             issuer: format!("Rustica"),
             common_name: mtls_user.clone(),
             sans: vec![mtls_user.clone()],
-            extensions: HashMap::new(),
+            extensions: vec![],
             serial: 0xFEFEFEFEFE,
             valid_before: current_time + (3600 * 12), // 12 hours
             valid_after: current_time,
