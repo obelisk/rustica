@@ -2,6 +2,8 @@
 pub mod database;
 pub mod external;
 
+use crate::key::Key;
+
 pub use super::key::KeyAttestation;
 
 use sshcerts::ssh::CertType;
@@ -75,6 +77,7 @@ pub struct X509AuthorizationRequestProperties {
     pub requester_ip: String,
     pub attestation: Vec<u8>,
     pub attestation_intermediate: Vec<u8>,
+    pub key: Key,
 }
 
 #[derive(Debug)]

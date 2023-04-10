@@ -8,6 +8,8 @@ use serde::Deserialize;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
+use crate::key::TouchPolicy;
+
 use super::{
     SshAuthorization,
     AuthorizationError,
@@ -146,7 +148,6 @@ impl LocalDatabase {
                 registered_key.challenge = Some(hex::encode(&attestation.challenge));
                 registered_key.alg = Some(attestation.alg);
                 registered_key.application = Some(hex::encode(&attestation.application));
-
             }
             _ => {},
         };
@@ -168,6 +169,46 @@ impl LocalDatabase {
         &self,
         auth_props: &X509AuthorizationRequestProperties,
     ) -> Result<X509Authorization, AuthorizationError> {
-        return Err(AuthorizationError::AuthorizerError);
+        let conn = establish_connection(&self.path);
+
+        let (att_serial, touch_policy) = match &auth_props.key.attestation {
+            None => return Err(AuthorizationError::AuthorizerError),
+            Some(KeyAttestation::U2f(_)) => return Err(AuthorizationError::AuthorizerError),
+            Some(KeyAttestation::Piv(att)) => (att.serial, &att.touch_policy)
+        };
+
+        let mtls_user = auth_props.mtls_identities.get(0).ok_or(AuthorizationError::AuthorizerError)?;
+
+        let authorization: Vec<_> = {
+            use schema::x509_authorizations::dsl::*;
+            let results = x509_authorizations.filter(user.eq(mtls_user).and(hsm_serial.eq(att_serial.to_string())))
+                .load::<models::X509Authorization>(&conn)
+                .expect("Error loading authorized hosts");
+            
+            results.into_iter().collect()
+        };
+
+        let authorization = authorization.get(0).ok_or(AuthorizationError::NotAuthorized)?;
+
+        // If we require touch but the touch policy is never then we will not
+        // allow the fetching of a certificate. The other options Always or
+        // cached both require some form of presence.
+        if authorization.require_touch && *touch_policy == TouchPolicy::Never {
+            return Err(AuthorizationError::NotAuthorized)
+        }
+
+        let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+
+        // Success, build the response
+        return Ok(X509Authorization {
+            authority: auth_props.authority.clone(),
+            issuer: format!("Rustica"),
+            common_name: mtls_user.clone(),
+            sans: vec![mtls_user.clone()],
+            extensions: HashMap::new(),
+            serial: 0xFEFEFEFEFE,
+            valid_before: current_time + (3600 * 12), // 12 hours
+            valid_after: current_time,
+        })
     }
 }

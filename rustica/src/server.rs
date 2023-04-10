@@ -706,7 +706,7 @@ impl Rustica for RusticaServer {
         let mtls_identities = extract_certificate_identities(&peer_certs).map_err(|_| Status::permission_denied(""))?;
         let request = request.into_inner();
 
-        verify_piv_certificate_chain(&request.attestation, &request.attestation_intermediate).map_err(|_| Status::permission_denied("Invalid attestation chain"))?;
+        let key = verify_piv_certificate_chain(&request.attestation, &request.attestation_intermediate).map_err(|_| Status::permission_denied("Invalid attestation chain"))?;
 
         let authority = if request.key_id.is_empty() {
             &self.signer.default_authority
@@ -721,19 +721,12 @@ impl Rustica for RusticaServer {
             requester_ip: remote_addr.to_string(),
             attestation: request.attestation.to_vec(),
             attestation_intermediate: request.attestation_intermediate.to_vec(),
+            key,
         };
 
-        //let authorization = self.authorizer.authorize_x509_cert(&auth_props).await.unwrap();
-
-        let authorization = X509Authorization {
-            authority: authority.to_owned(),
-            issuer: format!("Rustica"),
-            common_name: mtls_identities[0].clone(),
-            sans: vec![],
-            extensions: HashMap::new(),
-            serial: 0xFEFEFEFEFE,
-            valid_before: 1683704747,
-            valid_after: 1583704747,
+        let authorization = match self.authorizer.authorize_x509_cert(&auth_props).await {
+            Ok(auth) => auth,
+            Err(e) => return Err(Status::permission_denied("Not authorized"))
         };
 
         // Create new certificate
