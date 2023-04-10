@@ -1,6 +1,7 @@
 pub mod cert;
 pub mod error;
 pub mod key;
+pub mod x509;
 
 use std::time::Duration;
 
@@ -8,7 +9,7 @@ pub use error::RefreshError;
 
 pub use rustica_proto::rustica_client::RusticaClient;
 pub use rustica_proto::{
-    CertificateRequest, CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest,
+    CertificateRequest, CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, X509CertificateRequest, X509CertificateResponse,
     RegisterU2fKeyRequest,
 };
 
@@ -25,6 +26,30 @@ pub mod rustica_proto {
 pub struct RusticaCert {
     pub cert: String,
     pub comment: String,
+}
+
+pub async fn get_rustica_client(server: &RusticaServer) -> Result<RusticaClient<tonic::transport::Channel>, RefreshError> {
+    let client_identity = Identity::from_pem(&server.mtls_cert, &server.mtls_key);
+
+    let channel = match Channel::from_shared(server.address.clone()) {
+        Ok(c) => c,
+        Err(_) => return Err(RefreshError::InvalidUri),
+    };
+
+    let ca = Certificate::from_pem(&server.ca);
+    let tls = ClientTlsConfig::new()
+        .ca_certificate(ca)
+        .identity(client_identity);
+    let channel = channel
+        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
+        .tls_config(tls)?
+        .connect()
+        .await?;
+
+    let client = RusticaClient::new(channel);
+
+    Ok(client)
 }
 
 pub async fn complete_rustica_challenge(
@@ -51,25 +76,7 @@ pub async fn complete_rustica_challenge(
         pubkey: encoded_key.to_string(),
     });
 
-    let client_identity = Identity::from_pem(&server.mtls_cert, &server.mtls_key);
-
-    let channel = match Channel::from_shared(server.address.clone()) {
-        Ok(c) => c,
-        Err(_) => return Err(RefreshError::InvalidUri),
-    };
-
-    let ca = Certificate::from_pem(&server.ca);
-    let tls = ClientTlsConfig::new()
-        .ca_certificate(ca)
-        .identity(client_identity);
-    let channel = channel
-        .timeout(Duration::from_secs(10))
-        .connect_timeout(Duration::from_secs(5))
-        .tls_config(tls)?
-        .connect()
-        .await?;
-
-    let mut client = RusticaClient::new(channel);
+    let mut client = get_rustica_client(server).await?;
     let response = client.challenge(request).await?;
 
     let response = response.into_inner();

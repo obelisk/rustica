@@ -573,6 +573,28 @@ pub async fn fetch_new_certificate(
     Err(RusticaAgentLibraryError::NoServersReturnedCertificate)
 }
 
+/// Fetch a new X509 certificate from one of the provided servers
+/// in the list. We will try them in order and error if none
+/// return a usable certificate
+pub async fn fetch_new_x509_certificate(
+    servers: &[RusticaServer],
+    signatory: &mut Signatory,
+) -> Result<Vec<u8>, RusticaAgentLibraryError> {
+    for server in servers.iter() {
+        match server.refresh_x509_certificate_async(signatory).await {
+            Ok(certificate) => return Ok(certificate),
+            Err(e) => {
+                error!(
+                    "Could not fetch X509 certificate from: {}. Gave error: {}",
+                    server.address,
+                    e.to_string()
+                )
+            }
+        }
+    }
+    Err(RusticaAgentLibraryError::NoServersReturnedCertificate)
+}
+
 /// Register a U2F key (along with its attestation) with a a remote server.
 /// Will return an error if none of the servers report the key was successfully
 /// registered. This will also only register the key with one server and will

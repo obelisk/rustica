@@ -4,6 +4,7 @@ extern crate log;
 mod config;
 
 use notify_rust::Notification;
+use yubikey::Certificate;
 
 use crate::config::RusticaAgentAction;
 use rustica_agent::rustica::key::U2FAttestation;
@@ -181,6 +182,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(shutdown_receiver),
             )
             .await;
+        }
+        Ok(RusticaAgentAction::RefreshX509(mut config)) => {
+            match rustica_agent::fetch_new_x509_certificate(&config.servers, &mut config.signatory).await {
+                Ok(cert) => {
+                    match config.signatory {
+                        Signatory::Yubikey(mut yk) => {
+                            yk.yk.unlock(config.pin.as_bytes(), &config.management_key).unwrap();
+                            yk.yk.write_certificate(&yk.slot, &cert).unwrap();
+                        },
+                        Signatory::Direct(_) => {
+                            let parsed_cert = Certificate::from_bytes(cert.to_vec()).unwrap();
+                            println!("Certificate: {:?}", parsed_cert);
+                        }
+                    }
+                },
+                Err(e) => println!("Error: {:?}", e),
+            }
         }
         Err(config::ConfigurationError::NoMode) => (),
         Err(e) => println!("Error: {:?}", e),
