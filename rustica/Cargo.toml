@@ -37,7 +37,10 @@ tokio = { version = "1", features = ["full"] }
 toml = "0.5"
 tonic = { version = "0.6", features = ["tls"] }
 x509-parser = { version = "0.9", features = ["verify"] }
+
+# These are needed for the X509 certificate integrations
 rcgen = {version = "0.10", features = ["x509-parser"]}
+asn1 = "0.14"
 
 # Dependencies for amazon-kms
 aws-config = { version = "0.5", optional = true }

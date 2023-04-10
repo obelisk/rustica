@@ -101,6 +101,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
 
 [[package]]
+name = "asn1"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48a34f02cde9e43d380b3c72f3deb14b9ef8bf262bd3c92426437b21e74a509a"
+dependencies = [
+ "asn1_derive",
+]
+
+[[package]]
 name = "asn1-rs"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -165,6 +174,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.107",
+]
+
+[[package]]
+name = "asn1_derive"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee4d9abdcc064cc9568bff2599089bb497a7de2c4b59608de35e3380b496617a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.13",
 ]
 
 [[package]]
@@ -3370,6 +3390,7 @@ dependencies = [
 name = "rustica"
 version = "0.10.0"
 dependencies = [
+ "asn1",
  "async-trait",
  "aws-config",
  "aws-sdk-kms",
