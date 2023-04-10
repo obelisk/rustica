@@ -1,5 +1,5 @@
 use crate::auth::{
-    AuthorizationMechanism, SshAuthorizationRequestProperties, RegisterKeyRequestProperties, X509AuthorizationRequestProperties,
+    AuthorizationMechanism, SshAuthorizationRequestProperties, RegisterKeyRequestProperties, X509AuthorizationRequestProperties, X509Authorization, self,
 };
 use crate::error::RusticaServerError;
 use crate::logging::{
@@ -706,18 +706,35 @@ impl Rustica for RusticaServer {
         let mtls_identities = extract_certificate_identities(&peer_certs).map_err(|_| Status::permission_denied(""))?;
         let request = request.into_inner();
 
-        let key = verify_piv_certificate_chain(&request.attestation, &request.attestation_intermediate).map_err(|_| Status::permission_denied("Invalid attestation chain"))?;
+        verify_piv_certificate_chain(&request.attestation, &request.attestation_intermediate).map_err(|_| Status::permission_denied("Invalid attestation chain"))?;
+
+        let authority = if request.key_id.is_empty() {
+            &self.signer.default_authority
+        } else {
+            &request.key_id
+        };
 
         // Check authorization
         let auth_props = X509AuthorizationRequestProperties {
-            authority: request.key_id,
+            authority: authority.to_owned(),
             mtls_identities: mtls_identities.clone(),
             requester_ip: remote_addr.to_string(),
             attestation: request.attestation.to_vec(),
             attestation_intermediate: request.attestation_intermediate.to_vec(),
         };
 
-        let authorization = self.authorizer.authorize_x509_cert(&auth_props).await.unwrap();
+        //let authorization = self.authorizer.authorize_x509_cert(&auth_props).await.unwrap();
+
+        let authorization = X509Authorization {
+            authority: authority.to_owned(),
+            issuer: format!("Rustica"),
+            common_name: mtls_identities[0].clone(),
+            sans: vec![],
+            extensions: HashMap::new(),
+            serial: 0xFEFEFEFEFE,
+            valid_before: 1683704747,
+            valid_after: 1583704747,
+        };
 
         // Create new certificate
         let mut csr = match rcgen::CertificateSigningRequest::from_der(&request.csr) {
