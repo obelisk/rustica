@@ -70,6 +70,14 @@ table! {
     }
 }
 
+table! {
+    x509_authorizations (user, hsm_serial) {
+        user -> Text,
+        hsm_serial -> Text,
+        require_touch -> Bool,
+    }
+}
+
 allow_tables_to_appear_in_same_query!(
     fingerprint_critical_options,
     fingerprint_extensions,
@@ -78,4 +86,5 @@ allow_tables_to_appear_in_same_query!(
     fingerprint_principal_authorizations,
     hosts,
     registered_keys,
+    x509_authorizations,
 );

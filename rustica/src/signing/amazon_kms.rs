@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use aws_config::TimeoutConfig;
 /// The AmazonKMS signer uses customer managed keys stored in AWS to handle
 /// signing operations. It supports Ecdsa256 and Ecdsa384. Ecdsa521 is not
 /// currently supported due to a lack of support in the Ring crypto
@@ -12,6 +15,7 @@ use sshcerts::{
     utils::format_signature_for_ssh,
 };
 use tokio::runtime::Handle;
+use tokio::task;
 
 use super::{Signer, SignerConfig, SigningError};
 
@@ -122,11 +126,11 @@ impl rcgen::RemoteKeyPair for KmsRcgenRemoteSigner {
         // this to return. Spawning threads is expensive so there is probably
         // a better way to do this with threadpooling but for now, at the scales
         // this will be used for I don't think it'll be an issue
-        let signature = std::thread::spawn(move || {
-            handle.block_on( async {
+        let signature = task::block_in_place(move || {
+            handle.block_on(async move {
                 client.sign().key_id(key_id).signing_algorithm(key_algo).message(Blob::new(data)).send().await
-            }
-        )}).join().unwrap();
+            })
+        });
 
         // Amazon container type
         let signature = match signature {
@@ -149,7 +153,8 @@ impl rcgen::RemoteKeyPair for KmsRcgenRemoteSigner {
 #[async_trait]
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
-        let aws_config = aws_config::from_env().region(Region::new(self.aws_region.clone())).credentials_provider(self.clone()).load().await;
+        let timeout_config = TimeoutConfig::new().with_api_call_timeout(Some(Duration::from_secs(3)));
+        let aws_config = aws_config::from_env().timeout_config(timeout_config).region(Region::new(self.aws_region.clone())).credentials_provider(self.clone()).load().await;
         let client = Client::new(&aws_config);
 
         let user_public_key = client.get_public_key().key_id(&self.user_key_id).send().await.map_err(|_| SigningError::AccessError("Could not access user key".to_owned()))?.public_key;
