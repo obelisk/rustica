@@ -1,7 +1,7 @@
 use super::{Log, LoggingError, RusticaLogger, WrappedLog};
 
-use influxdb::{Client, Timestamp};
 use influxdb::InfluxDbWriteable;
+use influxdb::{Client, Timestamp};
 
 use tokio::runtime::Handle;
 
@@ -24,12 +24,12 @@ pub struct InfluxLogger {
     dataset: String,
 }
 
-
 impl InfluxLogger {
     /// Create a new InfluxDB logger from the provided configuration
     pub fn new(config: Config, handle: Handle) -> Self {
         Self {
-            client: Client::new(config.address, config.database).with_auth(config.user, config.password),
+            client: Client::new(config.address, config.database)
+                .with_auth(config.user, config.password),
             runtime: handle,
             dataset: config.dataset,
         }
@@ -50,7 +50,8 @@ impl RusticaLogger for InfluxLogger {
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards");
 
-                let point_query = Timestamp::Seconds(timestamp.as_secs().into()).into_query(&self.dataset)
+                let point_query = Timestamp::Seconds(timestamp.as_secs().into())
+                    .into_query(&self.dataset)
                     .add_tag("fingerprint", ci.fingerprint.clone())
                     .add_tag("mtls_identities", ci.mtls_identities.join(","))
                     .add_field("principals", ci.principals.join(","));
@@ -60,13 +61,14 @@ impl RusticaLogger for InfluxLogger {
                 self.runtime.spawn(async move {
                     if let Err(e) = client.query(point_query).await {
                         error!("Could not send log to Influx: {}", e);
-                    }                
-                });  
+                    }
+                });
             }
             Log::KeyRegistered(_kr) => (),
             Log::KeyRegistrationFailure(_krf) => (),
             Log::InternalMessage(_im) => (),
             Log::Heartbeat(_) => (),
+            Log::X509CertificateIssued(_) => (),
         }
         Ok(())
     }
