@@ -12,8 +12,8 @@ hex = "0.4"
 log = "0.4.13"
 notify-rust = "4"
 rustica-agent = {path = "../rustica-agent"}
-#sshcerts = {git = "https://github.com/obelisk/sshcerts", branch = "bug_fixes_2022_07_06", features = ["yubikey-support", "fido-support"]}
-sshcerts = {path = "../../sshcerts", features = ["yubikey-support", "fido-support"]}
+sshcerts = {git = "https://github.com/obelisk/sshcerts", branch = "bug_fixes_2022_07_06", features = ["yubikey-support", "fido-support"]}
+#sshcerts = {path = "../../sshcerts", features = ["yubikey-support", "fido-support"]}
 tokio = { version = "1", features = ["full"] }
 toml = "0.7"
 yubikey = "0.7"

@@ -59,6 +59,23 @@ pub struct CertificateIssued {
     pub valid_before: u64,
 }
 
+/// Issued when a certificate request is granted to a user or host
+#[derive(Serialize)]
+pub struct X509CertificateIssued {
+    /// The configured authority name for the signer
+    pub authority: String,
+    /// The MTLS identities of the action taken
+    pub mtls_identities: Vec<String>,
+    /// The serial of the issued certificate
+    pub serial: i64,
+    /// Extensions present in issued certificate
+    pub extensions: HashMap<String, String>,
+    /// Validity period starts
+    pub valid_after: u64,
+    /// Validity period ends
+    pub valid_before: u64,
+}
+
 /// Issued when a new key is registered with the service
 #[derive(Serialize)]
 pub struct KeyInfo {
@@ -91,6 +108,10 @@ pub enum Log {
     /// user connects to a remote machine that uses Rustica and they need to
     /// refresh their certificate.
     CertificateIssued(CertificateIssued),
+    /// Represents the event of issuing an X509 certificate. This happens when
+    /// a user makes an X509 certificate request which is approved by the
+    /// authorization system
+    X509CertificateIssued(X509CertificateIssued),
     /// A user has registered a new key with the Rustica system. This is
     /// emitted even if Rustica is not storing these keys locally and is
     /// only forwarding them on to an authorization service.
@@ -185,11 +206,11 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
         Some(config) => {
             println!("Configured logger: stdout");
             Some(stdout::StdoutLogger::new(config))
-        },
+        }
         None => {
             println!("stdout logger is not enabled. This is not recommended!");
             None
-        },
+        }
     };
 
     #[cfg(feature = "influx")]
@@ -197,7 +218,7 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
         Some(config) => {
             println!("Configured logger: influx");
             Some(influx::InfluxLogger::new(config, runtime.handle().clone()))
-        },
+        }
         None => None,
     };
 
@@ -206,7 +227,7 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
         Some(config) => {
             println!("Configured logger: splunk");
             Some(splunk::SplunkLogger::new(config, runtime.handle().clone()))
-        },
+        }
         None => None,
     };
 
@@ -214,8 +235,11 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
     let webhook_logger = match config.webhook {
         Some(config) => {
             println!("Configured logger: webhook");
-            Some(webhook::WebhookLogger::new(config, runtime.handle().clone()))
-        },
+            Some(webhook::WebhookLogger::new(
+                config,
+                runtime.handle().clone(),
+            ))
+        }
         None => None,
     };
 

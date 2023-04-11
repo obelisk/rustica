@@ -1,22 +1,24 @@
 use crate::auth::{
-    AuthorizationMechanism, SshAuthorizationRequestProperties, RegisterKeyRequestProperties, X509AuthorizationRequestProperties
+    AuthorizationMechanism, RegisterKeyRequestProperties, SshAuthorizationRequestProperties,
+    X509AuthorizationRequestProperties,
 };
 use crate::error::RusticaServerError;
 use crate::logging::{
     CertificateIssued, InternalMessage, KeyInfo, KeyRegistrationFailure, Log, Severity,
+    X509CertificateIssued,
 };
-use crate::rustica::{X509CertificateRequest, X509CertificateResponse};
 use crate::rustica::{
     rustica_server::Rustica, CertificateRequest, CertificateResponse, Challenge, ChallengeRequest,
     ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
     RegisterU2fKeyResponse,
 };
+use crate::rustica::{X509CertificateRequest, X509CertificateResponse};
 use crate::signing::SigningMechanism;
 use crate::verification::{verify_piv_certificate_chain, verify_u2f_certificate_chain};
 
 use crossbeam_channel::Sender;
 
-use rcgen::{SanType, DistinguishedName, DnType};
+use rcgen::{DistinguishedName, DnType, SanType};
 use sshcerts::ssh::{CertType, Certificate, PrivateKey, PublicKey};
 
 use ring::hmac;
@@ -87,7 +89,7 @@ fn extract_certificate_identities(
             Ok((_, cert)) => {
                 for ident in cert.tbs_certificate.subject.rdn_seq {
                     for attr in ident.set {
-                        if attr.attr_type == oid!(2.5.4.3) {
+                        if attr.attr_type == oid!(2.5.4 .3) {
                             // CommonName
                             // Certificates must have a common name
                             match attr.attr_value.as_str() {
@@ -701,10 +703,13 @@ impl Rustica for RusticaServer {
         let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
 
         let peer_certs = request.peer_certs().ok_or(Status::permission_denied(""))?;
-        let mtls_identities = extract_certificate_identities(&peer_certs).map_err(|_| Status::permission_denied(""))?;
+        let mtls_identities = extract_certificate_identities(&peer_certs)
+            .map_err(|_| Status::permission_denied(""))?;
         let request = request.into_inner();
 
-        let key = verify_piv_certificate_chain(&request.attestation, &request.attestation_intermediate).map_err(|_| Status::permission_denied("Invalid attestation chain"))?;
+        let key =
+            verify_piv_certificate_chain(&request.attestation, &request.attestation_intermediate)
+                .map_err(|_| Status::permission_denied("Invalid attestation chain"))?;
 
         let authority = if request.key_id.is_empty() {
             &self.signer.default_authority
@@ -732,7 +737,7 @@ impl Rustica for RusticaServer {
                         mtls_identities.join(","),
                     )
                 );
-                return Err(Status::permission_denied("Not authorized"))
+                return Err(Status::permission_denied("Not authorized"));
             }
         };
 
@@ -747,8 +752,8 @@ impl Rustica for RusticaServer {
                         mtls_identities.join(","),
                     )
                 );
-                return Err(Status::permission_denied(""))
-            }, 
+                return Err(Status::permission_denied(""));
+            }
         };
 
         csr.params.subject_alt_names = vec![SanType::Rfc822Name(authorization.common_name.clone())];
@@ -757,16 +762,26 @@ impl Rustica for RusticaServer {
         csr.params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
         csr.params.extended_key_usages = vec![];
         csr.params.name_constraints = None;
-        csr.params.custom_extensions = authorization.extensions;
+        csr.params.custom_extensions = authorization.extensions.clone();
         csr.params.distinguished_name = DistinguishedName::new();
-        csr.params.distinguished_name.push(DnType::OrganizationName, format!("Rustica-{}", &authorization.authority));
-        csr.params.distinguished_name.push(DnType::CommonName, &authorization.common_name);
+        csr.params.distinguished_name.push(
+            DnType::OrganizationName,
+            format!("Rustica-{}", &authorization.authority),
+        );
+        csr.params
+            .distinguished_name
+            .push(DnType::CommonName, &authorization.common_name);
         csr.params.use_authority_key_identifier_extension = false;
 
-        csr.params.not_before = (UNIX_EPOCH + Duration::from_secs(authorization.valid_after)).into();
-        csr.params.not_after = (UNIX_EPOCH + Duration::from_secs(authorization.valid_before)).into();
+        csr.params.not_before =
+            (UNIX_EPOCH + Duration::from_secs(authorization.valid_after)).into();
+        csr.params.not_after =
+            (UNIX_EPOCH + Duration::from_secs(authorization.valid_before)).into();
 
-        let ca_cert = self.signer.get_x509_certificate_authority(&authorization.authority).map_err(|_| Status::permission_denied("message"))?;
+        let ca_cert = self
+            .signer
+            .get_x509_certificate_authority(&authorization.authority)
+            .map_err(|_| Status::permission_denied("message"))?;
         let cert = csr.serialize_der_with_signer(ca_cert).unwrap();
 
         // Assert that the CSR contains the same public key as the provided
@@ -782,10 +797,10 @@ impl Rustica for RusticaServer {
                         mtls_identities.join(","),
                     )
                 );
-                return Err(Status::permission_denied(""))
-            },
+                return Err(Status::permission_denied(""));
+            }
         };
-        
+
         let (_, leaf) = match X509Certificate::from_der(&request.attestation) {
             Ok(l) => l,
             Err(e) => {
@@ -796,8 +811,8 @@ impl Rustica for RusticaServer {
                         mtls_identities.join(","),
                     )
                 );
-                return Err(Status::permission_denied(""))
-            }, 
+                return Err(Status::permission_denied(""));
+            }
         };
 
         if new_certificate.tbs_certificate.subject_pki != leaf.tbs_certificate.subject_pki {
@@ -812,11 +827,37 @@ impl Rustica for RusticaServer {
             return Err(Status::permission_denied(""));
         }
 
+        let _ = self
+            .log_sender
+            .send(Log::X509CertificateIssued(X509CertificateIssued {
+                authority: authority.to_string(),
+                mtls_identities,
+                extensions: authorization
+                    .extensions
+                    .iter()
+                    .map(|e| {
+                        (
+                            format!(
+                                "{}",
+                                e.oid_components()
+                                    .map(|x| x.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(".")
+                            ),
+                            format!("{}", hex::encode(e.content())),
+                        )
+                    })
+                    .collect(),
+                valid_after: authorization.valid_after,
+                valid_before: authorization.valid_before,
+                serial: authorization.serial,
+            }));
+
         // Return certificate
         return Ok(Response::new(X509CertificateResponse {
             certificate: cert,
             error: "".to_owned(),
             error_code: 0,
-        }))
+        }));
     }
 }
