@@ -38,6 +38,15 @@ impl RusticaLogger for StdoutLogger {
                 Severity::Info => info!("{}", im.message),
             },
             Log::Heartbeat(_) => (),
+            Log::X509CertificateIssued(x509) => info!(
+                "X509 Certificate issued. Authority: [{}] Identified by: [{}] Extensions: [{:?}] Valid After: [{}] Valid Before: [{}] Serial: [{}]",
+                x509.authority,
+                x509.mtls_identities.join(", "),
+                x509.extensions,
+                x509.valid_after,
+                x509.valid_before,
+                x509.serial,
+            )
         }
         Ok(())
     }
