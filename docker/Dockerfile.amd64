@@ -1,13 +1,16 @@
-FROM ekidd/rust-musl-builder:1.57.0 as builder
-USER root
-RUN apt update && apt upgrade -y && apt install -y git
+FROM messense/rust-musl-cross:x86_64-musl as builder
+
+ENV TARGET x86_64-unknown-linux-musl
+RUN rustup target add "$TARGET"
+
+RUN apt-get update && apt-get install -y musl-tools
 RUN rustup component add rustfmt
 RUN mkdir /rustica
 COPY proto /tmp/proto
 COPY rustica /tmp/rustica
 WORKDIR /tmp/rustica
 
-RUN cargo build --target=x86_64-unknown-linux-musl --features="splunk,amazon-kms,webhook" --release
+RUN cargo build --target="$TARGET" --features="splunk,amazon-kms,webhook" --release
 
 FROM alpine:3.6 as alpine
 RUN apk add -U --no-cache ca-certificates
