@@ -61,4 +61,12 @@ impl RusticaServer {
             })),
         }
     }
+
+    pub fn refresh_x509_certificate(
+        &self,
+        signatory: &mut Signatory,
+    ) -> Result<Vec<u8>, RefreshError> {
+        self.handle
+            .block_on(async { self.refresh_x509_certificate_async(signatory).await })
+    }
 }
