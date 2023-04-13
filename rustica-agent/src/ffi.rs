@@ -171,6 +171,26 @@ pub extern "C" fn check_yubikey_slot_provisioned(yubikey_serial: u32, slot_id: u
     }
 }
 
+/// The return from this function must be freed by the caller because we can no longer track it
+/// once we return
+#[no_mangle]
+pub extern "C" fn check_yubikey_slot_certificate_expiry(yubikey_serial: u32, slot_id: u8) -> u64 {
+    let (mut yk, slot) = match (Yubikey::open(yubikey_serial), SlotId::try_from(slot_id)) {
+        (Ok(yk), Ok(slot)) => (yk, slot),
+        _ => return 0,
+    };
+
+    let cert = match yk.fetch_certificate(&slot) {
+        Ok(cert) => cert,
+        Err(_) => return 0,
+    };
+
+    match x509_parser::parse_x509_certificate(&cert) {
+        Ok((_, cert)) => cert.tbs_certificate.validity.not_after.timestamp() as u64,
+        Err(_) => 0,
+    }
+}
+
 /// Free the list of Yubikey keys
 ///
 /// # Safety
@@ -886,4 +906,82 @@ pub unsafe extern "C" fn ffi_device_pin_retries(device: *const c_char) -> i32 {
             return -1;
         }
     }
+}
+
+/// Refresh and load a new certificate onto a yubikey
+///
+/// # Safety
+/// Subject, config_data, and pin must all be valid, null terminated C strings
+/// or this functions behaviour is undefined and will result in a crash.
+#[no_mangle]
+pub unsafe extern "C" fn ffi_refresh_x509_certificate(
+    yubikey_serial: u32,
+    slot: u8,
+    config_data: *const c_char,
+    pin: *const c_char,
+    management_key: *const c_char,
+) -> bool {
+    println!("Refreshing certificate!");
+    let cf = CStr::from_ptr(config_data);
+    let config_data = match cf.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let pin = CStr::from_ptr(pin);
+    let management_key = CStr::from_ptr(management_key);
+    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
+
+    let config: Config = match parse_config(config_data) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return false;
+        }
+    };
+
+    let slot = SlotId::try_from(slot).unwrap();
+    let mut yk = Yubikey::open(yubikey_serial).unwrap();
+
+    if yk
+        .unlock(pin.to_str().unwrap().as_bytes(), &management_key)
+        .is_err()
+    {
+        println!("Could not unlock key");
+        return false;
+    }
+
+    let mut signatory = Signatory::Yubikey(YubikeySigner { yk, slot });
+
+    let runtime = match Runtime::new() {
+        Ok(rt) => rt,
+        _ => return false,
+    };
+
+    let runtime_handle = runtime.handle().to_owned();
+
+    let servers = config.parse_servers(runtime_handle);
+
+    for server in servers {
+        match server.refresh_x509_certificate(&mut signatory) {
+            Ok(c) => {
+                println!("Certificate was issued from server: {}", server.address);
+                let mut yk = Yubikey::open(yubikey_serial).unwrap();
+                yk.unlock(pin.to_str().unwrap().as_bytes(), &management_key)
+                    .unwrap();
+                if yk.write_certificate(&slot, &c).is_err() {
+                    error!("Could not write certificate to yubikey");
+                    return false;
+                } else {
+                    return true;
+                }
+            }
+            Err(e) => {
+                error!("Certificate could not be issued. Server said: {}", e);
+            }
+        };
+    }
+
+    error!("All servers failed to issue a certificate");
+    false
 }
