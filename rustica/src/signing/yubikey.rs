@@ -4,6 +4,7 @@
 
 use super::{Signer, SignerConfig, SigningError};
 
+use sshcerts::yubikey::piv::management::CSRSigner;
 use sshcerts::{Certificate, PublicKey, ssh::CertType};
 use sshcerts::yubikey::piv::{SlotId, Yubikey};
 
@@ -13,6 +14,8 @@ use serde::Deserialize;
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
+use rcgen::{Certificate as X509Certificate, CertificateParams, IsCa, DnType, RemoteKeyPair};
+
 #[derive(Deserialize)]
 pub struct Config {
     /// The slot on the Yubikey to use for signing user certificates
@@ -21,6 +24,9 @@ pub struct Config {
     /// The slot on the Yubikey to use for signing host certificates
     #[serde(deserialize_with = "parse_slot")]
     host_slot: SlotId,
+    /// The slot on the Yubikey to use for signing X509 certificates
+    #[serde(deserialize_with = "parse_slot")]
+    x509_slot: SlotId,
 }
 
 pub struct YubikeySigner {
@@ -32,6 +38,8 @@ pub struct YubikeySigner {
     host_slot: SlotId,
     /// The public key of the CA used for signing host certificates
     host_public_key: PublicKey,
+    /// The X509 certificate that will be the issuer for client certificates
+    x509_certificate: X509Certificate,
     /// A mutex to ensure there is no concurrent access to the Yubikey. Without
     /// this, handling two requests at the same time would result in possibly
     /// corrupted certificates for both.
@@ -42,6 +50,7 @@ pub struct YubikeySigner {
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
         let yubikey = new_yubikey_mutex();
+        let serial = yubikey.lock().unwrap().yk.serial().0;
 
         let (user_public_key, host_public_key) = {
             let mut yk = yubikey.lock().map_err(|e| SigningError::AccessError(format!("Could not lock Yubikey. Error: {}", e)))?;
@@ -52,11 +61,27 @@ impl SignerConfig for Config {
             )
         };
 
+        let yk_x509_signer = CSRSigner::new(serial, self.x509_slot);
+
+        let mut ca_params = CertificateParams::new(vec![]);
+        ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        ca_params.distinguished_name.push(DnType::CommonName, "Rustica");
+        ca_params.alg = yk_x509_signer.algorithm();
+
+        let kp = match rcgen::KeyPair::from_remote(Box::new(yk_x509_signer)) {
+            Ok(kp) => kp,
+            Err(_) => return Err(SigningError::AccessError("Could not create remote signer for X509 key".to_owned()))
+        };
+
+        ca_params.key_pair = Some(kp);
+        let x509_certificate = X509Certificate::from_params(ca_params).unwrap();
+
         Ok(Box::new(YubikeySigner {
             user_slot: self.user_slot,
             user_public_key,
             host_slot: self.host_slot,
             host_public_key,
+            x509_certificate,
             yubikey,
         }))
     }
@@ -93,7 +118,7 @@ impl Signer for YubikeySigner {
     }
 
     fn get_x509_certificate_authority(&self) -> &rcgen::Certificate {
-        panic!("Unimplemented")
+        &self.x509_certificate
     }
 }
 
@@ -110,6 +135,9 @@ where
             Ok(v) if v <= 20 => Ok(SlotId::try_from(0x81_u8 + v).unwrap()),
             _ => Err(serde::de::Error::custom("Invalid Slot")),
         }
+    } else if slot.len() == 4 && slot.starts_with("0x") {
+        let slot_value = hex::decode(&slot[2..]).unwrap()[0];
+        Ok(SlotId::try_from(slot_value).unwrap())
     } else {
         Err(serde::de::Error::custom("Invalid Slot"))
     }

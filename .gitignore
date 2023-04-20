@@ -1,4 +1,5 @@
 /target
+/private
 .DS_Store
 /rustica/rustica.db
 *.pem
