@@ -4059,7 +4059,8 @@ dependencies = [
 [[package]]
 name = "sshcerts"
 version = "0.12.0"
-source = "git+https://github.com/obelisk/sshcerts?branch=bug_fixes_2022_07_06#39253f9c01cb528aa3858d4a2a614d04b4a317ae"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "160b6ff17c1e6ca0d5e81881094abae36de77515c4f32c4f118a8e251d481871"
 dependencies = [
  "base64 0.13.1",
  "ctap-hid-fido2",
