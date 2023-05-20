@@ -57,12 +57,15 @@ require_rustica_proof = false
 require_attestation_chain = true
 
 
+[signing]
+default_authority = "amazonkms"
+
 
 # Rustica has many ways it can sign SSH certificates which are sent to
 # clients. This method uses private keys embedded in the configuration
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
-[signing."amazonkms"]
+[signing.signing_configuration."amazonkms"]
 aws_access_key_id = "XXXXXXXXXXXXXXXXXXXX"
 aws_secret_access_key = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 aws_region = "us-west-2"
@@ -70,6 +73,8 @@ user_key_id = "mrk-00000000000000000000000000000000"
 user_key_signing_algorithm = "ECDSA_SHA_384"
 host_key_id = "mrk-00000000000000000000000000000000"
 host_key_signing_algorithm = "ECDSA_SHA_384"
+x509_key_id = "mrk-0000000000"
+x509_key_signing_algorithm = "ECDSA_SHA_384"
 
 [logging."stdout"]
 
