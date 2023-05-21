@@ -12,7 +12,7 @@ AAAEAadOY5EF0mGYUOXxRvfpBJOzBu8IXLVS+UJ95dFDfAuu6eVuCxh3eCENKcLWNtmheS
 '''
 
 [[servers]]
-address = "https://localhost:50055"
+address = "https://localhost:50052"
 ca_pem = '''
 -----BEGIN CERTIFICATE-----
 MIIBJDCBzAIJAJGDT3qxW0/TMAoGCCqGSM49BAMCMBsxGTAXBgNVBAMMEEVudGVy
