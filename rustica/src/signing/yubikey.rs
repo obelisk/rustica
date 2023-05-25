@@ -27,6 +27,9 @@ pub struct Config {
     /// The slot on the Yubikey to use for signing X509 certificates
     #[serde(deserialize_with = "parse_slot")]
     x509_slot: SlotId,
+    /// The slot on the Yubikey to use for signing client certificates
+    #[serde(deserialize_with = "parse_option_slot")]
+    client_certificate_authority_slot: Option<SlotId>,
 }
 
 pub struct YubikeySigner {
@@ -38,12 +41,31 @@ pub struct YubikeySigner {
     host_slot: SlotId,
     /// The public key of the CA used for signing host certificates
     host_public_key: PublicKey,
-    /// The X509 certificate that will be the issuer for client certificates
+    /// The X509 certificate that will be the issuer for requested x509 certificates
     x509_certificate: X509Certificate,
+    /// The X509 certificate that will be the issuer for client certificates
+    client_certificate_authority: Option<X509Certificate>,
     /// A mutex to ensure there is no concurrent access to the Yubikey. Without
     /// this, handling two requests at the same time would result in possibly
     /// corrupted certificates for both.
     yubikey: Arc<Mutex<Yubikey>>
+}
+
+fn rcgen_certificate_from_yubikey(common_name: &str, serial: u32, slot: SlotId) -> Result<X509Certificate, SigningError> {
+    let yk_x509_signer = CSRSigner::new(serial, slot);
+
+    let mut ca_params = CertificateParams::new(vec![]);
+    ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    ca_params.distinguished_name.push(DnType::CommonName, common_name);
+    ca_params.alg = yk_x509_signer.algorithm();
+
+    let kp = match rcgen::KeyPair::from_remote(Box::new(yk_x509_signer)) {
+        Ok(kp) => kp,
+        Err(_) => return Err(SigningError::AccessError("Could not create remote signer for X509 key".to_owned()))
+    };
+
+    ca_params.key_pair = Some(kp);
+    X509Certificate::from_params(ca_params).map_err(|_| SigningError::AccessError(format!("Could not create certificate for slot {:?}", slot)))
 }
 
 #[async_trait]
@@ -61,20 +83,12 @@ impl SignerConfig for Config {
             )
         };
 
-        let yk_x509_signer = CSRSigner::new(serial, self.x509_slot);
-
-        let mut ca_params = CertificateParams::new(vec![]);
-        ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-        ca_params.distinguished_name.push(DnType::CommonName, "Rustica");
-        ca_params.alg = yk_x509_signer.algorithm();
-
-        let kp = match rcgen::KeyPair::from_remote(Box::new(yk_x509_signer)) {
-            Ok(kp) => kp,
-            Err(_) => return Err(SigningError::AccessError("Could not create remote signer for X509 key".to_owned()))
+        let x509_certificate = rcgen_certificate_from_yubikey("Rustica", serial, self.x509_slot)?;
+        let client_certificate_authority = if let Some(slot) = self.client_certificate_authority_slot {
+            Some(rcgen_certificate_from_yubikey("RusticaAccess", serial, slot)?)
+        } else {
+            None
         };
-
-        ca_params.key_pair = Some(kp);
-        let x509_certificate = X509Certificate::from_params(ca_params).unwrap();
 
         Ok(Box::new(YubikeySigner {
             user_slot: self.user_slot,
@@ -82,6 +96,7 @@ impl SignerConfig for Config {
             host_slot: self.host_slot,
             host_public_key,
             x509_certificate,
+            client_certificate_authority,
             yubikey,
         }))
     }
@@ -122,7 +137,7 @@ impl Signer for YubikeySigner {
     }
 
     fn get_client_certificate_authority(&self) -> Option<&rcgen::Certificate> {
-        todo!("")
+        self.client_certificate_authority.as_ref()
     }
 }
 
@@ -142,6 +157,31 @@ where
     } else if slot.len() == 4 && slot.starts_with("0x") {
         let slot_value = hex::decode(&slot[2..]).unwrap()[0];
         Ok(SlotId::try_from(slot_value).unwrap())
+    } else {
+        Err(serde::de::Error::custom("Invalid Slot"))
+    }
+}
+
+pub fn parse_option_slot<'de, D>(deserializer: D) -> Result<Option<SlotId>, D::Error>
+where
+    D: serde::Deserializer<'de>
+{
+    let slot = match String::deserialize(deserializer) {
+        Ok(s) => s,
+        _ => return Ok(None)
+    };
+
+    // If first character is R, then we need to parse the nice
+    // notation
+    if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
+        let slot_value = slot[1..].parse::<u8>();
+        match slot_value {
+            Ok(v) if v <= 20 => Ok(Some(SlotId::try_from(0x81_u8 + v).unwrap())),
+            _ => Err(serde::de::Error::custom("Invalid Slot")),
+        }
+    } else if slot.len() == 4 && slot.starts_with("0x") {
+        let slot_value = hex::decode(&slot[2..]).unwrap()[0];
+        Ok(Some(SlotId::try_from(slot_value).unwrap()))
     } else {
         Err(serde::de::Error::custom("Invalid Slot"))
     }
