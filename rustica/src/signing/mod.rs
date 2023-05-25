@@ -102,11 +102,13 @@ pub enum SigningSystemConfiguration {
 #[derive(Deserialize)]
 pub struct SigningConfiguration {
     pub default_authority: String,
+    pub authority_for_client_certificates: Option<String>,
     pub signing_configuration: SigningSystemConfiguration,
 }
 
 pub struct SigningMechanism {
     pub default_authority: String,
+    pub authority_for_client_certificates: Option<String>,
     pub signing_system: SigningSystem,
 }
 
@@ -293,6 +295,7 @@ impl SigningConfiguration {
 
                 Ok(SigningMechanism {
                     default_authority: self.default_authority,
+                    authority_for_client_certificates: self.authority_for_client_certificates,
                     signing_system: SigningSystem::Internal(converted_authorities),
                 })
             }

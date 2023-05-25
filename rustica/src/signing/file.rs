@@ -98,7 +98,7 @@ impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
         let x509_certificate = rcgen_certificate_from_private_key("Rustica", &self.x509_private_key, &self.x509_private_key_alg)?;
         let client_certificate_authority = match (self.client_certificate_authority_private_key, self.client_certificate_authority_private_key_alg) {
-            (Some(ccapk), Some(ccapka)) => Some(rcgen_certificate_from_private_key("Rustica", &ccapk, &ccapka)?),
+            (Some(ccapk), Some(ccapka)) => Some(rcgen_certificate_from_private_key("RusticaAccess", &ccapk, &ccapka)?),
             _ => None
         };
         
