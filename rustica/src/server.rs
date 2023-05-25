@@ -2,6 +2,7 @@ use crate::auth::{
     AuthorizationMechanism, RegisterKeyRequestProperties, SshAuthorizationRequestProperties,
     X509AuthorizationRequestProperties,
 };
+use crate::config::ClientAuthorityConfiguration;
 use crate::error::RusticaServerError;
 use crate::logging::{
     CertificateIssued, InternalMessage, KeyInfo, KeyRegistrationFailure, Log, Severity,
@@ -39,11 +40,17 @@ pub struct RusticaServer {
     pub signer: SigningMechanism,
     pub require_rustica_proof: bool,
     pub require_attestation_chain: bool,
+    pub client_authority: ClientAuthorityConfiguration,
 }
 
 struct MtlsCertificateInfo {
     identities: Vec<String>,
     expiry_timestamp: i64,
+}
+
+struct CertificateRefreshSettings {
+    not_after: u64,
+    not_before: u64,
 }
 
 /// Macro for simplifying sending error logs to the Rustica logging system.
@@ -75,7 +82,8 @@ where
         certificate: String::new(),
         error: format!("{:?}", e),
         error_code: e as i64,
-        mtls_refresh: String::new(),
+        new_client_certificate: String::new(),
+        new_client_key: String::new(),
     })
 }
 
@@ -126,7 +134,7 @@ fn validate_request(
     hmac_key: &ring::hmac::Key,
     peer_certs: &Arc<Vec<TonicCertificate>>,
     challenge: &Challenge,
-) -> Result<(PublicKey, Vec<String>, bool), RusticaServerError> {
+) -> Result<(PublicKey, Vec<String>, Option<CertificateRefreshSettings>), RusticaServerError> {
 
     // Only support the presenting of a single client certificate
     // I've never seen anyone handle multiple ones and since we don't
@@ -147,17 +155,6 @@ fn validate_request(
     ) {
         (Ok(rt), Ok(time)) => (rt, time.as_secs()),
         _ => return Err(RusticaServerError::Unknown),
-    };
-
-    // You would think we couldn't hit this case but if someone requests right when their
-    // certificate is expiring, it's possible that tonic accepts the request because it
-    // hasn't expired (expiry == time), then when we get here another second has passed
-    // so time is now larger
-    let should_refresh_mtls_cert = if (cert_info.expiry_timestamp as u64) < time {
-        true
-    } else {
-        // TODO: Replace this time interval with config setting from srv
-        (cert_info.expiry_timestamp as u64 - time) < 28800
     };
 
     // This is our operational window. A user must confirm they control the
@@ -242,6 +239,21 @@ fn validate_request(
         RusticaServerError::BadChallenge
     })?;
 
+    // You would think we couldn't hit this case but if someone requests right when their
+    // certificate is expiring, it's possible that tonic accepts the request because it
+    // hasn't expired (expiry == time), then when we get here another second has passed
+    // so time is now larger
+    let certificate_refresh_settings = if 
+        (time > cert_info.expiry_timestamp as u64) ||
+        (cert_info.expiry_timestamp as u64 - time) < srv.client_authority.expiration_renewal_period {
+            Some(CertificateRefreshSettings {
+                not_after: time + srv.client_authority.validity_length,
+                not_before: time,
+            })
+    } else {
+        None
+    };
+
     // This functionality exists because when user certificates are FIDO or
     // Yubikey PIV backed, SSHing into a remote host requires two taps: the
     // first for this check, and then a second for the server being connected
@@ -267,7 +279,7 @@ fn validate_request(
             );
             return Err(RusticaServerError::BadChallenge);
         }
-        return Ok((hmac_ssh_pubkey, cert_info.identities, should_refresh_mtls_cert));
+        return Ok((hmac_ssh_pubkey, cert_info.identities, certificate_refresh_settings));
     }
 
     // We now know the request has not been replayed significantly in time.
@@ -308,7 +320,7 @@ fn validate_request(
     // this point the user must have received our challenge certificate
     // containing our HMAC challenge, resigned it with their key, and
     // sent it back for which it passed all checks.
-    Ok((hmac_ssh_pubkey, cert_info.identities, should_refresh_mtls_cert))
+    Ok((hmac_ssh_pubkey, cert_info.identities, certificate_refresh_settings))
 }
 
 #[tonic::async_trait]
@@ -506,12 +518,29 @@ impl Rustica for RusticaServer {
             }
         };
 
-        let reply = CertificateResponse {
+        let mut reply = CertificateResponse {
             certificate: serialized_cert,
             error: String::new(),
             error_code: RusticaServerError::Success as i64,
-            mtls_refresh: String::new(),
+            new_client_certificate: String::new(),
+            new_client_key: String::new(),
         };
+
+        if let Some(settings) = &mtls_refresh {
+            let ca = self.signer.get_client_certificate_authority(&self.client_authority.authority).unwrap().unwrap();
+
+            let mut params = rcgen::CertificateParams::new(mtls_identities.clone());
+            params.not_before = (UNIX_EPOCH + Duration::from_secs(settings.not_before)).into();
+            params.not_after = (UNIX_EPOCH + Duration::from_secs(settings.not_after)).into();
+            params
+                .distinguished_name
+                .push(DnType::CommonName, mtls_identities.get(0).map(|x| x.to_owned()).unwrap_or_default());
+
+            let new_certificate = rcgen::Certificate::from_params(params).unwrap();
+
+            reply.new_client_key = new_certificate.serialize_private_key_pem();
+            reply.new_client_certificate = new_certificate.serialize_pem_with_signer(ca).unwrap();
+        }
 
         let _ = self
             .log_sender
@@ -526,6 +555,7 @@ impl Rustica for RusticaServer {
                 critical_options,
                 valid_after: authorization.valid_after,
                 valid_before: authorization.valid_before,
+                new_access_certificate_issued: mtls_refresh.is_some(),
             }));
 
         Ok(Response::new(reply))

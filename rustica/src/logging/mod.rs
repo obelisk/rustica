@@ -57,6 +57,8 @@ pub struct CertificateIssued {
     pub valid_after: u64,
     /// Validity period ends
     pub valid_before: u64,
+    /// Was a new access certificate returned with this request
+    pub new_access_certificate_issued: bool,
 }
 
 /// Issued when a certificate request is granted to a user or host
