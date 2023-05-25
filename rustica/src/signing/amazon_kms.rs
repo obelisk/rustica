@@ -56,9 +56,9 @@ pub struct Config {
     x509_key_id: String,
     /// The signing algorithm to use. This should be ECDSA_SHA_256 and
     /// ECDSA_SHA_384 for a Nistp256 and Nistp384 respectively
-    client_refresh_key_signing_algorithm: Option<String>,
+    client_certificate_authority_key_signing_algorithm: Option<String>,
     /// The KMS key id to use as the client refresh key
-    client_refresh_key_id: Option<String>,
+    client_certificate_authority_key_id: Option<String>,
 }
 
 /// Defines the information needed for an AmazonKMS backed SSH key
@@ -231,7 +231,7 @@ impl SignerConfig for Config {
         // Create the x509 certificate
         let x509_certificate = rcgen_certificate_from_kms(client.clone(), "Rustica", &self.x509_key_id, &self.x509_key_signing_algorithm).await?;
 
-        let client_certificate_authority = match (&self.client_refresh_key_id,&self.client_refresh_key_signing_algorithm) {
+        let client_certificate_authority = match (&self.client_certificate_authority_key_id, &self.client_certificate_authority_key_signing_algorithm) {
             (Some(id), Some(alg)) => Some(rcgen_certificate_from_kms(client.clone(), "RusticaAccess", id, alg).await?),
             _ => None,
         };
