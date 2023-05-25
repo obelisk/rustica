@@ -41,6 +41,11 @@ pub struct RusticaServer {
     pub require_attestation_chain: bool,
 }
 
+struct MtlsCertificateInfo {
+    identities: Vec<String>,
+    expiry_timestamp: i64,
+}
+
 /// Macro for simplifying sending error logs to the Rustica logging system.
 macro_rules! rustica_error {
     ($self:ident, $message:expr) => {
@@ -70,39 +75,44 @@ where
         certificate: String::new(),
         error: format!("{:?}", e),
         error_code: e as i64,
+        mtls_refresh: String::new(),
     })
 }
 
 /// Extract the identities (CNs) from the presented mTLS certificates.
 /// This should almost always be exactly 1. If it is 0, this is an error.
-fn extract_certificate_identities(
-    peer_certs: &Arc<Vec<TonicCertificate>>,
-) -> Result<Vec<String>, RusticaServerError> {
-    if peer_certs.is_empty() {
-        return Err(RusticaServerError::NotAuthorized);
-    }
+fn extract_certificate_information(
+    peer: &TonicCertificate,
+) -> Result<MtlsCertificateInfo, RusticaServerError> {
+    let mut cert_info = MtlsCertificateInfo {
+        identities: vec![],
+        expiry_timestamp: 0x7FFFFFFFFFFFFFFF,
+    };
 
-    let mut mtls_identities = vec![];
-    for peer in peer_certs.iter() {
-        match x509_parser::parse_x509_certificate(peer.as_ref()) {
-            Err(_) => return Err(RusticaServerError::NotAuthorized),
-            Ok((_, cert)) => {
-                for ident in cert.tbs_certificate.subject.rdn_seq {
-                    for attr in ident.set {
-                        if attr.attr_type == oid!(2.5.4 .3) {
-                            // CommonName
-                            // Certificates must have a common name
-                            match attr.attr_value.as_str() {
-                                Ok(s) => mtls_identities.push(String::from(s)),
-                                Err(_) => return Err(RusticaServerError::NotAuthorized),
-                            };
-                        }
+    match x509_parser::parse_x509_certificate(peer.as_ref()) {
+        Err(_) => return Err(RusticaServerError::NotAuthorized),
+        Ok((_, cert)) => {
+            // Get the unix timestamp of expiry from the mTLS certificate
+            // This is used to automatically refresh the certificate if it's
+            // going to expire within a given window
+            cert_info.expiry_timestamp = cert.validity().not_after.timestamp();
+
+            // Loop through all the DNs to find the common name as identified by the OID
+            for ident in cert.tbs_certificate.subject.rdn_seq {
+                for attr in ident.set {
+                    if attr.attr_type == oid!(2.5.4 .3) {
+                        // CommonName
+                        // Certificates must have a common name
+                        match attr.attr_value.as_str() {
+                            Ok(s) => cert_info.identities.push(String::from(s)),
+                            Err(_) => return Err(RusticaServerError::NotAuthorized),
+                        };
                     }
                 }
             }
-        };
-    }
-    Ok(mtls_identities)
+        }
+    };
+    Ok(cert_info)
 }
 
 /// Validates a request passes all the following checks in this order:
@@ -116,8 +126,19 @@ fn validate_request(
     hmac_key: &ring::hmac::Key,
     peer_certs: &Arc<Vec<TonicCertificate>>,
     challenge: &Challenge,
-) -> Result<(PublicKey, Vec<String>), RusticaServerError> {
-    let mtls_identities = extract_certificate_identities(peer_certs)?;
+) -> Result<(PublicKey, Vec<String>, bool), RusticaServerError> {
+
+    // Only support the presenting of a single client certificate
+    // I've never seen anyone handle multiple ones and since we don't
+    // need to here, trying to support it will only lead to validation
+    // issues or inconsistencies.
+    let cert = if let Some(cert) = peer_certs.get(0) {
+        cert
+    } else {
+        return Err(RusticaServerError::BadRequest)
+    };
+
+    let cert_info = extract_certificate_information(cert)?;
 
     // Get request time, and current time. Any issue causes request to fail
     let (request_time, time) = match (
@@ -128,18 +149,33 @@ fn validate_request(
         _ => return Err(RusticaServerError::Unknown),
     };
 
+    // You would think we couldn't hit this case but if someone requests right when their
+    // certificate is expiring, it's possible that tonic accepts the request because it
+    // hasn't expired (expiry == time), then when we get here another second has passed
+    // so time is now larger
+    let should_refresh_mtls_cert = if (cert_info.expiry_timestamp as u64) < time {
+        true
+    } else {
+        // TODO: Replace this time interval with config setting from srv
+        (cert_info.expiry_timestamp as u64 - time) < 28800
+    };
+
     // This is our operational window. A user must confirm they control the
     // the private key within this window or else we will kick out and make
     // them start again. This is so short because we don't want people to
     // be able to "buffer" requests, where they presign them and then use
     // them later. Admittedly, the period set here is exceedingly short but in
     // practice it has not been too much of an issue.
+    //
+    // Also request_time is not trusted at this point so in theory could cause
+    // an underflow with the subtraction from time but this would result in a 
+    // a large number greater than five so would stop anyway.
     if (time - request_time) > 5 {
         rustica_warning!(
             srv,
             format!(
                 "Expired challenge received from: {}",
-                mtls_identities.join(",")
+                cert_info.identities.join(",")
             )
         );
         return Err(RusticaServerError::TimeExpired);
@@ -155,7 +191,7 @@ fn validate_request(
             srv,
             format!(
                 "Received a certificate that is far too large from from: {}",
-                mtls_identities.join(",")
+                cert_info.identities.join(",")
             )
         );
         return Err(RusticaServerError::Unknown);
@@ -169,7 +205,7 @@ fn validate_request(
             srv,
             format!(
                 "Received a bad certificate from: {}",
-                mtls_identities.join(",")
+                cert_info.identities.join(",")
             )
         );
         RusticaServerError::BadChallenge
@@ -185,7 +221,7 @@ fn validate_request(
             srv,
             format!(
                 "Received a bad challenge from: {}",
-                mtls_identities.join(",")
+                cert_info.identities.join(",")
             )
         );
         return Err(RusticaServerError::BadChallenge);
@@ -199,7 +235,7 @@ fn validate_request(
             srv,
             format!(
                 "Public key was invalid when negotiating with [{}]. Public key: [{}]",
-                mtls_identities.join(","),
+                cert_info.identities.join(","),
                 &challenge.pubkey
             )
         );
@@ -226,12 +262,12 @@ fn validate_request(
                 srv,
                 format!(
                     "Received an incorrect certificate from {}",
-                    mtls_identities.join(",")
+                    cert_info.identities.join(",")
                 )
             );
             return Err(RusticaServerError::BadChallenge);
         }
-        return Ok((hmac_ssh_pubkey, mtls_identities));
+        return Ok((hmac_ssh_pubkey, cert_info.identities, should_refresh_mtls_cert));
     }
 
     // We now know the request has not been replayed significantly in time.
@@ -248,7 +284,7 @@ fn validate_request(
             srv,
             format!(
                 "User key did not equal CA key when talking to: {}",
-                mtls_identities.join(",")
+                cert_info.identities.join(",")
             )
         );
         return Err(RusticaServerError::BadChallenge);
@@ -262,7 +298,7 @@ fn validate_request(
             srv,
             format!(
                 "User key did not equal HMAC validated public key: {}",
-                mtls_identities.join(",")
+                cert_info.identities.join(",")
             )
         );
         return Err(RusticaServerError::BadChallenge);
@@ -272,7 +308,7 @@ fn validate_request(
     // this point the user must have received our challenge certificate
     // containing our HMAC challenge, resigned it with their key, and
     // sent it back for which it passed all checks.
-    Ok((hmac_ssh_pubkey, mtls_identities))
+    Ok((hmac_ssh_pubkey, cert_info.identities, should_refresh_mtls_cert))
 }
 
 #[tonic::async_trait]
@@ -285,10 +321,16 @@ impl Rustica for RusticaServer {
         // We must receive these from the Tonic system or else we should fail
         // as we may have guarantees on this information upstream.
         let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
-        let peer = request.peer_certs().ok_or(Status::permission_denied(""))?;
+
+        let peer = if let Some(cert) = request.peer_certs().ok_or(Status::permission_denied(""))?.get(0) {
+            cert.clone()
+        } else {
+            return Err(Status::permission_denied(""))
+        };
+    
         let request = request.into_inner();
-        let mtls_identities = match extract_certificate_identities(&peer) {
-            Ok(idents) => idents,
+        let mtls_identities = match extract_certificate_information(&peer) {
+            Ok(ci) => ci.identities,
             Err(_) => return Err(Status::permission_denied("")),
         };
 
@@ -350,9 +392,9 @@ impl Rustica for RusticaServer {
             _ => return Ok(create_response(RusticaServerError::BadRequest)),
         };
 
-        let (ssh_pubkey, mtls_identities) =
+        let (ssh_pubkey, mtls_identities, mtls_refresh) =
             match validate_request(self, &self.hmac_key, &peer, challenge) {
-                Ok((ssh_pk, idents)) => (ssh_pk, idents),
+                Ok(x) => x,
                 Err(e) => return Ok(create_response(e)),
             };
 
@@ -468,6 +510,7 @@ impl Rustica for RusticaServer {
             certificate: serialized_cert,
             error: String::new(),
             error_code: RusticaServerError::Success as i64,
+            mtls_refresh: String::new(),
         };
 
         let _ = self
@@ -505,9 +548,9 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) =
+        let (ssh_pubkey, mtls_identities, _) =
             match validate_request(self, &self.hmac_key, &peer, challenge) {
-                Ok((ssh_pk, idents)) => (ssh_pk, idents),
+                Ok(x) => x,
                 Err(e) => {
                     rustica_error!(self, format!("Could not validate request: {:?}", e));
                     return Err(Status::cancelled(""));
@@ -608,9 +651,9 @@ impl Rustica for RusticaServer {
             _ => return Err(Status::permission_denied("")),
         };
 
-        let (ssh_pubkey, mtls_identities) =
+        let (ssh_pubkey, mtls_identities, _) =
             match validate_request(self, &self.hmac_key, &peer, challenge) {
-                Ok((ssh_pk, idents)) => (ssh_pk, idents),
+                Ok(x) => x,
                 Err(e) => return Err(Status::cancelled(format!("{:?}", e))),
             };
 
@@ -702,8 +745,13 @@ impl Rustica for RusticaServer {
     ) -> Result<Response<X509CertificateResponse>, Status> {
         let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
 
-        let peer_certs = request.peer_certs().ok_or(Status::permission_denied(""))?;
-        let mtls_identities = extract_certificate_identities(&peer_certs)
+        let peer = if let Some(cert) = request.peer_certs().ok_or(Status::permission_denied(""))?.get(0) {
+            cert.clone()
+        } else {
+            return Err(Status::permission_denied(""))
+        };
+
+        let cert_info = extract_certificate_information(&peer)
             .map_err(|_| Status::permission_denied(""))?;
         let request = request.into_inner();
 
@@ -720,7 +768,7 @@ impl Rustica for RusticaServer {
         // Check authorization
         let auth_props = X509AuthorizationRequestProperties {
             authority: authority.to_owned(),
-            mtls_identities: mtls_identities.clone(),
+            mtls_identities: cert_info.identities.clone(),
             requester_ip: remote_addr.to_string(),
             attestation: request.attestation.to_vec(),
             attestation_intermediate: request.attestation_intermediate.to_vec(),
@@ -734,7 +782,7 @@ impl Rustica for RusticaServer {
                     self,
                     format!(
                         "Authorizer rejected [{}] from fetching new X509 certificate. Error: [{e}]",
-                        mtls_identities.join(","),
+                        cert_info.identities.join(","),
                     )
                 );
                 return Err(Status::permission_denied("Not authorized"));
@@ -749,7 +797,7 @@ impl Rustica for RusticaServer {
                     self,
                     format!(
                         "Invalid CSR was provided by [{}]. Error: [{e}]",
-                        mtls_identities.join(","),
+                        cert_info.identities.join(","),
                     )
                 );
                 return Err(Status::permission_denied(""));
@@ -794,7 +842,7 @@ impl Rustica for RusticaServer {
                     self,
                     format!(
                         "Could not parse new certificate for [{}]. Error: [{e}]",
-                        mtls_identities.join(","),
+                        cert_info.identities.join(","),
                     )
                 );
                 return Err(Status::permission_denied(""));
@@ -808,7 +856,7 @@ impl Rustica for RusticaServer {
                     self,
                     format!(
                         "Could not parse provided attestation for [{}]. Error: [{e}]",
-                        mtls_identities.join(","),
+                        cert_info.identities.join(","),
                     )
                 );
                 return Err(Status::permission_denied(""));
@@ -820,7 +868,7 @@ impl Rustica for RusticaServer {
                 self,
                 format!(
                     "A CSR was submitted that didn't match their attestation chain by [{}]",
-                    mtls_identities.join(","),
+                    cert_info.identities.join(","),
                 )
             );
 
@@ -831,7 +879,7 @@ impl Rustica for RusticaServer {
             .log_sender
             .send(Log::X509CertificateIssued(X509CertificateIssued {
                 authority: authority.to_string(),
-                mtls_identities,
+                mtls_identities: cert_info.identities,
                 extensions: authorization
                     .extensions
                     .iter()

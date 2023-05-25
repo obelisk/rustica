@@ -38,6 +38,7 @@ message CertificateResponse {
     string certificate = 1;
     string error = 2;
     int64 error_code = 3;
+    string mtls_refresh = 4;
 }
 
 message RegisterKeyRequest {

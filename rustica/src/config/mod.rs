@@ -6,21 +6,61 @@ use crate::signing::{SigningConfiguration, SigningError};
 use clap::{Arg, Command};
 
 use crossbeam_channel::{unbounded, Receiver};
-
+use async_trait::async_trait;
 use ring::{hmac, rand};
 use serde::Deserialize;
-use sshcerts::CertType;
 
 use std::convert::TryInto;
 use std::net::SocketAddr;
 
-use sshcerts::{ssh::KeyTypeKind, PrivateKey};
+use sshcerts::{CertType, ssh::KeyTypeKind, PrivateKey};
+
+/*
+#[cfg(feature = "amazon-kms")]
+mod amazon_kms;
+mod file;
+#[cfg(feature = "yubikey-support")]
+mod yubikey;
+
+/// Any code that wants to be able to renew client mTLS certificates must
+/// implement this trait
+#[async_trait]
+pub trait Renewer {
+    /// Take in the existing certificate and return a new certificate
+    /// for the same public key with updated settings and expiry
+    fn renew(&self, certificate: &[u8]) -> rcgen::Certificate;
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum ClientCertificateRenewalSystemConfiguration {
+    File(file::Config),
+    #[cfg(feature = "yubikey-support")]
+    Yubikey(yubikey::Config),
+    #[cfg(feature = "amazon-kms")]
+    AmazonKMS(amazon_kms::Config),
+}
+
+impl ClientCertificateRenewalSystemConfiguration {
+    async fn into_renewer(self) -> Result<Box<dyn Renewer>, SigningError> {
+        match self {
+            ClientCertificateRenewalSystemConfiguration::File(file) => Ok(Box::<dyn Renewer>::new(file.into())),
+        }
+    }
+}
+ */
+
+#[derive(Deserialize)]
+pub struct ClientAuthorityConfiguration {
+    pub certificate: String,
+    //pub renewal: Option<ClientCertificateRenewalSystemConfiguration>,
+}
 
 #[derive(Deserialize)]
 pub struct Configuration {
     pub server_cert: String,
     pub server_key: String,
-    pub client_ca_cert: String,
+    pub client_authority: ClientAuthorityConfiguration,
     pub listen_address: String,
     pub authorization: AuthorizationConfiguration,
     pub signing: SigningConfiguration,
@@ -32,6 +72,7 @@ pub struct Configuration {
 pub struct RusticaSettings {
     pub server: RusticaServer,
     pub client_ca_cert: String,
+    //pub client_certificate_renewer: Option<Box<dyn Renewer>>,
     pub server_cert: String,
     pub server_key: String,
     pub address: SocketAddr,
@@ -150,6 +191,9 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
     let challenge_key = PrivateKey::new(KeyTypeKind::Ed25519, "RusticaChallengeKey").unwrap();
 
+
+    //let client_certificate_renewer = config.client_authority.renewal.map(|x| x.into());
+
     if matches.is_present("validate") {
         return Err(ConfigurationError::ValidateOnly);
     }
@@ -166,7 +210,8 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
 
     Ok(RusticaSettings {
         server,
-        client_ca_cert: config.client_ca_cert,
+        client_ca_cert: config.client_authority.certificate,
+        //client_certificate_renewer,
         server_cert: config.server_cert,
         server_key: config.server_key,
         address,
