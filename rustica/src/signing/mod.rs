@@ -64,7 +64,7 @@ pub trait Signer {
     /// Return the CA certificate used for signing X509 certificate requests.
     /// This function may hide away async code (as it does in the KMS signer)
     /// due to using the remote KeyPair trait imported from the rcgen crate
-    fn get_x509_certificate_authority(&self) -> &rcgen::Certificate;
+    fn get_attested_x509_certificate_authority(&self) -> &rcgen::Certificate;
 
     /// Return the CA certificate used for signing X509 certificate requests.
     /// This function may hide away async code (as it does in the KMS signer)
@@ -182,8 +182,8 @@ impl std::fmt::Display for SigningMechanism {
                             .hash
                     ));
                     output.push_str(&format!(
-                        "\tX509 Certificate Authority:\n{}\n",
-                        signer.1.get_x509_certificate_authority().serialize_pem().unwrap()
+                        "\tAttested X509 Certificate Authority:\n{}\n",
+                        signer.1.get_attested_x509_certificate_authority().serialize_pem().unwrap()
                     ));
 
                     if let Some(client_certificate_authority) = signer.1.get_client_certificate_authority() {
@@ -237,14 +237,14 @@ impl SigningMechanism {
     }
 
     /// Return the X509 certificate authority certificate to sign X509 requests
-    pub fn get_x509_certificate_authority(
+    pub fn get_attested_x509_certificate_authority(
         &self,
         authority: &str,
     ) -> Result<&rcgen::Certificate, SigningError> {
         match &self.signing_system {
             SigningSystem::Internal(authorities) => {
                 if let Some(authority) = authorities.get(authority) {
-                    Ok(authority.get_x509_certificate_authority())
+                    Ok(authority.get_attested_x509_certificate_authority())
                 } else {
                     Err(SigningError::UnknownAuthority)
                 }
