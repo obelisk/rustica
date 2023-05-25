@@ -4,7 +4,7 @@ mod immediatemode;
 mod listpivkeys;
 mod multimode;
 mod provisionpiv;
-mod refresh_x509_certificate;
+mod refresh_attested_x509_certificate;
 mod register;
 mod singlemode;
 
@@ -52,7 +52,7 @@ pub enum RusticaAgentAction {
     ListPIVKeys(listpivkeys::ListPIVKeysConfig),
     ListFidoDevices,
     GitConfig(PublicKey),
-    RefreshX509(refresh_x509_certificate::RefreshX509Config)
+    RefreshAttestedX509(refresh_attested_x509_certificate::RefreshAttestedX509Config)
 }
 
 impl From<std::io::Error> for ConfigurationError {
@@ -254,8 +254,8 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             .about("Show the git configuration for code-signing with the provided key"),
     );
 
-    let refresh_x509 = refresh_x509_certificate::add_configuration(new_run_agent_subcommand(
-        "refresh-x509",
+    let refresh_x509 = refresh_attested_x509_certificate::add_configuration(new_run_agent_subcommand(
+        "refresh-attested-x509",
         "Refresh an X509 certificate in a Yubikey slot",
     ));
 
@@ -311,7 +311,7 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     }
 
     if let Some(x509_config) = matches.subcommand_matches("refresh-x509") {
-        return refresh_x509_certificate::configure_refresh_x509_certificate(x509_config).await;
+        return refresh_attested_x509_certificate::configure_refresh_x509_certificate(x509_config).await;
     }
 
     cc_help.print_help().unwrap();

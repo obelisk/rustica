@@ -165,7 +165,7 @@ impl LocalDatabase {
         }
     }
 
-    pub fn authorize_x509_cert(
+    pub fn authorize_attested_x509_cert(
         &self,
         auth_props: &X509AuthorizationRequestProperties,
     ) -> Result<X509Authorization, AuthorizationError> {
