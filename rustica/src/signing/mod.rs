@@ -65,6 +65,11 @@ pub trait Signer {
     /// This function may hide away async code (as it does in the KMS signer)
     /// due to using the remote KeyPair trait imported from the rcgen crate
     fn get_x509_certificate_authority(&self) -> &rcgen::Certificate;
+
+    /// Return the CA certificate used for signing X509 certificate requests.
+    /// This function may hide away async code (as it does in the KMS signer)
+    /// due to using the remote KeyPair trait imported from the rcgen crate
+    fn get_client_certificate_authority(&self) -> Option<&rcgen::Certificate>;
 }
 
 #[derive(Deserialize)]
@@ -80,8 +85,7 @@ pub struct ExternalSigningConfig {
 /// clients.
 ///
 /// The reason this is an enum of one is to support a completely external
-/// signing system in the future if none of the internal options work for
-/// you.
+/// signing system.
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum SigningSystemConfiguration {
@@ -179,6 +183,13 @@ impl std::fmt::Display for SigningMechanism {
                         "\tX509 Certificate Authority:\n{}\n",
                         signer.1.get_x509_certificate_authority().serialize_pem().unwrap()
                     ));
+
+                    if let Some(client_certificate_authority) = signer.1.get_client_certificate_authority() {
+                        output.push_str(&format!(
+                            "\t Client Certificate Authority:\n{}\n",
+                            client_certificate_authority.serialize_pem().unwrap()
+                        ));
+                    }
                 }
             }
         };

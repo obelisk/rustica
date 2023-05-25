@@ -83,7 +83,7 @@ pub struct AmazonKMSSigner {
     x509_certificate: X509Certificate,
     /// The public portion of the key that will be used to sign client
     /// certificates used to connect to rustica
-    client_refresh_certificate: Option<X509Certificate>,
+    client_certificate_authority: Option<X509Certificate>,
     /// A configured KMS client to use for signing and public key look up
     /// operations. Rustica does not instantiate keys meaning it does not
     /// need permission to create keys.
@@ -132,8 +132,8 @@ impl rcgen::RemoteKeyPair for KmsRcgenRemoteSigner {
         // This is really ugly but I don't have a better solution right now
         // as RCGen does not provide an async signer so we have to wait for
         // this to return. block_in_place is expensive so there is probably
-        // a better way to do this but for now, at the scales
-        // this will be used for I don't think it'll be an issue
+        // a better way to do this but for now, at the scale this will be
+        // used for I don't think it'll be an issue
         let signature = task::block_in_place(move || {
             handle.block_on(async move {
                 client.sign().key_id(key_id).signing_algorithm(key_algo).message(Blob::new(data)).send().await
@@ -231,7 +231,7 @@ impl SignerConfig for Config {
         // Create the x509 certificate
         let x509_certificate = rcgen_certificate_from_kms(client.clone(), "Rustica", &self.x509_key_id, &self.x509_key_signing_algorithm).await?;
 
-        let client_refresh_certificate = match (&self.client_refresh_key_id,&self.client_refresh_key_signing_algorithm) {
+        let client_certificate_authority = match (&self.client_refresh_key_id,&self.client_refresh_key_signing_algorithm) {
             (Some(id), Some(alg)) => Some(rcgen_certificate_from_kms(client.clone(), "RusticaAccess", id, alg).await?),
             _ => None,
         };
@@ -240,7 +240,7 @@ impl SignerConfig for Config {
             user_key,
             host_key,
             x509_certificate,
-            client_refresh_certificate,
+            client_certificate_authority,
             client,
         }))
     }
@@ -286,5 +286,9 @@ impl Signer for AmazonKMSSigner {
 
     fn get_x509_certificate_authority(&self) -> &X509Certificate {
         return &self.x509_certificate
+    }
+
+    fn get_client_certificate_authority(&self) -> Option<&X509Certificate> {
+        return self.client_certificate_authority.as_ref()
     }
 }
