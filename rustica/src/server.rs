@@ -526,9 +526,7 @@ impl Rustica for RusticaServer {
             new_client_key: String::new(),
         };
 
-        if let Some(settings) = &mtls_refresh {
-            let ca = self.signer.get_client_certificate_authority(&self.client_authority.authority).unwrap().unwrap();
-
+        if let (Some(settings), Ok(Some(ca))) = (&mtls_refresh, self.signer.get_client_certificate_authority(&self.client_authority.authority)) {
             let mut params = rcgen::CertificateParams::new(mtls_identities.clone());
             params.not_before = (UNIX_EPOCH + Duration::from_secs(settings.not_before)).into();
             params.not_after = (UNIX_EPOCH + Duration::from_secs(settings.not_after)).into();
@@ -540,7 +538,7 @@ impl Rustica for RusticaServer {
 
             reply.new_client_key = new_certificate.serialize_private_key_pem();
             reply.new_client_certificate = new_certificate.serialize_pem_with_signer(ca).unwrap();
-        }
+        };
 
         let _ = self
             .log_sender
