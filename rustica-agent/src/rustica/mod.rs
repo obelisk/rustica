@@ -9,7 +9,7 @@ pub use error::RefreshError;
 
 pub use rustica_proto::rustica_client::RusticaClient;
 pub use rustica_proto::{
-    CertificateRequest, CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, X509CertificateRequest, X509CertificateResponse,
+    CertificateRequest, CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, AttestedX509CertificateRequest, AttestedX509CertificateResponse,
     RegisterU2fKeyRequest,
 };
 

@@ -284,7 +284,7 @@ impl Signer for AmazonKMSSigner {
         }
     }
 
-    fn get_x509_certificate_authority(&self) -> &X509Certificate {
+    fn get_attested_x509_certificate_authority(&self) -> &X509Certificate {
         return &self.x509_certificate
     }
 

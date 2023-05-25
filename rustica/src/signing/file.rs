@@ -84,7 +84,7 @@ impl Signer for FileSigner {
         }
     }
 
-    fn get_x509_certificate_authority(&self) -> &rcgen::Certificate {
+    fn get_attested_x509_certificate_authority(&self) -> &rcgen::Certificate {
         &self.x509_certificate
     }
 
