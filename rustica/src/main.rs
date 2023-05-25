@@ -19,7 +19,7 @@ use tonic::transport::{Certificate as TonicCertificate, Identity, Server, Server
 
 use std::thread;
 
-use crate::config::ConfigurationError;
+use config::ConfigurationError;
 
 pub mod rustica {
     tonic::include_proto!("rustica");
