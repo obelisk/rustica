@@ -102,13 +102,11 @@ pub enum SigningSystemConfiguration {
 #[derive(Deserialize)]
 pub struct SigningConfiguration {
     pub default_authority: String,
-    pub authority_for_client_certificates: Option<String>,
     pub signing_configuration: SigningSystemConfiguration,
 }
 
 pub struct SigningMechanism {
     pub default_authority: String,
-    pub authority_for_client_certificates: Option<String>,
     pub signing_system: SigningSystem,
 }
 
@@ -236,7 +234,7 @@ impl SigningMechanism {
         }
     }
 
-    /// Return the X509 certificate authority certificate to sign X509 requests
+    /// Return the X509 certificate authority certificate to sign attested X509 requests
     pub fn get_attested_x509_certificate_authority(
         &self,
         authority: &str,
@@ -245,6 +243,22 @@ impl SigningMechanism {
             SigningSystem::Internal(authorities) => {
                 if let Some(authority) = authorities.get(authority) {
                     Ok(authority.get_attested_x509_certificate_authority())
+                } else {
+                    Err(SigningError::UnknownAuthority)
+                }
+            }
+        }
+    }
+
+    /// Return the X509 certificate authority certificate to sign new client certificates
+    pub fn get_client_certificate_authority(
+        &self,
+        authority: &str,
+    ) -> Result<Option<&rcgen::Certificate>, SigningError> {
+        match &self.signing_system {
+            SigningSystem::Internal(authorities) => {
+                if let Some(authority) = authorities.get(authority) {
+                    Ok(authority.get_client_certificate_authority())
                 } else {
                     Err(SigningError::UnknownAuthority)
                 }
@@ -295,7 +309,6 @@ impl SigningConfiguration {
 
                 Ok(SigningMechanism {
                     default_authority: self.default_authority,
-                    authority_for_client_certificates: self.authority_for_client_certificates,
                     signing_system: SigningSystem::Internal(converted_authorities),
                 })
             }
