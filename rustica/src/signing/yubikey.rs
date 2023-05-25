@@ -120,6 +120,10 @@ impl Signer for YubikeySigner {
     fn get_x509_certificate_authority(&self) -> &rcgen::Certificate {
         &self.x509_certificate
     }
+
+    fn get_client_certificate_authority(&self) -> Option<&rcgen::Certificate> {
+        todo!("")
+    }
 }
 
 pub fn parse_slot<'de, D>(deserializer: D) -> Result<SlotId, D::Error>
