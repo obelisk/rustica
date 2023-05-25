@@ -18,12 +18,18 @@ pub struct Config {
     /// The private key used to sign host certificates
     #[serde(deserialize_with = "parse_private_key")]
     host_key: PrivateKey,
-    /// X509 base64 encoded private key that will be used to issue client
-    /// certificates
+    /// X509 base64 encoded private key that will be used to issue certificates
+    /// from the request_x509 API
     x509_private_key: String,
     /// X509 private key type to use, either ECDSA 256 or ECDSA 384.
     /// This should be one of p256 or p384
     x509_private_key_alg: String,
+    /// X509 base64 encoded private key that will be used to issue client
+    /// certificates
+    client_certificate_authority_private_key: Option<String>,
+    /// X509 private key type to use, either ECDSA 256 or ECDSA 384.
+    /// This should be one of p256 or p384
+    client_certificate_authority_private_key_alg: Option<String>,
 }
 
 pub struct FileSigner {
@@ -34,6 +40,30 @@ pub struct FileSigner {
     /// The public portion of the key that will be used to sign X509
     /// certificates
     x509_certificate: X509Certificate,
+    /// The public portion of the key that will be used to sign client
+    /// certificates
+    client_certificate_authority: Option<X509Certificate>,
+}
+
+fn rcgen_certificate_from_private_key(common_name: &str, private_key: &str, alg: &str) -> Result<X509Certificate, SigningError> {
+    let mut ca_params = CertificateParams::new(vec![]);
+    ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    ca_params
+        .distinguished_name
+        .push(DnType::CommonName, common_name);
+
+    let key_bytes =
+        base64::decode(&private_key).map_err(|_| SigningError::ParsingError)?;
+
+    let kp = rcgen::KeyPair::from_der(&key_bytes).map_err(|_| SigningError::ParsingError)?;
+    ca_params.alg = match alg {
+        "p256" => &rcgen::PKCS_ECDSA_P256_SHA256,
+        "p384" => &rcgen::PKCS_ECDSA_P384_SHA384,
+        _ => return Err(SigningError::ParsingError),
+    };
+
+    ca_params.key_pair = Some(kp);
+    X509Certificate::from_params(ca_params).map_err(|_| SigningError::SigningFailure)
 }
 
 #[async_trait]
@@ -59,37 +89,25 @@ impl Signer for FileSigner {
     }
 
     fn get_client_certificate_authority(&self) -> Option<&rcgen::Certificate> {
-        todo!("")
+        self.client_certificate_authority.as_ref()
     }
 }
 
 #[async_trait]
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
-        let mut ca_params = CertificateParams::new(vec![]);
-        ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-        ca_params
-            .distinguished_name
-            .push(DnType::CommonName, "Rustica");
-
-        let key_bytes =
-            base64::decode(&self.x509_private_key).map_err(|_| SigningError::ParsingError)?;
-
-        let kp = rcgen::KeyPair::from_der(&key_bytes).map_err(|_| SigningError::ParsingError)?;
-        ca_params.alg = match self.x509_private_key_alg.as_str() {
-            "p256" => &rcgen::PKCS_ECDSA_P256_SHA256,
-            "p384" => &rcgen::PKCS_ECDSA_P384_SHA384,
-            _ => return Err(SigningError::ParsingError),
+        let x509_certificate = rcgen_certificate_from_private_key("Rustica", &self.x509_private_key, &self.x509_private_key_alg)?;
+        let client_certificate_authority = match (self.client_certificate_authority_private_key, self.client_certificate_authority_private_key_alg) {
+            (Some(ccapk), Some(ccapka)) => Some(rcgen_certificate_from_private_key("Rustica", &ccapk, &ccapka)?),
+            _ => None
         };
-
-        ca_params.key_pair = Some(kp);
-        let x509_certificate =
-            X509Certificate::from_params(ca_params).map_err(|_| SigningError::SigningFailure)?;
+        
 
         Ok(Box::new(FileSigner {
             user_key: self.user_key,
             host_key: self.host_key,
             x509_certificate,
+            client_certificate_authority,
         }))
     }
 }
