@@ -186,7 +186,7 @@ impl std::fmt::Display for SigningMechanism {
 
                     if let Some(client_certificate_authority) = signer.1.get_client_certificate_authority() {
                         output.push_str(&format!(
-                            "\t Client Certificate Authority:\n{}\n",
+                            "\tClient Certificate Authority:\n{}\n",
                             client_certificate_authority.serialize_pem().unwrap()
                         ));
                     }
