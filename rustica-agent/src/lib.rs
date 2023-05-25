@@ -576,12 +576,12 @@ pub async fn fetch_new_certificate(
 /// Fetch a new X509 certificate from one of the provided servers
 /// in the list. We will try them in order and error if none
 /// return a usable certificate
-pub async fn fetch_new_x509_certificate(
+pub async fn fetch_new_attested_x509_certificate(
     servers: &[RusticaServer],
     signatory: &mut Signatory,
 ) -> Result<Vec<u8>, RusticaAgentLibraryError> {
     for server in servers.iter() {
-        match server.refresh_x509_certificate_async(signatory).await {
+        match server.refresh_attested_x509_certificate_async(signatory).await {
             Ok(certificate) => return Ok(certificate),
             Err(e) => {
                 error!(

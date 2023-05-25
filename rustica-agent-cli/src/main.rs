@@ -183,8 +183,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await;
         }
-        Ok(RusticaAgentAction::RefreshX509(mut config)) => {
-            match rustica_agent::fetch_new_x509_certificate(&config.servers, &mut config.signatory)
+        Ok(RusticaAgentAction::RefreshAttestedX509(mut config)) => {
+            match rustica_agent::fetch_new_attested_x509_certificate(&config.servers, &mut config.signatory)
                 .await
             {
                 Ok(cert) => match config.signatory {

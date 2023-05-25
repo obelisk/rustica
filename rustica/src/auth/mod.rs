@@ -116,11 +116,11 @@ impl AuthorizationMechanism {
         }
     }
 
-    pub async fn authorize_x509_cert(&self, auth_props: &X509AuthorizationRequestProperties) -> Result<X509Authorization, AuthorizationError> {
+    pub async fn authorize_attested_x509_cert(&self, auth_props: &X509AuthorizationRequestProperties) -> Result<X509Authorization, AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
-            AuthorizationMechanism::Local(local) => local.authorize_x509_cert(auth_props),
-            AuthorizationMechanism::External(external) => external.authorize_x509_cert(auth_props).await,
+            AuthorizationMechanism::Local(local) => local.authorize_attested_x509_cert(auth_props),
+            AuthorizationMechanism::External(external) => external.authorize_attested_x509_cert(auth_props).await,
         }
     }
 

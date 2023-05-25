@@ -7,7 +7,7 @@ use tokio::runtime::Handle;
 
 use super::{RusticaAgentAction, ConfigurationError, parse_config_from_args};
 
-pub struct RefreshX509Config {
+pub struct RefreshAttestedX509Config {
     pub servers: Vec<RusticaServer>,
     pub signatory: Signatory,
     pub pin: String,
@@ -40,7 +40,7 @@ pub async fn configure_refresh_x509_certificate(
     };
 
 
-    Ok(RusticaAgentAction::RefreshX509(RefreshX509Config {
+    Ok(RusticaAgentAction::RefreshAttestedX509(RefreshAttestedX509Config {
         servers,
         signatory,
         pin,

@@ -2,10 +2,10 @@ use yubikey::piv::SlotId;
 
 use crate::{RusticaServer, Signatory};
 
-use super::{error::ServerError, get_rustica_client, RefreshError, X509CertificateRequest};
+use super::{error::ServerError, get_rustica_client, RefreshError, AttestedX509CertificateRequest};
 
 impl RusticaServer {
-    pub async fn refresh_x509_certificate_async(
+    pub async fn refresh_attested_x509_certificate_async(
         &self,
         signatory: &mut Signatory,
     ) -> Result<Vec<u8>, RefreshError> {
@@ -41,7 +41,7 @@ impl RusticaServer {
                 ))
             })?;
 
-        let request = tonic::Request::new(X509CertificateRequest {
+        let request = tonic::Request::new(AttestedX509CertificateRequest {
             // TODO: We need to start taking in key IDs
             key_id: String::new(),
             csr,
@@ -51,7 +51,7 @@ impl RusticaServer {
 
         let mut client = get_rustica_client(self).await?;
 
-        let response = client.x509_certificate(request).await?.into_inner();
+        let response = client.attested_x509_certificate(request).await?.into_inner();
 
         match response.error_code {
             0 => Ok(response.certificate),
@@ -67,6 +67,6 @@ impl RusticaServer {
         signatory: &mut Signatory,
     ) -> Result<Vec<u8>, RefreshError> {
         self.handle
-            .block_on(async { self.refresh_x509_certificate_async(signatory).await })
+            .block_on(async { self.refresh_attested_x509_certificate_async(signatory).await })
     }
 }

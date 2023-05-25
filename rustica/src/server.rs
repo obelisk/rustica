@@ -12,7 +12,7 @@ use crate::rustica::{
     ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
     RegisterU2fKeyResponse,
 };
-use crate::rustica::{X509CertificateRequest, X509CertificateResponse};
+use crate::rustica::{AttestedX509CertificateRequest, AttestedX509CertificateResponse};
 use crate::signing::SigningMechanism;
 use crate::verification::{verify_piv_certificate_chain, verify_u2f_certificate_chain};
 
@@ -739,10 +739,10 @@ impl Rustica for RusticaServer {
     }
 
     /// Handler used when a host requests a new X509 certificate from Rustica
-    async fn x509_certificate(
+    async fn attested_x509_certificate(
         &self,
-        request: Request<X509CertificateRequest>,
-    ) -> Result<Response<X509CertificateResponse>, Status> {
+        request: Request<AttestedX509CertificateRequest>,
+    ) -> Result<Response<AttestedX509CertificateResponse>, Status> {
         let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
 
         let peer = if let Some(cert) = request.peer_certs().ok_or(Status::permission_denied(""))?.get(0) {
@@ -775,7 +775,7 @@ impl Rustica for RusticaServer {
             key,
         };
 
-        let authorization = match self.authorizer.authorize_x509_cert(&auth_props).await {
+        let authorization = match self.authorizer.authorize_attested_x509_cert(&auth_props).await {
             Ok(auth) => auth,
             Err(e) => {
                 rustica_warning!(
@@ -828,7 +828,7 @@ impl Rustica for RusticaServer {
 
         let ca_cert = self
             .signer
-            .get_x509_certificate_authority(&authorization.authority)
+            .get_attested_x509_certificate_authority(&authorization.authority)
             .map_err(|_| Status::permission_denied("message"))?;
         let cert = csr.serialize_der_with_signer(ca_cert).unwrap();
 
@@ -902,7 +902,7 @@ impl Rustica for RusticaServer {
             }));
 
         // Return certificate
-        return Ok(Response::new(X509CertificateResponse {
+        return Ok(Response::new(AttestedX509CertificateResponse {
             certificate: cert,
             error: "".to_owned(),
             error_code: 0,
