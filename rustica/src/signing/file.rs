@@ -30,6 +30,8 @@ pub struct Config {
     /// X509 private key type to use, either ECDSA 256 or ECDSA 384.
     /// This should be one of p256 or p384
     client_certificate_authority_private_key_alg: Option<String>,
+    /// The common name to use in the client certificate authority
+    client_certificate_authority_common_name: Option<String>,
 }
 
 pub struct FileSigner {
@@ -45,15 +47,18 @@ pub struct FileSigner {
     client_certificate_authority: Option<X509Certificate>,
 }
 
-fn rcgen_certificate_from_private_key(common_name: &str, private_key: &str, alg: &str) -> Result<X509Certificate, SigningError> {
+fn rcgen_certificate_from_private_key(
+    common_name: &str,
+    private_key: &str,
+    alg: &str,
+) -> Result<X509Certificate, SigningError> {
     let mut ca_params = CertificateParams::new(vec![]);
     ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
     ca_params
         .distinguished_name
         .push(DnType::CommonName, common_name);
 
-    let key_bytes =
-        base64::decode(&private_key).map_err(|_| SigningError::ParsingError)?;
+    let key_bytes = base64::decode(&private_key).map_err(|_| SigningError::ParsingError)?;
 
     let kp = rcgen::KeyPair::from_der(&key_bytes).map_err(|_| SigningError::ParsingError)?;
     ca_params.alg = match alg {
@@ -96,12 +101,21 @@ impl Signer for FileSigner {
 #[async_trait]
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
-        let x509_certificate = rcgen_certificate_from_private_key("Rustica", &self.x509_private_key, &self.x509_private_key_alg)?;
-        let client_certificate_authority = match (self.client_certificate_authority_private_key, self.client_certificate_authority_private_key_alg) {
-            (Some(ccapk), Some(ccapka)) => Some(rcgen_certificate_from_private_key("RusticaAccess", &ccapk, &ccapka)?),
-            _ => None
+        let x509_certificate = rcgen_certificate_from_private_key(
+            "Rustica",
+            &self.x509_private_key,
+            &self.x509_private_key_alg,
+        )?;
+        let client_certificate_authority = match (
+            self.client_certificate_authority_private_key,
+            self.client_certificate_authority_private_key_alg,
+            self.client_certificate_authority_common_name,
+        ) {
+            (Some(ccapk), Some(ccapka), Some(cn)) => {
+                Some(rcgen_certificate_from_private_key(&cn, &ccapk, &ccapka)?)
+            }
+            _ => None,
         };
-        
 
         Ok(Box::new(FileSigner {
             user_key: self.user_key,

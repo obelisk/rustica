@@ -1,12 +1,11 @@
 /// The Yubikey signer uses a connected Yubikey 4/5 to sign requests. It
 /// currently only supports Ecdsa256 and Ecdsa384. To use the Yubikey
 /// signer, the `yubikey-support` feature must be enabled.
-
 use super::{Signer, SignerConfig, SigningError};
 
 use sshcerts::yubikey::piv::management::CSRSigner;
-use sshcerts::{Certificate, PublicKey, ssh::CertType};
 use sshcerts::yubikey::piv::{SlotId, Yubikey};
+use sshcerts::{ssh::CertType, Certificate, PublicKey};
 
 use async_trait::async_trait;
 
@@ -14,7 +13,7 @@ use serde::Deserialize;
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
-use rcgen::{Certificate as X509Certificate, CertificateParams, IsCa, DnType, RemoteKeyPair};
+use rcgen::{Certificate as X509Certificate, CertificateParams, DnType, IsCa, RemoteKeyPair};
 
 #[derive(Deserialize)]
 pub struct Config {
@@ -30,6 +29,8 @@ pub struct Config {
     /// The slot on the Yubikey to use for signing client certificates
     #[serde(deserialize_with = "parse_option_slot")]
     client_certificate_authority_slot: Option<SlotId>,
+    /// The common name to use in the client certificate authority
+    client_certificate_authority_common_name: Option<String>,
 }
 
 pub struct YubikeySigner {
@@ -48,24 +49,36 @@ pub struct YubikeySigner {
     /// A mutex to ensure there is no concurrent access to the Yubikey. Without
     /// this, handling two requests at the same time would result in possibly
     /// corrupted certificates for both.
-    yubikey: Arc<Mutex<Yubikey>>
+    yubikey: Arc<Mutex<Yubikey>>,
 }
 
-fn rcgen_certificate_from_yubikey(common_name: &str, serial: u32, slot: SlotId) -> Result<X509Certificate, SigningError> {
+fn rcgen_certificate_from_yubikey(
+    common_name: &str,
+    serial: u32,
+    slot: SlotId,
+) -> Result<X509Certificate, SigningError> {
     let yk_x509_signer = CSRSigner::new(serial, slot);
 
     let mut ca_params = CertificateParams::new(vec![]);
     ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-    ca_params.distinguished_name.push(DnType::CommonName, common_name);
+    ca_params
+        .distinguished_name
+        .push(DnType::CommonName, common_name);
     ca_params.alg = yk_x509_signer.algorithm();
 
     let kp = match rcgen::KeyPair::from_remote(Box::new(yk_x509_signer)) {
         Ok(kp) => kp,
-        Err(_) => return Err(SigningError::AccessError("Could not create remote signer for X509 key".to_owned()))
+        Err(_) => {
+            return Err(SigningError::AccessError(
+                "Could not create remote signer for X509 key".to_owned(),
+            ))
+        }
     };
 
     ca_params.key_pair = Some(kp);
-    X509Certificate::from_params(ca_params).map_err(|_| SigningError::AccessError(format!("Could not create certificate for slot {:?}", slot)))
+    X509Certificate::from_params(ca_params).map_err(|_| {
+        SigningError::AccessError(format!("Could not create certificate for slot {:?}", slot))
+    })
 }
 
 #[async_trait]
@@ -75,17 +88,26 @@ impl SignerConfig for Config {
         let serial = yubikey.lock().unwrap().yk.serial().0;
 
         let (user_public_key, host_public_key) = {
-            let mut yk = yubikey.lock().map_err(|e| SigningError::AccessError(format!("Could not lock Yubikey. Error: {}", e)))?;
+            let mut yk = yubikey.lock().map_err(|e| {
+                SigningError::AccessError(format!("Could not lock Yubikey. Error: {}", e))
+            })?;
 
             (
-                yk.ssh_cert_fetch_pubkey(&self.user_slot).map_err(|_| SigningError::AccessError(format!("Could fetch public key for user key")))?,
-                yk.ssh_cert_fetch_pubkey(&self.host_slot).map_err(|_| SigningError::AccessError(format!("Could fetch public key for host key")))?
+                yk.ssh_cert_fetch_pubkey(&self.user_slot).map_err(|_| {
+                    SigningError::AccessError(format!("Could fetch public key for user key"))
+                })?,
+                yk.ssh_cert_fetch_pubkey(&self.host_slot).map_err(|_| {
+                    SigningError::AccessError(format!("Could fetch public key for host key"))
+                })?,
             )
         };
 
         let x509_certificate = rcgen_certificate_from_yubikey("Rustica", serial, self.x509_slot)?;
-        let client_certificate_authority = if let Some(slot) = self.client_certificate_authority_slot {
-            Some(rcgen_certificate_from_yubikey("RusticaAccess", serial, slot)?)
+        let client_certificate_authority = if let (Some(slot), Some(cn)) = (
+            self.client_certificate_authority_slot,
+            self.client_certificate_authority_common_name,
+        ) {
+            Some(rcgen_certificate_from_yubikey(&cn, serial, slot)?)
         } else {
             None
         };
@@ -117,10 +139,12 @@ impl Signer for YubikeySigner {
                 // for the RusticaServer struct
                 let mut yk = Yubikey::new().unwrap();
                 match yk.ssh_cert_signer(&cert.tbs_certificate(), &slot) {
-                    Ok(sig) => cert.add_signature(&sig).map_err(|_| SigningError::SigningFailure),
+                    Ok(sig) => cert
+                        .add_signature(&sig)
+                        .map_err(|_| SigningError::SigningFailure),
                     Err(_) => Err(SigningError::SigningFailure),
                 }
-            },
+            }
             Err(e) => Err(SigningError::AccessError(e.to_string())),
         }
     }
@@ -143,7 +167,7 @@ impl Signer for YubikeySigner {
 
 pub fn parse_slot<'de, D>(deserializer: D) -> Result<SlotId, D::Error>
 where
-    D: serde::Deserializer<'de>
+    D: serde::Deserializer<'de>,
 {
     let slot = String::deserialize(deserializer)?;
     // If first character is R, then we need to parse the nice
@@ -164,11 +188,11 @@ where
 
 pub fn parse_option_slot<'de, D>(deserializer: D) -> Result<Option<SlotId>, D::Error>
 where
-    D: serde::Deserializer<'de>
+    D: serde::Deserializer<'de>,
 {
     let slot = match String::deserialize(deserializer) {
         Ok(s) => s,
-        _ => return Ok(None)
+        _ => return Ok(None),
     };
 
     // If first character is R, then we need to parse the nice
@@ -190,4 +214,4 @@ where
 pub fn new_yubikey_mutex() -> Arc<Mutex<Yubikey>> {
     let yk = Yubikey::new().unwrap();
     Arc::new(Mutex::new(yk))
-} 
+}
