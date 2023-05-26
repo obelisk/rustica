@@ -294,7 +294,7 @@ impl eframe::App for RusticaAgentGui {
                                 let config = std::fs::read(&self.environments[*selected_env]).unwrap();
                                 match toml::from_slice::<rustica_agent::Config>(&config) {
                                     Ok(c) => {
-                                        let servers = c.parse_servers(self.runtime.handle().to_owned());
+                                        let servers = c.parse_servers();
 
                                         let mut private_key = PrivateKey::from_path(key_path).unwrap();
 
@@ -314,6 +314,7 @@ impl eframe::App for RusticaAgentGui {
                                             piv_identities: self.piv_keys.iter().filter_map(|x| if x.1.in_use {Some((x.0.clone(), x.1.descriptor.clone()))} else {None}).collect(),
                                             notification_function: None,
                                             certificate_priority: self.certificate_priority,
+                                            configuration_path: None,
                                         };
 
                                         let socket_path =

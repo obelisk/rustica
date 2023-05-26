@@ -21,7 +21,6 @@ pub use rustica::{
 
 use sshcerts::ssh::{CertType, Certificate, PrivateKey, PublicKey, SSHCertificateSigner};
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
-use tokio::runtime::Handle;
 
 use std::collections::HashMap;
 use std::{convert::TryFrom, env};
@@ -43,7 +42,6 @@ pub struct RusticaServer {
     pub ca: String,
     pub mtls_cert: String,
     pub mtls_key: String,
-    pub handle: Handle,
 }
 
 #[derive(Debug)]
@@ -137,6 +135,9 @@ pub struct Handler {
     /// Should we list the certificate or key first when we're asked to list
     /// identities
     pub certificate_priority: bool,
+    /// Configuration path that can be updated if a server returns updated
+    /// settings
+    pub configuration_path: Option<String>,
 }
 
 impl std::fmt::Debug for Handler {
@@ -154,14 +155,12 @@ impl RusticaServer {
         ca: String,
         mtls_cert: String,
         mtls_key: String,
-        handle: Handle,
     ) -> Self {
         Self {
             address,
             ca,
             mtls_cert,
             mtls_key,
-            handle,
         }
     }
 }

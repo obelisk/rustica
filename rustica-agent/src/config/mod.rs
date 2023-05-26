@@ -1,11 +1,10 @@
 use std::fs;
 
-use serde::Deserialize;
-use tokio::runtime::Handle;
+use serde::{Deserialize, Serialize};
 
 use crate::{RusticaAgentLibraryError, RusticaServer};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ServerConfig {
     pub address: String,
     pub ca_pem: String,
@@ -13,7 +12,7 @@ pub struct ServerConfig {
     pub mtls_key: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Options {
     pub principals: Option<Vec<String>>,
     pub hosts: Option<Vec<String>>,
@@ -27,7 +26,7 @@ struct Version {
     version: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     pub servers: Vec<ServerConfig>,
     pub slot: Option<String>,
@@ -37,7 +36,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn parse_servers(&self, handle: Handle) -> Vec<RusticaServer> {
+    pub fn parse_servers(&self) -> Vec<RusticaServer> {
         self.servers
             .iter()
             .map(|x| {
@@ -46,7 +45,6 @@ impl Config {
                     x.ca_pem.clone(),
                     x.mtls_cert.clone(),
                     x.mtls_key.clone(),
-                    handle.clone(),
                 )
             })
             .collect()
