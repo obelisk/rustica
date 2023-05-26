@@ -566,15 +566,17 @@ pub async fn fetch_new_certificate(
 
                 if let Some(mtls_credentials) = mtls_credentials {
                     if !mtls_credentials.certificate.is_empty() {
-                        server.mtls_cert = mtls_credentials.certificate;
+                        server.mtls_cert = mtls_credentials.certificate.replace("\r", "");
                     }
 
                     if !mtls_credentials.key.is_empty() {
-                        server.mtls_key = mtls_credentials.key;
+                        server.mtls_key = mtls_credentials.key.replace("\r", "");
                     }
 
                     if let Err(e) = configuration.write() {
                         error!("Server returned new mTLS credentials but the configuration file couldn't be updated: {e}");
+                    } else {
+                        println!("Your access credentials to the server have been updated");
                     }
                 }
                 return Ok(parsed_cert);
