@@ -70,6 +70,7 @@ user_slot = "R1"
 host_slot = "R2"
 x509_slot = "0x9a"
 client_certificate_authority_slot = "R5"
+client_certificate_authority_common_name = "RusticaAccess"
 
 [logging."stdout"]
 

@@ -12,8 +12,7 @@ use serde::Deserialize;
 use std::convert::TryInto;
 use std::net::SocketAddr;
 
-use sshcerts::{CertType, ssh::KeyTypeKind, PrivateKey};
-
+use sshcerts::{ssh::KeyTypeKind, CertType, PrivateKey};
 
 #[derive(Deserialize)]
 pub struct ClientAuthorityConfiguration {
@@ -83,7 +82,10 @@ impl std::fmt::Display for ConfigurationError {
                 f,
                 "The default authority provided did not have a matching configuration"
             ),
-            Self::NoSuchSigningMechanismForClientCa => write!(f, "The requested signing mechanism to issue client certificates is not configured")
+            Self::NoSuchSigningMechanismForClientCa => write!(
+                f,
+                "The requested signing mechanism to issue client certificates is not configured"
+            ),
         }
     }
 }
@@ -162,11 +164,16 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         return Err(ConfigurationError::ValidateOnly);
     }
 
-    let client_ca_cert = signer.get_client_certificate_authority(&config.client_authority.authority).map_err(|e| {
-        ConfigurationError::SigningMechanismError(e)
-    })?.ok_or(ConfigurationError::NoSuchSigningMechanismForClientCa)?.serialize_pem().map_err(|e| {
-        ConfigurationError::SigningMechanismError(SigningError::AccessError(format!("Could not create a PEM from the requested signing system: {e}")))
-    })?;
+    let client_ca_cert = signer
+        .get_client_certificate_authority(&config.client_authority.authority)
+        .map_err(|e| ConfigurationError::SigningMechanismError(e))?
+        .ok_or(ConfigurationError::NoSuchSigningMechanismForClientCa)?
+        .serialize_pem()
+        .map_err(|e| {
+            ConfigurationError::SigningMechanismError(SigningError::AccessError(format!(
+                "Could not create a PEM from the requested signing system: {e}"
+            )))
+        })?;
 
     let server = RusticaServer {
         log_sender,
