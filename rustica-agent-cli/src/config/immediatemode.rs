@@ -17,7 +17,6 @@ pub async fn configure_immediate(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let servers = config.parse_servers();
 
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let out = matches.value_of("out").map(|x| x.to_string());
@@ -27,7 +26,7 @@ pub async fn configure_immediate(
     let signatory = get_signatory(&slot, &config.slot, &file, &config.key)?;
 
     return Ok(RusticaAgentAction::Immediate(ImmediateConfig {
-        servers,
+        servers: config.servers,
         certificate_options,
         signatory,
         out,
