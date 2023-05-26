@@ -294,7 +294,6 @@ impl eframe::App for RusticaAgentGui {
                                 let config = std::fs::read(&self.environments[*selected_env]).unwrap();
                                 match toml::from_slice::<rustica_agent::Config>(&config) {
                                     Ok(c) => {
-                                        let servers = c.parse_servers();
 
                                         let mut private_key = PrivateKey::from_path(key_path).unwrap();
 
@@ -304,7 +303,7 @@ impl eframe::App for RusticaAgentGui {
                                         let signatory = Signatory::Direct(private_key);
 
                                         let handler = rustica_agent::Handler {
-                                            servers,
+                                            servers: c.servers,
                                             cert: None,
                                             pubkey,
                                             signatory,

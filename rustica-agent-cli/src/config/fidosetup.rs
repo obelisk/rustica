@@ -23,7 +23,6 @@ pub async fn configure_fido_setup(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let servers = config.parse_servers();
 
     let app_name = matches.value_of("application").unwrap().to_string();
 
@@ -46,7 +45,7 @@ pub async fn configure_fido_setup(
     };
 
     let provision_config = ProvisionAndRegisterFidoConfig {
-        servers,
+        servers: config.servers,
         app_name,
         comment,
         key_type,

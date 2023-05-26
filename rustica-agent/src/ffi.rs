@@ -292,8 +292,6 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let servers = config.parse_servers();
-
     let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
     let u2f_attestation = U2FAttestation {
         auth_data: new_fido_key.attestation.auth_data,
@@ -325,7 +323,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         return false;
     };
 
-    for server in servers {
+    for server in config.servers {
         match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation, &runtime_handle) {
             Ok(_) => {
                 println!(
@@ -436,9 +434,7 @@ pub unsafe extern "C" fn generate_and_enroll(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let servers = config.parse_servers();
-
-    for server in servers {
+    for server in config.servers {
         match server.register_key(&mut signatory, &key_config, &runtime_handle) {
             Ok(_) => {
                 println!(
@@ -641,8 +637,6 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         _ => return std::ptr::null(),
     };
 
-    let servers = config.parse_servers();
-
     let mut certificate_options = CertificateConfig::from(config.options);
     certificate_options.authority = authority;
 
@@ -651,7 +645,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         stale_at: 0,
         pubkey: private_key.pubkey.clone(),
         certificate_options,
-        servers,
+        servers: config.servers,
         signatory: Signatory::Direct(private_key),
         identities: HashMap::new(),
         piv_identities,
@@ -739,7 +733,6 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         _ => return std::ptr::null(),
     };
 
-    let servers = config.parse_servers();
     let mut certificate_options = CertificateConfig::from(config.options);
     certificate_options.authority = authority;
 
@@ -755,7 +748,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         stale_at: 0,
         pubkey,
         certificate_options,
-        servers,
+        servers: config.servers,
         signatory: Signatory::Yubikey(YubikeySigner {
             yk: Yubikey::open(yubikey_serial).unwrap(),
             slot: SlotId::try_from(slot).unwrap(),
@@ -960,9 +953,7 @@ pub unsafe extern "C" fn ffi_refresh_x509_certificate(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let servers = config.parse_servers();
-
-    for server in servers {
+    for server in config.servers {
         match server.refresh_x509_certificate(&mut signatory, &runtime_handle) {
             Ok(c) => {
                 println!("Certificate was issued from server: {}", server.address);
