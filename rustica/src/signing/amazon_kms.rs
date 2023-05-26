@@ -7,13 +7,7 @@ use aws_config::TimeoutConfig;
 /// dependency. This signer is also an example of how to write a signing
 /// module that is async. To use the AmazonKMS signer, the `amazon-kms`
 /// feature must be enabled.
-
-use sshcerts::{
-    Certificate,
-    PublicKey,
-    ssh::CertType,
-    utils::format_signature_for_ssh,
-};
+use sshcerts::{ssh::CertType, utils::format_signature_for_ssh, Certificate, PublicKey};
 use tokio::runtime::Handle;
 use tokio::task;
 
@@ -21,14 +15,14 @@ use super::{Signer, SignerConfig, SigningError};
 
 use async_trait::async_trait;
 
-use aws_sdk_kms::{Blob, Client, Credentials, Region};
 use aws_sdk_kms::model::SigningAlgorithmSpec;
+use aws_sdk_kms::{Blob, Client, Credentials, Region};
 use aws_types::credentials::future;
-use aws_types::credentials::{ProvideCredentials};
+use aws_types::credentials::ProvideCredentials;
 
 use serde::Deserialize;
 
-use rcgen::{Certificate as X509Certificate, CertificateParams, IsCa, DnType, RcgenError};
+use rcgen::{Certificate as X509Certificate, CertificateParams, DnType, IsCa, RcgenError};
 
 /// Defines the configuration of the AmazonKMS signer
 #[derive(Clone, Debug, Deserialize)]
@@ -59,6 +53,8 @@ pub struct Config {
     client_certificate_authority_key_signing_algorithm: Option<String>,
     /// The KMS key id to use as the client refresh key
     client_certificate_authority_key_id: Option<String>,
+    /// The common name to use in the client certificate authority
+    client_certificate_authority_common_name: Option<String>,
 }
 
 /// Defines the information needed for an AmazonKMS backed SSH key
@@ -122,7 +118,7 @@ impl rcgen::RemoteKeyPair for KmsRcgenRemoteSigner {
         &self.x509_public_key
     }
 
-    fn sign(&self, msg :&[u8]) -> Result<Vec<u8>, RcgenError> {
+    fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, RcgenError> {
         let key_id = self.x509_key_id.clone();
         let key_algo = self.x509_key_signing_algorithm.clone();
         let data = msg.to_owned();
@@ -136,7 +132,13 @@ impl rcgen::RemoteKeyPair for KmsRcgenRemoteSigner {
         // used for I don't think it'll be an issue
         let signature = task::block_in_place(move || {
             handle.block_on(async move {
-                client.sign().key_id(key_id).signing_algorithm(key_algo).message(Blob::new(data)).send().await
+                client
+                    .sign()
+                    .key_id(key_id)
+                    .signing_algorithm(key_algo)
+                    .message(Blob::new(data))
+                    .send()
+                    .await
             })
         });
 
@@ -147,7 +149,9 @@ impl rcgen::RemoteKeyPair for KmsRcgenRemoteSigner {
         };
 
         // Was the signature successfully created
-        signature.map(|x| x.into_inner()).ok_or(RcgenError::RemoteKeyError)
+        signature
+            .map(|x| x.into_inner())
+            .ok_or(RcgenError::RemoteKeyError)
     }
 
     fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
@@ -158,47 +162,81 @@ impl rcgen::RemoteKeyPair for KmsRcgenRemoteSigner {
     }
 }
 
-async fn ssh_key_from_kms(client: &Client, key_id: &str, key_alg: &str) -> Result<SshKmsKey, SigningError> {
-    let public_key = client.get_public_key().key_id(key_id).send().await.map_err(|_| SigningError::AccessError(format!("Could not access key {key_id}")))?.public_key;
-    let public_key = public_key.ok_or(SigningError::AccessError(format!("Could not access key_id {key_id}")))?;
+async fn ssh_key_from_kms(
+    client: &Client,
+    key_id: &str,
+    key_alg: &str,
+) -> Result<SshKmsKey, SigningError> {
+    let public_key = client
+        .get_public_key()
+        .key_id(key_id)
+        .send()
+        .await
+        .map_err(|_| SigningError::AccessError(format!("Could not access key {key_id}")))?
+        .public_key;
+    let public_key = public_key.ok_or(SigningError::AccessError(format!(
+        "Could not access key_id {key_id}"
+    )))?;
 
-    let public_key = sshcerts::x509::der_encoding_to_ssh_public_key(public_key.as_ref()).map_err(|_|
-        SigningError::AccessError(format!("Key is not of a Rustica compatible type {key_id}"))
-    )?;
+    let public_key =
+        sshcerts::x509::der_encoding_to_ssh_public_key(public_key.as_ref()).map_err(|_| {
+            SigningError::AccessError(format!("Key is not of a Rustica compatible type {key_id}"))
+        })?;
 
     let key_signing_algorithm = SigningAlgorithmSpec::from(key_alg);
 
     if let SigningAlgorithmSpec::Unknown(_) = key_signing_algorithm {
-        return Err(SigningError::AccessError("Unknown algorithm for user key".to_owned()))
+        return Err(SigningError::AccessError(
+            "Unknown algorithm for user key".to_owned(),
+        ));
     }
 
-    Ok(SshKmsKey{
+    Ok(SshKmsKey {
         public_key,
         key_id: key_id.to_owned(),
         key_signing_algorithm,
     })
 }
 
-async fn rcgen_certificate_from_kms(client: Client, common_name: &str, key_id: &str, key_alg: &str) -> Result<X509Certificate, SigningError> {
-    let public_key = client.get_public_key().key_id(key_id).send().await.map_err(|_| SigningError::AccessError(format!("Could not access key {key_id}")))?.public_key;
-    let public_key = public_key.ok_or(SigningError::AccessError("One or more keys were not returned correctly or at all".to_owned()))?;
+async fn rcgen_certificate_from_kms(
+    client: Client,
+    common_name: &str,
+    key_id: &str,
+    key_alg: &str,
+) -> Result<X509Certificate, SigningError> {
+    let public_key = client
+        .get_public_key()
+        .key_id(key_id)
+        .send()
+        .await
+        .map_err(|_| SigningError::AccessError(format!("Could not access key {key_id}")))?
+        .public_key;
+    let public_key = public_key.ok_or(SigningError::AccessError(
+        "One or more keys were not returned correctly or at all".to_owned(),
+    ))?;
 
     let signing_algorithm = SigningAlgorithmSpec::from(key_alg);
 
     let mut ca_params = CertificateParams::new(vec![]);
     ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-    ca_params.distinguished_name.push(DnType::CommonName, common_name);
+    ca_params
+        .distinguished_name
+        .push(DnType::CommonName, common_name);
 
     let public_key = match &signing_algorithm {
         SigningAlgorithmSpec::EcdsaSha256 => {
             ca_params.alg = &rcgen::PKCS_ECDSA_P256_SHA256;
             public_key.as_ref()[25..].to_vec()
-        },
+        }
         SigningAlgorithmSpec::EcdsaSha384 => {
             ca_params.alg = &rcgen::PKCS_ECDSA_P384_SHA384;
             public_key.as_ref()[23..].to_vec()
-        },
-        _ => return Err(SigningError::AccessError(format!("Unsupported algorithm for key {key_id}"))),
+        }
+        _ => {
+            return Err(SigningError::AccessError(format!(
+                "Unsupported algorithm for key {key_id}"
+            )))
+        }
     };
 
     let remote_signer = KmsRcgenRemoteSigner {
@@ -211,28 +249,54 @@ async fn rcgen_certificate_from_kms(client: Client, common_name: &str, key_id: &
 
     let kp = match rcgen::KeyPair::from_remote(Box::new(remote_signer)) {
         Ok(kp) => kp,
-        Err(_) => return Err(SigningError::AccessError(format!("Could not create remote signer for key {key_id}")))
+        Err(_) => {
+            return Err(SigningError::AccessError(format!(
+                "Could not create remote signer for key {key_id}"
+            )))
+        }
     };
 
     ca_params.key_pair = Some(kp);
-    X509Certificate::from_params(ca_params).map_err(|_| SigningError::AccessError(format!("Could not create certificate for key {key_id}")))
+    X509Certificate::from_params(ca_params).map_err(|_| {
+        SigningError::AccessError(format!("Could not create certificate for key {key_id}"))
+    })
 }
 
 #[async_trait]
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
-        let timeout_config = TimeoutConfig::new().with_api_call_timeout(Some(Duration::from_secs(3)));
-        let aws_config = aws_config::from_env().timeout_config(timeout_config).region(Region::new(self.aws_region.clone())).credentials_provider(self.clone()).load().await;
+        let timeout_config =
+            TimeoutConfig::new().with_api_call_timeout(Some(Duration::from_secs(3)));
+        let aws_config = aws_config::from_env()
+            .timeout_config(timeout_config)
+            .region(Region::new(self.aws_region.clone()))
+            .credentials_provider(self.clone())
+            .load()
+            .await;
         let client = Client::new(&aws_config);
 
-        let user_key = ssh_key_from_kms(&client, &self.user_key_id, &self.user_key_signing_algorithm).await?;
-        let host_key = ssh_key_from_kms(&client, &self.host_key_id, &self.host_key_signing_algorithm).await?;
+        let user_key =
+            ssh_key_from_kms(&client, &self.user_key_id, &self.user_key_signing_algorithm).await?;
+        let host_key =
+            ssh_key_from_kms(&client, &self.host_key_id, &self.host_key_signing_algorithm).await?;
 
         // Create the x509 certificate
-        let x509_certificate = rcgen_certificate_from_kms(client.clone(), "Rustica", &self.x509_key_id, &self.x509_key_signing_algorithm).await?;
+        let x509_certificate = rcgen_certificate_from_kms(
+            client.clone(),
+            "Rustica",
+            &self.x509_key_id,
+            &self.x509_key_signing_algorithm,
+        )
+        .await?;
 
-        let client_certificate_authority = match (&self.client_certificate_authority_key_id, &self.client_certificate_authority_key_signing_algorithm) {
-            (Some(id), Some(alg)) => Some(rcgen_certificate_from_kms(client.clone(), "RusticaAccess", id, alg).await?),
+        let client_certificate_authority = match (
+            &self.client_certificate_authority_key_id,
+            &self.client_certificate_authority_key_signing_algorithm,
+            &self.client_certificate_authority_common_name,
+        ) {
+            (Some(id), Some(alg), Some(cn)) => {
+                Some(rcgen_certificate_from_kms(client.clone(), &cn, id, alg).await?)
+            }
             _ => None,
         };
 
@@ -251,10 +315,25 @@ impl Signer for AmazonKMSSigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
         let data = cert.tbs_certificate();
         let (pubkey, key_id, key_algo) = match &cert.cert_type {
-            CertType::User => (&self.user_key.public_key, &self.user_key.key_id, &self.user_key.key_signing_algorithm),
-            CertType::Host => (&self.host_key.public_key, &self.host_key.key_id, &self.host_key.key_signing_algorithm),
+            CertType::User => (
+                &self.user_key.public_key,
+                &self.user_key.key_id,
+                &self.user_key.key_signing_algorithm,
+            ),
+            CertType::Host => (
+                &self.host_key.public_key,
+                &self.host_key.key_id,
+                &self.host_key.key_signing_algorithm,
+            ),
         };
-        let result = self.client.sign().key_id(key_id).signing_algorithm(key_algo.clone()).message(Blob::new(data)).send().await;
+        let result = self
+            .client
+            .sign()
+            .key_id(key_id)
+            .signing_algorithm(key_algo.clone())
+            .message(Blob::new(data))
+            .send()
+            .await;
 
         // Amazon container type
         let signature = match result {
@@ -265,7 +344,11 @@ impl Signer for AmazonKMSSigner {
         // Was the signature successfully created
         let signature = match signature {
             Some(sig) => sig.into_inner(),
-            None => return Err(SigningError::AccessError("No signature returned".to_owned())),
+            None => {
+                return Err(SigningError::AccessError(
+                    "No signature returned".to_owned(),
+                ))
+            }
         };
 
         // Convert to SSH styled signature
@@ -274,7 +357,8 @@ impl Signer for AmazonKMSSigner {
             None => return Err(SigningError::ParsingError),
         };
 
-        cert.add_signature(&signature).map_err(|_| SigningError::SigningFailure)
+        cert.add_signature(&signature)
+            .map_err(|_| SigningError::SigningFailure)
     }
 
     fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {
@@ -285,10 +369,10 @@ impl Signer for AmazonKMSSigner {
     }
 
     fn get_attested_x509_certificate_authority(&self) -> &X509Certificate {
-        return &self.x509_certificate
+        return &self.x509_certificate;
     }
 
     fn get_client_certificate_authority(&self) -> Option<&X509Certificate> {
-        return self.client_certificate_authority.as_ref()
+        return self.client_certificate_authority.as_ref();
     }
 }

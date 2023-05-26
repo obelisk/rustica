@@ -82,6 +82,7 @@ x509_key_id = "mrk-0000000000"
 x509_key_signing_algorithm = "ECDSA_SHA_384"
 client_certificate_authority_key_id = "mrk-00000000000000000000000000000000"
 client_certificate_authority_key_signing_algorithm = "ECDSA_SHA_256"
+client_certificate_authority_common_name = "RusticaAccess"
 
 [logging."stdout"]
 
