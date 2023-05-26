@@ -9,7 +9,7 @@ pub mod sshagent;
 use async_trait::async_trait;
 use rustica::key::U2FAttestation;
 
-use config::Options;
+use config::{Options, UpdatableConfiguration};
 
 pub use config::Config;
 use serde_derive::{Deserialize, Serialize};
@@ -37,7 +37,7 @@ pub struct CertificateConfig {
     pub authority: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RusticaServer {
     pub address: String,
     pub ca_pem: String,
@@ -114,9 +114,11 @@ impl std::fmt::Display for RusticaAgentLibraryError {
 
 impl std::error::Error for RusticaAgentLibraryError {}
 
+
 pub struct Handler {
-    /// a GRPC client for making requests to a Rustica server
-    pub servers: Vec<RusticaServer>,
+    /// Configuration path that can be updated if a server returns updated
+    /// settings
+    pub updatable_configuration: UpdatableConfiguration,
     /// A previously issued certificate
     pub cert: Option<Identity>,
     /// The public key we for the key we are providing a certificate for
@@ -136,15 +138,12 @@ pub struct Handler {
     /// Should we list the certificate or key first when we're asked to list
     /// identities
     pub certificate_priority: bool,
-    /// Configuration path that can be updated if a server returns updated
-    /// settings
-    pub configuration_path: Option<String>,
 }
 
 impl std::fmt::Debug for Handler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Handler")
-            .field("server", &self.servers)
+            .field("server", &self.updatable_configuration.get_configuration().servers)
             .field("cert", &self.cert)
             .finish()
     }
@@ -238,7 +237,7 @@ impl SshAgentHandler for Handler {
 
                 // Fetch a new certificate from one of the servers
                 fetch_new_certificate(
-                    &self.servers,
+                    &mut self.updatable_configuration,
                     &mut self.signatory,
                     &self.certificate_options,
                 )
@@ -550,11 +549,11 @@ pub fn git_config_from_public_key(public_key: &PublicKey) -> String {
 /// in the list. We will try them in order and error if none
 /// return a usable certificate
 pub async fn fetch_new_certificate(
-    servers: &[RusticaServer],
+    configuration: &mut UpdatableConfiguration,
     signatory: &mut Signatory,
     options: &CertificateConfig,
 ) -> Result<Certificate, RusticaAgentLibraryError> {
-    for server in servers.iter() {
+    for server in configuration.get_servers_mut() {
         match server.refresh_certificate_async(signatory, options).await {
             Ok(response) => {
                 let parsed_cert = Certificate::from_string(&response.cert)
