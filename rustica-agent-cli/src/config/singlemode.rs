@@ -12,7 +12,6 @@ pub async fn configure_singlemode(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let servers = config.parse_servers();
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let socket_path = parse_socket_path_from_args(matches, &config);
 
@@ -35,7 +34,7 @@ pub async fn configure_singlemode(
     };
 
     let handler = Handler {
-        servers,
+        servers: config.servers,
         cert: None,
         pubkey: pubkey.clone(),
         signatory,

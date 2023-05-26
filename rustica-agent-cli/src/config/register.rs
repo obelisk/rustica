@@ -14,7 +14,6 @@ pub async fn configure_register(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let servers = config.parse_servers();
 
     let slot = matches.value_of("slot").map(|x| x.to_string());
     let file = matches.value_of("file").map(|x| x.to_string());
@@ -47,7 +46,7 @@ pub async fn configure_register(
     }
 
     return Ok(RusticaAgentAction::Register(RegisterConfig {
-        servers,
+        servers: config.servers,
         signatory,
         attestation,
     }));

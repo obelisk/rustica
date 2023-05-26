@@ -36,7 +36,7 @@ pub async fn get_rustica_client(server: &RusticaServer) -> Result<RusticaClient<
         Err(_) => return Err(RefreshError::InvalidUri),
     };
 
-    let ca = Certificate::from_pem(&server.ca);
+    let ca = Certificate::from_pem(&server.ca_pem);
     let tls = ClientTlsConfig::new()
         .ca_certificate(ca)
         .identity(client_identity);
