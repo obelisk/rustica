@@ -12,6 +12,7 @@ use rustica::key::U2FAttestation;
 use config::Options;
 
 pub use config::Config;
+use serde_derive::{Deserialize, Serialize};
 pub use sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 
 pub use rustica::{
@@ -36,10 +37,10 @@ pub struct CertificateConfig {
     pub authority: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RusticaServer {
     pub address: String,
-    pub ca: String,
+    pub ca_pem: String,
     pub mtls_cert: String,
     pub mtls_key: String,
 }
@@ -152,13 +153,13 @@ impl std::fmt::Debug for Handler {
 impl RusticaServer {
     pub fn new(
         address: String,
-        ca: String,
+        ca_pem: String,
         mtls_cert: String,
         mtls_key: String,
     ) -> Self {
         Self {
             address,
-            ca,
+            ca_pem,
             mtls_cert,
             mtls_key,
         }

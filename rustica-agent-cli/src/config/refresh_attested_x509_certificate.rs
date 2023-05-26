@@ -17,7 +17,6 @@ pub async fn configure_refresh_x509_certificate(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let servers = config.parse_servers();
 
     let slot = matches.value_of("slot").map(|x| x.to_string()).unwrap();
     let slot = slot_parser(&slot).unwrap();
@@ -40,7 +39,7 @@ pub async fn configure_refresh_x509_certificate(
 
 
     Ok(RusticaAgentAction::RefreshAttestedX509(RefreshAttestedX509Config {
-        servers,
+        servers: config.servers,
         signatory,
         pin,
         management_key,

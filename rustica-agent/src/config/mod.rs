@@ -4,14 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{RusticaAgentLibraryError, RusticaServer};
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ServerConfig {
-    pub address: String,
-    pub ca_pem: String,
-    pub mtls_cert: String,
-    pub mtls_key: String,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Options {
     pub principals: Option<Vec<String>>,
@@ -28,27 +20,11 @@ struct Version {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
-    pub servers: Vec<ServerConfig>,
+    pub servers: Vec<RusticaServer>,
     pub slot: Option<String>,
     pub key: Option<String>,
     pub options: Option<Options>,
     pub socket: Option<String>,
-}
-
-impl Config {
-    pub fn parse_servers(&self) -> Vec<RusticaServer> {
-        self.servers
-            .iter()
-            .map(|x| {
-                RusticaServer::new(
-                    x.address.clone(),
-                    x.ca_pem.clone(),
-                    x.mtls_cert.clone(),
-                    x.mtls_key.clone(),
-                )
-            })
-            .collect()
-    }
 }
 
 /// Parse a RusticaAgent configuration from a path
@@ -90,7 +66,7 @@ fn parse_v1_config(config: &str) -> Result<Config, RusticaAgentLibraryError> {
         Err(e) => return Err(RusticaAgentLibraryError::BadConfiguration(e.to_string())),
     };
 
-    let server_config = ServerConfig {
+    let server_config = RusticaServer {
         address: config_v1.server,
         ca_pem: config_v1.ca_pem,
         mtls_cert: config_v1.mtls_cert,
