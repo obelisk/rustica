@@ -1,3 +1,5 @@
+use tokio::runtime::Handle;
+
 use super::error::RefreshError;
 use super::{RegisterKeyRequest, RegisterU2fKeyRequest, RusticaServer, Signatory};
 
@@ -44,8 +46,9 @@ impl RusticaServer {
         &self,
         signatory: &mut Signatory,
         key: &PIVAttestation,
+        handle: &Handle,
     ) -> Result<(), RefreshError> {
-        self.handle
+        handle
             .block_on(async { self.register_key_async(signatory, key).await })
     }
 
@@ -78,8 +81,9 @@ impl RusticaServer {
         signatory: &mut Signatory,
         application: &str,
         key: &U2FAttestation,
+        handle: &Handle,
     ) -> Result<(), RefreshError> {
-        self.handle.block_on(async {
+        handle.block_on(async {
             self.register_u2f_key_async(signatory, application, key)
                 .await
         })

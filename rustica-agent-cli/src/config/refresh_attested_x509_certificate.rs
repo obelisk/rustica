@@ -3,7 +3,6 @@ use std::env;
 use clap::{Command, Arg, ArgMatches};
 use rustica_agent::{slot_validator, slot_parser, RusticaServer, Signatory, YubikeySigner};
 use sshcerts::yubikey::piv::Yubikey;
-use tokio::runtime::Handle;
 
 use super::{RusticaAgentAction, ConfigurationError, parse_config_from_args};
 
@@ -18,7 +17,7 @@ pub async fn configure_refresh_x509_certificate(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let servers = config.parse_servers(Handle::current());
+    let servers = config.parse_servers();
 
     let slot = matches.value_of("slot").map(|x| x.to_string()).unwrap();
     let slot = slot_parser(&slot).unwrap();

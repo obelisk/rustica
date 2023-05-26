@@ -292,7 +292,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let servers = config.parse_servers(runtime_handle);
+    let servers = config.parse_servers();
 
     let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
     let u2f_attestation = U2FAttestation {
@@ -326,7 +326,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
     };
 
     for server in servers {
-        match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation) {
+        match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation, &runtime_handle) {
             Ok(_) => {
                 println!(
                     "Key was successfully registered with server: {}",
@@ -436,10 +436,10 @@ pub unsafe extern "C" fn generate_and_enroll(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let servers = config.parse_servers(runtime_handle);
+    let servers = config.parse_servers();
 
     for server in servers {
-        match server.register_key(&mut signatory, &key_config) {
+        match server.register_key(&mut signatory, &key_config, &runtime_handle) {
             Ok(_) => {
                 println!(
                     "Key was successfully registered with server: {}",
@@ -641,7 +641,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         _ => return std::ptr::null(),
     };
 
-    let servers = config.parse_servers(runtime.handle().to_owned());
+    let servers = config.parse_servers();
 
     let mut certificate_options = CertificateConfig::from(config.options);
     certificate_options.authority = authority;
@@ -657,6 +657,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
+        configuration_path: None,
     };
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
@@ -738,9 +739,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         _ => return std::ptr::null(),
     };
 
-    let runtime_handle = runtime.handle().to_owned();
-
-    let servers = config.parse_servers(runtime_handle);
+    let servers = config.parse_servers();
     let mut certificate_options = CertificateConfig::from(config.options);
     certificate_options.authority = authority;
 
@@ -765,6 +764,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
+        configuration_path: None,
     };
 
     println!("Slot: {:?}", SlotId::try_from(slot));
@@ -960,10 +960,10 @@ pub unsafe extern "C" fn ffi_refresh_x509_certificate(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let servers = config.parse_servers(runtime_handle);
+    let servers = config.parse_servers();
 
     for server in servers {
-        match server.refresh_x509_certificate(&mut signatory) {
+        match server.refresh_x509_certificate(&mut signatory, &runtime_handle) {
             Ok(c) => {
                 println!("Certificate was issued from server: {}", server.address);
                 let mut yk = Yubikey::open(yubikey_serial).unwrap();

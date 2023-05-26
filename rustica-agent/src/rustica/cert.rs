@@ -2,6 +2,7 @@ use super::error::{RefreshError, ServerError};
 use super::{CertificateRequest, RusticaCert, Signatory};
 use crate::{CertificateConfig, RusticaServer};
 use sshcerts::Certificate;
+use tokio::runtime::Handle;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -51,8 +52,9 @@ impl RusticaServer {
         &self,
         signatory: &mut Signatory,
         options: &CertificateConfig,
+        handle: &Handle,
     ) -> Result<RusticaCert, RefreshError> {
-        self.handle
+        handle
             .block_on(async { self.refresh_certificate_async(signatory, options).await })
     }
 }
