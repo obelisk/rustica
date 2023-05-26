@@ -1,5 +1,5 @@
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::{slot_validator, CertificateConfig, RusticaServer, Signatory};
+use rustica_agent::{slot_validator, CertificateConfig, Signatory, config::UpdatableConfiguration};
 
 use super::{
     get_signatory, parse_certificate_config_from_args, parse_config_from_args, ConfigurationError,
@@ -7,7 +7,7 @@ use super::{
 };
 
 pub struct ImmediateConfig {
-    pub servers: Vec<RusticaServer>,
+    pub updatable_configuration: UpdatableConfiguration,
     pub certificate_options: CertificateConfig,
     pub signatory: Signatory,
     pub out: Option<String>,
@@ -16,7 +16,8 @@ pub struct ImmediateConfig {
 pub async fn configure_immediate(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
-    let config = parse_config_from_args(&matches)?;
+    let updatable_configuration = parse_config_from_args(&matches)?;
+    let config = updatable_configuration.get_configuration();
 
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let out = matches.value_of("out").map(|x| x.to_string());
@@ -26,7 +27,7 @@ pub async fn configure_immediate(
     let signatory = get_signatory(&slot, &config.slot, &file, &config.key)?;
 
     return Ok(RusticaAgentAction::Immediate(ImmediateConfig {
-        servers: config.servers,
+        updatable_configuration,
         certificate_options,
         signatory,
         out,

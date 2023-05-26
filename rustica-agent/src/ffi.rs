@@ -1,6 +1,6 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::{parse_config, Config},
+    config::{parse_config, Config, UpdatableConfiguration},
     list_yubikey_serials, CertificateConfig, Handler, Signatory, YubikeyPIVKeyDescriptor,
     YubikeySigner,
 };
@@ -491,7 +491,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
 #[no_mangle]
 pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     private_key: *const c_char,
-    config_data: *const c_char,
+    config_path: *const c_char,
     socket_path: *const c_char,
     pin: *const c_char,
     device: *const c_char,
@@ -509,10 +509,18 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         notification_fn();
     };
 
-    let cf = CStr::from_ptr(config_data);
-    let config_data = match cf.to_str() {
+    let cf = CStr::from_ptr(config_path);
+    let config_path = match cf.to_str() {
         Err(_) => return std::ptr::null(),
-        Ok(s) => s.to_owned(),
+        Ok(s) => s,
+    };
+
+    let updatable_configuration = match UpdatableConfiguration::new(config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return std::ptr::null();
+        }
     };
 
     let sp = CStr::from_ptr(socket_path);
@@ -624,34 +632,25 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         println!("{}", key.1.public_key.fingerprint().hash);
     }
 
-    let config: Config = match parse_config(&config_data) {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Configuration was invalid: {e}");
-            return std::ptr::null();
-        }
-    };
-
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
         _ => return std::ptr::null(),
     };
 
-    let mut certificate_options = CertificateConfig::from(config.options);
+    let mut certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
     certificate_options.authority = authority;
 
     let handler = Handler {
+        updatable_configuration,
         cert: None,
         stale_at: 0,
         pubkey: private_key.pubkey.clone(),
         certificate_options,
-        servers: config.servers,
         signatory: Signatory::Direct(private_key),
         identities: HashMap::new(),
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
-        configuration_path: None,
     };
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
@@ -696,7 +695,7 @@ pub unsafe extern "C" fn shutdown_rustica_agent(rai: *mut RusticaAgentInstance) 
 pub unsafe extern "C" fn start_yubikey_rustica_agent(
     yubikey_serial: u32,
     slot: u8,
-    config_data: *const c_char,
+    config_path: *const c_char,
     socket_path: *const c_char,
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
@@ -708,8 +707,8 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         notification_fn();
     };
 
-    let cf = CStr::from_ptr(config_data);
-    let config_data = match cf.to_str() {
+    let cf = CStr::from_ptr(config_path);
+    let config_path = match cf.to_str() {
         Err(_) => return std::ptr::null(),
         Ok(s) => s,
     };
@@ -720,7 +719,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         Ok(s) => s.to_owned(),
     };
 
-    let config: Config = match parse_config(&config_data) {
+    let updatable_configuration = match UpdatableConfiguration::new(config_path) {
         Ok(c) => c,
         Err(e) => {
             error!("Configuration was invalid: {e}");
@@ -733,7 +732,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         _ => return std::ptr::null(),
     };
 
-    let mut certificate_options = CertificateConfig::from(config.options);
+    let mut certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
     certificate_options.authority = authority;
 
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
@@ -744,11 +743,11 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     };
 
     let handler = Handler {
+        updatable_configuration,
         cert: None,
         stale_at: 0,
         pubkey,
         certificate_options,
-        servers: config.servers,
         signatory: Signatory::Yubikey(YubikeySigner {
             yk: Yubikey::open(yubikey_serial).unwrap(),
             slot: SlotId::try_from(slot).unwrap(),
@@ -757,7 +756,6 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
-        configuration_path: None,
     };
 
     println!("Slot: {:?}", SlotId::try_from(slot));

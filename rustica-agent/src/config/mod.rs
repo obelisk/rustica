@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::{Path, PathBuf}};
 
 use serde::{Deserialize, Serialize};
 
@@ -28,8 +28,51 @@ pub struct Config {
     pub socket: Option<String>,
 }
 
+pub struct UpdatableConfiguration {
+    path: PathBuf,
+    configuration: Config,
+}
+
+impl UpdatableConfiguration {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, RusticaAgentLibraryError> {
+        let configuration = parse_config_path(&path)?;
+
+        Ok(Self {
+            path: path.as_ref().to_owned(),
+            configuration,
+        })
+    }
+
+    pub fn write(&self) -> Result<(), std::io::Error> {
+        // We unwrap here becasue there is no way this should ever fail as this
+        // is our configuration type. If it somehow does fail, then this is a
+        // critical failure.
+        let contents = toml::to_string(&self.configuration)
+            .expect("The configuration type is fundamentally wrong");
+
+        std::fs::write(&self.path, contents)
+    }
+
+    pub fn update_servers(&mut self, servers: Vec<RusticaServer>) -> Result<(), std::io::Error> {
+        self.configuration.servers = servers;
+        self.write()
+    }
+
+    pub fn get_servers_mut(&mut self) -> std::slice::IterMut<'_, RusticaServer> {
+        self.configuration.servers.iter_mut()
+    }
+
+    pub fn get_configuration(&self) -> &Config {
+        &self.configuration
+    }
+
+    pub fn get_configuration_mut(&mut self) -> &mut Config {
+        &mut self.configuration
+    }
+}
+
 /// Parse a RusticaAgent configuration from a path
-pub fn parse_config_path(path: &str) -> Result<Config, RusticaAgentLibraryError> {
+pub fn parse_config_path<P: AsRef<Path>>(path: P) -> Result<Config, RusticaAgentLibraryError> {
     let config = fs::read_to_string(path)
         .map_err(|x| RusticaAgentLibraryError::CouldNotReadConfigurationFile(x.to_string()))?;
 
