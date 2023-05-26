@@ -1,6 +1,6 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::{parse_config, Config, UpdatableConfiguration},
+    config::UpdatableConfiguration,
     list_yubikey_serials, CertificateConfig, Handler, Signatory, YubikeyPIVKeyDescriptor,
     YubikeySigner,
 };
@@ -219,23 +219,26 @@ pub unsafe extern "C" fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
 /// strings or undefined behaviour occurs possibly resulting in corruption
 /// or crashes.
 pub unsafe extern "C" fn generate_and_enroll_fido(
-    config_data: *const c_char,
+    config_path: *const c_char,
     out: *const c_char,
     comment: *const c_char,
     pin: *const c_char,
     device: *const c_char,
 ) -> bool {
-    let cf = CStr::from_ptr(config_data);
-    let config: Config = match cf.to_str() {
+    let cf = CStr::from_ptr(config_path);
+    let config_path = match cf.to_str() {
         Err(_) => return false,
-        Ok(s) => match parse_config(s) {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Error: Could not parse the configuration data: {}", e);
-                return false;
-            }
-        },
+        Ok(s) => s,
     };
+
+    let updatable_configuration = match UpdatableConfiguration::new(config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return false;
+        }
+    };
+
 
     let out = CStr::from_ptr(out);
     let out = match out.to_str() {
@@ -276,7 +279,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         None
     };
 
-    let new_fido_key = match generate_new_ssh_key("ssh:RusticaAgentFIDOKey", &comment, pin, device)
+    let new_fido_key = match generate_new_ssh_key("ssh:", &comment, pin, device)
     {
         Ok(nfk) => nfk,
         Err(e) => {
@@ -323,7 +326,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         return false;
     };
 
-    for server in config.servers {
+    for server in &updatable_configuration.get_configuration().servers {
         match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation, &runtime_handle) {
             Ok(_) => {
                 println!(
@@ -345,7 +348,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
 /// Generate and enroll a new key on the given yubikey in the given slot
 ///
 /// # Safety
-/// Subject, config_data, and pin must all be valid, null terminated C strings
+/// Subject, config_path, and pin must all be valid, null terminated C strings
 /// or this functions behaviour is undefined and will result in a crash.
 #[no_mangle]
 pub unsafe extern "C" fn generate_and_enroll(
@@ -354,29 +357,30 @@ pub unsafe extern "C" fn generate_and_enroll(
     touch_policy: u8,
     pin_policy: u8,
     subject: *const c_char,
-    config_data: *const c_char,
+    config_path: *const c_char,
     pin: *const c_char,
     management_key: *const c_char,
 ) -> bool {
     println!("Generating and enrolling a new key!");
-    let cf = CStr::from_ptr(config_data);
-    let config_data = match cf.to_str() {
+    let cf = CStr::from_ptr(config_path);
+    let config_path = match cf.to_str() {
         Err(_) => return false,
         Ok(s) => s,
     };
 
-    let pin = CStr::from_ptr(pin);
-    let management_key = CStr::from_ptr(management_key);
-    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
-    let subject = CStr::from_ptr(subject);
-
-    let config: Config = match parse_config(config_data) {
+    let updatable_configuration = match UpdatableConfiguration::new(config_path) {
         Ok(c) => c,
         Err(e) => {
             error!("Configuration was invalid: {e}");
             return false;
         }
     };
+
+
+    let pin = CStr::from_ptr(pin);
+    let management_key = CStr::from_ptr(management_key);
+    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
+    let subject = CStr::from_ptr(subject);
 
     let alg = AlgorithmId::EccP384;
     let slot = SlotId::try_from(slot).unwrap();
@@ -434,7 +438,7 @@ pub unsafe extern "C" fn generate_and_enroll(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    for server in config.servers {
+    for server in &updatable_configuration.get_configuration().servers {
         match server.register_key(&mut signatory, &key_config, &runtime_handle) {
             Ok(_) => {
                 println!(
@@ -455,12 +459,12 @@ pub unsafe extern "C" fn generate_and_enroll(
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
 /// # Safety
-/// `config_data` and `socket_path` must be a null terminated C strings
+/// `config_path` and `socket_path` must be a null terminated C strings
 /// or behaviour is undefined and will result in a crash.
 #[no_mangle]
 pub unsafe extern "C" fn start_direct_rustica_agent(
     private_key: *const c_char,
-    config_data: *const c_char,
+    config_path: *const c_char,
     socket_path: *const c_char,
     pin: *const c_char,
     device: *const c_char,
@@ -470,7 +474,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
 ) -> *const RusticaAgentInstance {
     return start_direct_rustica_agent_with_piv_idents(
         private_key,
-        config_data,
+        config_path,
         socket_path,
         pin,
         device,
@@ -486,7 +490,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
 /// # Safety
-/// `config_data` and `socket_path` must be a null terminated C strings
+/// `config_path` and `socket_path` must be a null terminated C strings
 /// or behaviour is undefined and will result in a crash.
 #[no_mangle]
 pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
@@ -689,7 +693,7 @@ pub unsafe extern "C" fn shutdown_rustica_agent(rai: *mut RusticaAgentInstance) 
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
 /// # Safety
-/// `config_data` and `socket_path` must be a null terminated C strings
+/// `config_path` and `socket_path` must be a null terminated C strings
 /// or behaviour is undefined and will result in a crash.
 #[no_mangle]
 pub unsafe extern "C" fn start_yubikey_rustica_agent(
@@ -707,16 +711,16 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         notification_fn();
     };
 
-    let cf = CStr::from_ptr(config_path);
-    let config_path = match cf.to_str() {
-        Err(_) => return std::ptr::null(),
-        Ok(s) => s,
-    };
-
     let authority = CStr::from_ptr(authority);
     let authority = match authority.to_str() {
         Err(_) => return std::ptr::null(),
         Ok(s) => s.to_owned(),
+    };
+
+    let cf = CStr::from_ptr(config_path);
+    let config_path = match cf.to_str() {
+        Err(_) => return std::ptr::null(),
+        Ok(s) => s,
     };
 
     let updatable_configuration = match UpdatableConfiguration::new(config_path) {
@@ -902,34 +906,34 @@ pub unsafe extern "C" fn ffi_device_pin_retries(device: *const c_char) -> i32 {
 /// Refresh and load a new certificate onto a yubikey
 ///
 /// # Safety
-/// Subject, config_data, and pin must all be valid, null terminated C strings
+/// Subject, config_path, and pin must all be valid, null terminated C strings
 /// or this functions behaviour is undefined and will result in a crash.
 #[no_mangle]
 pub unsafe extern "C" fn ffi_refresh_x509_certificate(
     yubikey_serial: u32,
     slot: u8,
-    config_data: *const c_char,
+    config_path: *const c_char,
     pin: *const c_char,
     management_key: *const c_char,
 ) -> bool {
     println!("Refreshing certificate!");
-    let cf = CStr::from_ptr(config_data);
-    let config_data = match cf.to_str() {
+    let cf = CStr::from_ptr(config_path);
+    let config_path = match cf.to_str() {
         Err(_) => return false,
         Ok(s) => s,
     };
 
-    let pin = CStr::from_ptr(pin);
-    let management_key = CStr::from_ptr(management_key);
-    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
-
-    let config: Config = match parse_config(config_data) {
+    let updatable_configuration = match UpdatableConfiguration::new(config_path) {
         Ok(c) => c,
         Err(e) => {
             error!("Configuration was invalid: {e}");
             return false;
         }
     };
+
+    let pin = CStr::from_ptr(pin);
+    let management_key = CStr::from_ptr(management_key);
+    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
 
     let slot = SlotId::try_from(slot).unwrap();
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
@@ -951,7 +955,7 @@ pub unsafe extern "C" fn ffi_refresh_x509_certificate(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    for server in config.servers {
+    for server in &updatable_configuration.get_configuration().servers {
         match server.refresh_x509_certificate(&mut signatory, &runtime_handle) {
             Ok(c) => {
                 println!("Certificate was issued from server: {}", server.address);
