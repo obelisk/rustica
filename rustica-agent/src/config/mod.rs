@@ -20,6 +20,7 @@ struct Version {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
+    version: u64,
     pub servers: Vec<RusticaServer>,
     pub slot: Option<String>,
     pub key: Option<String>,
@@ -74,6 +75,7 @@ fn parse_v1_config(config: &str) -> Result<Config, RusticaAgentLibraryError> {
     };
 
     Ok(Config {
+        version: 2,
         servers: vec![server_config],
         slot: config_v1.slot,
         key: config_v1.key,
