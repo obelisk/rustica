@@ -1,3 +1,25 @@
+# This is the listen address that will be used for the Rustica service
+listen_address = "0.0.0.0:50052"
+
+# This setting controls if the agent has to prove that it
+# controls the private key to Rustica. Setting this to true means a user needs
+# to generate two signatures (one to Rustica, and one to the host). The
+# advantage of using this, is a compromised host cannot get certificates
+# from the server without physical interaction.
+#
+# A client will always need to sign the challenge from the host they
+# are attempting to connect to however so a physical tap will always
+# be required.
+require_rustica_proof = false
+
+# This setting controls if Rustica will allow users to register keys that
+# cannot have their providence validated. If set to true, if a registration
+# either does not provide an attestation or the attestation fails, the key
+# will be rejected and the API call will fail. In the case of using an
+# external authorizer, a call will not be made to inform it of this event.
+require_attestation_chain = true
+
+
 # The certificate presented to connecting clients
 server_cert = '''
 -----BEGIN CERTIFICATE-----
@@ -22,39 +44,23 @@ UF5oo8pmUycUdA7DWZcL1IDR/lmEBX6uCFTMMqVR4Mk2CTvpQADxHsjz
 -----END PRIVATE KEY-----
 '''
 
-# The CA certificate clients must have their identities signed by
-client_ca_cert = '''
------BEGIN CERTIFICATE-----
-MIIBMTCB2AIJAL3yJUJ7ShOJMAoGCCqGSM49BAMCMCExHzAdBgNVBAMMFkVudGVy
-cHJpc2VDbGllbnRSb290Q0EwHhcNMjIwMTIwMDQwMjA2WhcNMzIwMTE4MDQwMjA2
-WjAhMR8wHQYDVQQDDBZFbnRlcnByaXNlQ2xpZW50Um9vdENBMFkwEwYHKoZIzj0C
-AQYIKoZIzj0DAQcDQgAEmZbAXHUQEXKB/NmHCG0AcjQA0IsBph+jmcFbw9Na58Cv
-PNZtmm8jQ3Q9R8e3faG6gZuXNe60q/Ea6a6jR5UryDAKBggqhkjOPQQDAgNIADBF
-AiA7H67T6QVZq1pBs6MU6+f/4mxYbVkPi/aCqMthRin7qQIhAP3cYrcO8QibwSjx
-QCYQlNrEWT9OVP/akN0OyFDQIYIU
------END CERTIFICATE-----
-'''
+# Configuration for authenticating connecting clients as well as defining
+# automatic renewal settings.
+[client_authority]
+# This must be one of the signing authorities defined in the signing structure
+authority = "example_prod_environment"
+# When we issue a new access certificate, how long is it valid for. 
+validity_length = 181440000 # Three weeks * 100
 
-# This is the listen address that will be used for the Rustica service
-listen_address = "0.0.0.0:50052"
-
-# This setting controls if the agent has to prove that it
-# controls the private key to Rustica. Setting this to true means a user needs
-# to generate two signatures (one to Rustica, and one to the host). The
-# advantage of using this, is a compromised host cannot get certificates
-# from the server without physical interaction.
+# I think the easiest way to explain this is with an example.
 #
-# A client will always need to sign the challenge from the host they
-# are attempting to connect to however so a physical tap will always
-# be required.
-require_rustica_proof = false
-
-# This setting controls if Rustica will allow users to register keys that
-# cannot have their providence validated. If set to true, if a registration
-# either does not provide an attestation or the attestation fails, the key
-# will be rejected and the API call will fail. In the case of using an
-# external authorizer, a call will not be made to inform it of this event.
-require_attestation_chain = true
+# If a certificate is issued for three months, setting this to one week means
+# in the week before it expires, when they request a new SSH certificate, the
+# server will generate a new mTLS access certificate and send that back with
+# the request.
+#
+# This value should always be less than the validity length
+expiration_renewal_period = 181439980 #60480000 # One Week * 100
 
 [signing]
 default_authority = "example_prod_environment"
@@ -63,6 +69,7 @@ default_authority = "example_prod_environment"
 user_slot = "R1"
 host_slot = "R2"
 x509_slot = "0x9a"
+client_certificate_authority_slot = "R5"
 
 [logging."stdout"]
 
