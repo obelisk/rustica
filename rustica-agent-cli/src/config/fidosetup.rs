@@ -62,7 +62,7 @@ pub fn add_configuration(cmd: Command) -> Command {
     cmd.arg(
         Arg::new("application")
             .help("Specify application you are creating the key for")
-            .default_value("ssh:RusticaAgent")
+            .default_value("ssh:")
             .long("application")
             .short('a')
             .required(false)
