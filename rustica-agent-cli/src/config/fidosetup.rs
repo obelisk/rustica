@@ -3,7 +3,7 @@ use std::env;
 use super::{parse_config_from_args, ConfigurationError, RusticaAgentAction};
 
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::RusticaServer;
+use rustica_agent::config::UpdatableConfiguration;
 
 pub enum SKType {
     Ed25519,
@@ -11,7 +11,7 @@ pub enum SKType {
 }
 
 pub struct ProvisionAndRegisterFidoConfig {
-    pub servers: Vec<RusticaServer>,
+    pub updatable_configuration: UpdatableConfiguration,
     pub app_name: String,
     pub comment: String,
     pub key_type: SKType,
@@ -22,7 +22,7 @@ pub struct ProvisionAndRegisterFidoConfig {
 pub async fn configure_fido_setup(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
-    let config = parse_config_from_args(&matches)?;
+    let updatable_configuration = parse_config_from_args(&matches)?;
 
     let app_name = matches.value_of("application").unwrap().to_string();
 
@@ -45,7 +45,7 @@ pub async fn configure_fido_setup(
     };
 
     let provision_config = ProvisionAndRegisterFidoConfig {
-        servers: config.servers,
+        updatable_configuration,
         app_name,
         comment,
         key_type,

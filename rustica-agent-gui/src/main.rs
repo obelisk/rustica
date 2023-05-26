@@ -7,7 +7,7 @@ use eframe::egui::{self, Grid, Sense, TextEdit, Button /*Sense*/};
 use egui::ComboBox;
 
 use home::home_dir;
-use rustica_agent::{Agent, CertificateConfig, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys};
+use rustica_agent::{Agent, CertificateConfig, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys, config::UpdatableConfiguration};
 use sshcerts::{fido::{FidoDeviceDescriptor, list_fido_devices}, PrivateKey, yubikey::piv::Yubikey};
 use tokio::{
     runtime::Runtime,
@@ -291,10 +291,9 @@ impl eframe::App for RusticaAgentGui {
                         if ui.button("Start").clicked() {
                         match self.selected_fido_device.as_ref() {
                             Some(fido_device) => { 
-                                let config = std::fs::read(&self.environments[*selected_env]).unwrap();
-                                match toml::from_slice::<rustica_agent::Config>(&config) {
-                                    Ok(c) => {
-
+                                let updatable_configuration = UpdatableConfiguration::new(&self.environments[*selected_env]);
+                                match updatable_configuration {
+                                    Ok(updatable_configuration) => {
                                         let mut private_key = PrivateKey::from_path(key_path).unwrap();
 
                                         private_key.set_device_path(&self.fido_devices[*fido_device].path);
@@ -302,18 +301,20 @@ impl eframe::App for RusticaAgentGui {
                                         let pubkey = private_key.pubkey.clone();
                                         let signatory = Signatory::Direct(private_key);
 
+                                        let certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
+
                                         let handler = rustica_agent::Handler {
-                                            servers: c.servers,
+                                            updatable_configuration,
                                             cert: None,
                                             pubkey,
                                             signatory,
                                             stale_at: 0,
-                                            certificate_options: CertificateConfig::from(c.options),
+                                            certificate_options,
                                             identities: HashMap::new(),
                                             piv_identities: self.piv_keys.iter().filter_map(|x| if x.1.in_use {Some((x.0.clone(), x.1.descriptor.clone()))} else {None}).collect(),
                                             notification_function: None,
                                             certificate_priority: self.certificate_priority,
-                                            configuration_path: None,
+                                            
                                         };
 
                                         let socket_path =

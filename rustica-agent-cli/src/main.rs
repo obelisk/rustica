@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             match rustica_agent::register_u2f_key(
-                &prf.servers,
+                &prf.updatable_configuration.get_configuration().servers,
                 &mut signatory,
                 &prf.app_name,
                 &u2f_attestation,
@@ -116,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Ok(RusticaAgentAction::Register(mut config)) => {
             match rustica_agent::register_key(
-                &config.servers,
+                &config.updatable_configuration.get_configuration().servers,
                 &mut config.signatory,
                 &config.attestation,
             )
@@ -135,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // file is easier than using an SSH agent.
         Ok(RusticaAgentAction::Immediate(mut config)) => {
             match rustica_agent::fetch_new_certificate(
-                &config.servers,
+                &mut config.updatable_configuration,
                 &mut config.signatory,
                 &config.certificate_options,
             )
@@ -184,7 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await;
         }
         Ok(RusticaAgentAction::RefreshAttestedX509(mut config)) => {
-            match rustica_agent::fetch_new_attested_x509_certificate(&config.servers, &mut config.signatory)
+            match rustica_agent::fetch_new_attested_x509_certificate(&config.updatable_configuration.get_configuration().servers, &mut config.signatory)
                 .await
             {
                 Ok(cert) => match config.signatory {

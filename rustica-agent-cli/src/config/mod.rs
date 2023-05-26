@@ -10,6 +10,7 @@ mod singlemode;
 
 use clap::{Arg, ArgMatches, Command};
 
+use rustica_agent::config::UpdatableConfiguration;
 use sshcerts::yubikey::piv::Yubikey;
 use sshcerts::{CertType, PrivateKey, PublicKey};
 
@@ -165,8 +166,8 @@ pub fn add_daemon_options(cmd: Command) -> Command {
         )
 }
 
-fn parse_config_from_args(matches: &ArgMatches) -> Result<Config, ConfigurationError> {
-    rustica_agent::config::parse_config_path(matches.value_of("config").unwrap())
+fn parse_config_from_args(matches: &ArgMatches) -> Result<UpdatableConfiguration, ConfigurationError> {
+    UpdatableConfiguration::new(matches.value_of("config").unwrap())
         .map_err(|e| ConfigurationError::BadConfiguration(e))
 }
 

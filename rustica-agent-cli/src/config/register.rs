@@ -1,11 +1,11 @@
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::{slot_validator, PIVAttestation, RusticaServer, Signatory};
+use rustica_agent::{slot_validator, PIVAttestation, Signatory, config::UpdatableConfiguration};
 use yubikey::piv::SlotId;
 
 use super::{get_signatory, parse_config_from_args, ConfigurationError, RusticaAgentAction};
 
 pub struct RegisterConfig {
-    pub servers: Vec<RusticaServer>,
+    pub updatable_configuration: UpdatableConfiguration,
     pub signatory: Signatory,
     pub attestation: PIVAttestation,
 }
@@ -13,7 +13,8 @@ pub struct RegisterConfig {
 pub async fn configure_register(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
-    let config = parse_config_from_args(&matches)?;
+    let updatable_configuration = parse_config_from_args(&matches)?;
+    let config = updatable_configuration.get_configuration();
 
     let slot = matches.value_of("slot").map(|x| x.to_string());
     let file = matches.value_of("file").map(|x| x.to_string());
@@ -46,7 +47,7 @@ pub async fn configure_register(
     }
 
     return Ok(RusticaAgentAction::Register(RegisterConfig {
-        servers: config.servers,
+        updatable_configuration,
         signatory,
         attestation,
     }));
