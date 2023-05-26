@@ -7,7 +7,6 @@ use rustica_agent::{
 
 use clap::{Arg, ArgMatches, Command};
 use sshcerts::{yubikey::piv::Yubikey, PrivateKey, PublicKey};
-use tokio::runtime::Handle;
 
 use crate::config::{
     parse_certificate_config_from_args, parse_config_from_args, parse_socket_path_from_args,
@@ -117,7 +116,7 @@ pub async fn configure_multimode(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let servers = config.parse_servers(Handle::current());
+    let servers = config.parse_servers();
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let socket_path = parse_socket_path_from_args(matches, &config);
 
@@ -168,6 +167,7 @@ pub async fn configure_multimode(
         piv_identities: key_map,
         notification_function: None,
         certificate_priority: matches.is_present("certificate-priority"),
+        configuration_path: None,
     };
 
     Ok(RusticaAgentAction::Run(RunConfig {

@@ -1,6 +1,5 @@
 use clap::{Arg, ArgMatches, Command};
 use rustica_agent::{slot_validator, CertificateConfig, RusticaServer, Signatory};
-use tokio::runtime::Handle;
 
 use super::{
     get_signatory, parse_certificate_config_from_args, parse_config_from_args, ConfigurationError,
@@ -18,7 +17,7 @@ pub async fn configure_immediate(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let config = parse_config_from_args(&matches)?;
-    let servers = config.parse_servers(Handle::current());
+    let servers = config.parse_servers();
 
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let out = matches.value_of("out").map(|x| x.to_string());

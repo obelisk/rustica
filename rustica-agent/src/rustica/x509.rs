@@ -1,3 +1,4 @@
+use tokio::runtime::Handle;
 use yubikey::piv::SlotId;
 
 use crate::{RusticaServer, Signatory};
@@ -65,8 +66,9 @@ impl RusticaServer {
     pub fn refresh_x509_certificate(
         &self,
         signatory: &mut Signatory,
+        handle: &Handle,
     ) -> Result<Vec<u8>, RefreshError> {
-        self.handle
+        handle
             .block_on(async { self.refresh_attested_x509_certificate_async(signatory).await })
     }
 }
