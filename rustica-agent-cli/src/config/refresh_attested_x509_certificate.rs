@@ -1,13 +1,13 @@
 use std::env;
 
 use clap::{Command, Arg, ArgMatches};
-use rustica_agent::{slot_validator, slot_parser, RusticaServer, Signatory, YubikeySigner};
+use rustica_agent::{slot_validator, slot_parser, Signatory, YubikeySigner, config::UpdatableConfiguration};
 use sshcerts::yubikey::piv::Yubikey;
 
 use super::{RusticaAgentAction, ConfigurationError, parse_config_from_args};
 
 pub struct RefreshAttestedX509Config {
-    pub servers: Vec<RusticaServer>,
+    pub updatable_configuration: UpdatableConfiguration,
     pub signatory: Signatory,
     pub pin: String,
     pub management_key: Vec<u8>,
@@ -16,7 +16,7 @@ pub struct RefreshAttestedX509Config {
 pub async fn configure_refresh_x509_certificate(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
-    let config = parse_config_from_args(&matches)?;
+    let updatable_configuration = parse_config_from_args(&matches)?;
 
     let slot = matches.value_of("slot").map(|x| x.to_string()).unwrap();
     let slot = slot_parser(&slot).unwrap();
@@ -39,7 +39,7 @@ pub async fn configure_refresh_x509_certificate(
 
 
     Ok(RusticaAgentAction::RefreshAttestedX509(RefreshAttestedX509Config {
-        servers: config.servers,
+        updatable_configuration,
         signatory,
         pin,
         management_key,

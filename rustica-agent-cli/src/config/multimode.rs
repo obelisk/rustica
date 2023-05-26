@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs};
 
 use rustica_agent::{
     get_all_piv_keys, Handler, RusticaAgentLibraryError, Signatory, YubikeyPIVKeyDescriptor,
-    YubikeySigner,
+    YubikeySigner
 };
 
 use clap::{Arg, ArgMatches, Command};
@@ -115,7 +115,8 @@ fn get_signatory(
 pub async fn configure_multimode(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
-    let config = parse_config_from_args(&matches)?;
+    let updatable_configuration = parse_config_from_args(&matches)?;
+    let config = updatable_configuration.get_configuration();
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let socket_path = parse_socket_path_from_args(matches, &config);
 
@@ -156,7 +157,7 @@ pub async fn configure_multimode(
     key_map.remove(&pubkey.encode().to_vec());
 
     let handler = Handler {
-        servers: config.servers,
+        updatable_configuration,
         cert: None,
         pubkey: pubkey.clone(),
         signatory,
@@ -166,7 +167,7 @@ pub async fn configure_multimode(
         piv_identities: key_map,
         notification_function: None,
         certificate_priority: matches.is_present("certificate-priority"),
-        configuration_path: None,
+        
     };
 
     Ok(RusticaAgentAction::Run(RunConfig {
