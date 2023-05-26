@@ -67,6 +67,11 @@ pub struct YubikeyPIVKeyDescriptor {
     pub subject: String,
 }
 
+pub struct MtlsCredentials {
+    certificate: String,
+    key: String,
+}
+
 #[derive(Debug)]
 pub enum RusticaAgentLibraryError {
     CouldNotOpenYubikey(u32),
@@ -555,9 +560,23 @@ pub async fn fetch_new_certificate(
 ) -> Result<Certificate, RusticaAgentLibraryError> {
     for server in configuration.get_servers_mut() {
         match server.refresh_certificate_async(signatory, options).await {
-            Ok(response) => {
-                let parsed_cert = Certificate::from_string(&response.cert)
+            Ok((cert, mtls_credentials)) => {
+                let parsed_cert = Certificate::from_string(&cert.cert)
                     .map_err(|e| RusticaAgentLibraryError::ServerReturnedInvalidCertificate(e))?;
+
+                if let Some(mtls_credentials) = mtls_credentials {
+                    if !mtls_credentials.certificate.is_empty() {
+                        server.mtls_cert = mtls_credentials.certificate;
+                    }
+
+                    if !mtls_credentials.key.is_empty() {
+                        server.mtls_key = mtls_credentials.key;
+                    }
+
+                    if let Err(e) = configuration.write() {
+                        error!("Server returned new mTLS credentials but the configuration file couldn't be updated: {e}");
+                    }
+                }
                 return Ok(parsed_cert);
             }
             Err(e) => {
