@@ -1,6 +1,6 @@
 use super::error::{RefreshError, ServerError};
 use super::{CertificateRequest, RusticaCert, Signatory};
-use crate::{CertificateConfig, RusticaServer};
+use crate::{CertificateConfig, RusticaServer, MtlsCredentials};
 use sshcerts::Certificate;
 use tokio::runtime::Handle;
 
@@ -12,7 +12,7 @@ impl RusticaServer {
         &self,
         signatory: &mut Signatory,
         options: &CertificateConfig,
-    ) -> Result<RusticaCert, RefreshError> {
+    ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
         let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await?;
 
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
@@ -42,10 +42,22 @@ impl RusticaServer {
             }));
         }
 
-        Ok(RusticaCert {
+        // If there is a certificate, then create a new MtlsCredentials struct
+        // and return it. It's possible in the future the server will only
+        // return the certificate which is why we only check the certificate.
+        let mtls_credentials = if !response.new_client_certificate.is_empty() {
+            Some(MtlsCredentials {
+                certificate: response.new_client_certificate,
+                key: response.new_client_key,
+            })
+        } else {
+            None
+        };
+
+        Ok((RusticaCert {
             cert: response.certificate,
             comment: "JITC".to_string(),
-        })
+        }, mtls_credentials))
     }
 
     pub fn get_custom_certificate(
@@ -53,7 +65,7 @@ impl RusticaServer {
         signatory: &mut Signatory,
         options: &CertificateConfig,
         handle: &Handle,
-    ) -> Result<RusticaCert, RefreshError> {
+    ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
         handle
             .block_on(async { self.refresh_certificate_async(signatory, options).await })
     }
