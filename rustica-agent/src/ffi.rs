@@ -1,8 +1,7 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::UpdatableConfiguration,
-    list_yubikey_serials, CertificateConfig, Handler, Signatory, YubikeyPIVKeyDescriptor,
-    YubikeySigner,
+    config::UpdatableConfiguration, list_yubikey_serials, CertificateConfig, Handler, Signatory,
+    YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -239,7 +238,6 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         }
     };
 
-
     let out = CStr::from_ptr(out);
     let out = match out.to_str() {
         Err(_) => return false,
@@ -279,8 +277,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         None
     };
 
-    let new_fido_key = match generate_new_ssh_key("ssh:", &comment, pin, device)
-    {
+    let new_fido_key = match generate_new_ssh_key("ssh:", &comment, pin, device) {
         Ok(nfk) => nfk,
         Err(e) => {
             println!("Error: {}", e);
@@ -327,7 +324,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
     };
 
     for server in &updatable_configuration.get_configuration().servers {
-        match server.register_u2f_key(&mut signatory, "ssh:RusticaAgentFIDOKey", &u2f_attestation, &runtime_handle) {
+        match server.register_u2f_key(&mut signatory, "ssh:", &u2f_attestation, &runtime_handle) {
             Ok(_) => {
                 println!(
                     "Key was successfully registered with server: {}",
@@ -375,7 +372,6 @@ pub unsafe extern "C" fn generate_and_enroll(
             return false;
         }
     };
-
 
     let pin = CStr::from_ptr(pin);
     let management_key = CStr::from_ptr(management_key);
@@ -641,7 +637,8 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         _ => return std::ptr::null(),
     };
 
-    let mut certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
+    let mut certificate_options =
+        CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
     certificate_options.authority = authority;
 
     let handler = Handler {
@@ -736,7 +733,8 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         _ => return std::ptr::null(),
     };
 
-    let mut certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
+    let mut certificate_options =
+        CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
     certificate_options.authority = authority;
 
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
