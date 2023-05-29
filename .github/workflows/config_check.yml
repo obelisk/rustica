@@ -14,8 +14,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
     - uses: actions/checkout@v2
     - name: Install libpcsc
       run: sudo apt install -y libpcsclite-dev libusb-1.0-0-dev libudev-dev
-    - name: Run Integration Tests
+    - name: Run Configuration File Checks
       run: ./tests/validate_file_configs.sh
