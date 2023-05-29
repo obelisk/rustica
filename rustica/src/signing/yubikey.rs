@@ -27,6 +27,7 @@ pub struct Config {
     #[serde(deserialize_with = "parse_slot")]
     x509_slot: SlotId,
     /// The slot on the Yubikey to use for signing client certificates
+    #[serde(default)]
     #[serde(deserialize_with = "parse_option_slot")]
     client_certificate_authority_slot: Option<SlotId>,
     /// The common name to use in the client certificate authority
