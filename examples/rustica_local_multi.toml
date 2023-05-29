@@ -67,7 +67,7 @@ expiration_renewal_period = 181439980 #60480000 # One Week * 100
 [signing]
 default_authority = "example_test_environment"
 
-[signing.signing_configuration.example_test_environment]
+[signing.authority_configurations.example_test_environment]
 kind = "File"
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -91,7 +91,7 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
-[signing.signing_configuration."example_corp_hardware_mtls"]
+[signing.authority_configurations."example_corp_hardware_mtls"]
 kind = "Yubikey"
 user_slot = "R2"
 host_slot = "R3"
@@ -99,17 +99,17 @@ x509_slot = "R4"
 client_certificate_authority_slot = "R5"
 client_certificate_authority_common_name = "RusticaAccess"
 
-[signing.signing_configuration."example_prod_ssh_environment"]
+[signing.authority_configurations."example_prod_ssh_environment"]
 kind = "AmazonKMS"
 aws_access_key_id = "XXXXXXXXXXXXXXXXXXXX"
 aws_secret_access_key = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 aws_region = "us-west-2"
 
-[signing.signing_configuration."amazonkms".user_key]
+[signing.authority_configurations."amazonkms".user_key]
 id = "mrk-00000000000000000000000000000000"
 algorithm = "ECDSA_SHA_384"
 
-[signing.signing_configuration."amazonkms".host_key]
+[signing.authority_configurations."amazonkms".host_key]
 id = "mrk-00000000000000000000000000000000"
 algorithm = "ECDSA_SHA_384"
 
