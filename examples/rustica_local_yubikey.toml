@@ -65,7 +65,7 @@ expiration_renewal_period = 181439980 #60480000 # One Week * 100
 [signing]
 default_authority = "example_prod_environment"
 
-[signing.signing_configuration."example_prod_environment"]
+[signing.authority_configurations."example_prod_environment"]
 kind = "Yubikey"
 user_slot = "R1"
 host_slot = "R2"
