@@ -52,7 +52,7 @@ pub enum ConfigurationError {
     AuthorizerError,
     SigningMechanismError(SigningError),
     ValidateOnly,
-    DefaultAuthorityNotDefined,
+    DefaultAuthorityDoesNotHaveSSHKeys,
     NoSuchSigningMechanismForClientCa(String, Vec<String>),
 }
 
@@ -78,9 +78,9 @@ impl std::fmt::Display for ConfigurationError {
             Self::AuthorizerError => write!(f, "Configuration for authorization was invalid"),
             Self::SigningMechanismError(ref e) => write!(f, "{}", e),
             Self::ValidateOnly => write!(f, "Configuration was validated"),
-            Self::DefaultAuthorityNotDefined => write!(
+            Self::DefaultAuthorityDoesNotHaveSSHKeys => write!(
                 f,
-                "The default authority provided did not have a matching configuration"
+                "The default authority must provide SSH keys"
             ),
             Self::NoSuchSigningMechanismForClientCa(chosen, options) => write!(
                 f,
@@ -160,7 +160,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         .get_signer_public_key(&signer.default_authority, CertType::User)
         .is_err()
     {
-        return Err(ConfigurationError::DefaultAuthorityNotDefined);
+        return Err(ConfigurationError::DefaultAuthorityDoesNotHaveSSHKeys);
     }
 
     let rng = rand::SystemRandom::new();

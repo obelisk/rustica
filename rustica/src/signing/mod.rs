@@ -17,7 +17,7 @@ mod file;
 mod yubikey;
 
 #[derive(Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "kind")]
 pub enum SignerType {
     File(file::Config),
     #[cfg(feature = "yubikey-support")]
@@ -59,7 +59,7 @@ pub trait Signer {
     /// on further network dependence as it is called earlier in the stack than `sign`. Creating
     /// a `Signer` from a config is async so memoization of the public key should be done in
     /// there. See the AWS signer as an example.
-    fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey;
+    fn get_signer_public_key(&self, cert_type: CertType) -> Option<PublicKey>;
 
     /// Return the CA certificate used for signing X509 certificate requests.
     /// This function may hide away async code (as it does in the KMS signer)
@@ -140,18 +140,22 @@ pub enum SigningError {
     ParsingError,
     UnknownAuthority,
     DuplicatedKey(String, String),
-    IdenticalUserHostKey(String),
+    IdenticalUserAndHostKey(String),
+    SignerDoesNotHaveSSHKeys,
+    SignerDoesNotAllRequiredSSHKeys,
 }
 
 impl std::fmt::Display for SigningError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SigningError::AccessError(e) => write!(f, "Could not access the private key material: {}", e),
-            SigningError::SigningFailure => write!(f, "The signing operation on the provided certificate failed"),
-            SigningError::ParsingError => write!(f, "The signature could not be parsed"),
-            SigningError::UnknownAuthority => write!(f, "Unknown authority was requested for signing or public key"),
-            SigningError::DuplicatedKey(a1, a2) => write!(f, "Authorities {a1} and {a2} share at least one key. This is not allowed as it almost always a misconfiguration leading to access that is not correctly restricted"),
-            SigningError::IdenticalUserHostKey(authority) => write!(f, "Authority {authority} has an identical key for both user and host certificates. This is not allowed as it's much safer to use separate keys for both."),
+            Self::AccessError(e) => write!(f, "Could not access the private key material: {}", e),
+            Self::SigningFailure => write!(f, "The signing operation on the provided certificate failed"),
+            Self::ParsingError => write!(f, "The signature could not be parsed"),
+            Self::UnknownAuthority => write!(f, "Unknown authority was requested for signing or public key"),
+            Self::DuplicatedKey(a1, a2) => write!(f, "Authorities {a1} and {a2} share at least one key. This is not allowed as it almost always a misconfiguration leading to access that is not correctly restricted"),
+            Self::IdenticalUserAndHostKey(authority) => write!(f, "Authority {authority} has an identical key for both user and host certificates. This is not allowed as it's much safer to use separate keys for both."),
+            Self::SignerDoesNotHaveSSHKeys => write!(f, "Signer was not configured with SSH keys so it cannot create an SSH certificate"),
+            Self::SignerDoesNotAllRequiredSSHKeys => write!(f, "Signer did not have both user and host keys defined")
         }
     }
 }
@@ -163,23 +167,14 @@ impl std::fmt::Display for SigningMechanism {
             SigningSystem::Internal(authorities) => {
                 for signer in authorities.iter() {
                     output.push_str(&format!("Authority: {}\n", signer.0));
-                    output.push_str(&format!(
-                        "\tUser CA Fingerprint (SHA256): {}\n",
-                        signer
-                            .1
-                            .get_signer_public_key(CertType::User)
-                            .fingerprint()
-                            .hash
-                    ));
 
-                    output.push_str(&format!(
-                        "\tHost CA Fingerprint (SHA256): {}\n",
-                        signer
-                            .1
-                            .get_signer_public_key(CertType::Host)
-                            .fingerprint()
-                            .hash
-                    ));
+                    if let Some(fp) = signer.1.get_signer_public_key(CertType::User).map(|x| x.fingerprint().hash) {
+                        output.push_str(&format!("\tUser CA Fingerprint (SHA256): {fp}\n"));
+                    }
+
+                    if let Some(fp) = signer.1.get_signer_public_key(CertType::Host).map(|x| x.fingerprint().hash) {
+                        output.push_str(&format!("\tHost CA Fingerprint (SHA256): {fp}\n"));
+                    }
 
                     if let Some(attested_x509_authority) = signer.1.get_attested_x509_certificate_authority() {
                         output.push_str(&format!(
@@ -229,11 +224,13 @@ impl SigningMechanism {
     ) -> Result<PublicKey, SigningError> {
         match &self.signing_system {
             SigningSystem::Internal(authorities) => {
-                if let Some(authority) = authorities.get(authority) {
-                    Ok(authority.get_signer_public_key(cert_type))
+                let authority = if let Some(authority) = authorities.get(authority) {
+                    authority
                 } else {
-                    Err(SigningError::UnknownAuthority)
-                }
+                    return Err(SigningError::UnknownAuthority)
+                };
+
+                authority.get_signer_public_key(cert_type).ok_or(SigningError::SignerDoesNotHaveSSHKeys)
             }
         }
     }
@@ -282,39 +279,64 @@ impl SigningConfiguration {
     pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, SigningError> {
         match self.signing_configuration {
             SigningSystemConfiguration::Internal(authorities) => {
+                // All of the configured signing authorities 
                 let mut converted_authorities = HashMap::new();
+
+                // The public key fingerprints we've seen while setting up.
+                // Used so we can check that someone isn't accidentally using
+                // the same key across authorities which is almost certainly
+                // a mistake
                 let mut public_keys: HashMap<String, String> = HashMap::new();
                 for authority in authorities.into_iter() {
+                    // Convert the SignerType in to a Signer trait object
                     let signer = authority.1.into_signer().await?;
+
+                    // If this has SSH identities configured, make sure they
+                    // don't conflict
                     let user_hash = signer
-                        .get_signer_public_key(CertType::User)
-                        .fingerprint()
-                        .hash;
+                        .get_signer_public_key(CertType::User).map(|x| x.fingerprint().hash);
                     let host_hash = signer
-                        .get_signer_public_key(CertType::Host)
-                        .fingerprint()
-                        .hash;
+                        .get_signer_public_key(CertType::Host).map(|x| x.fingerprint().hash);
 
-                    if user_hash == host_hash {
-                        return Err(SigningError::IdenticalUserHostKey(authority.0));
+                    // If the user is using the same key for user and host
+                    // certificate authorities, error and tell them not to do
+                    // this
+                    if let (Some(user_hash), Some(host_hash)) = (user_hash.as_ref(), host_hash.as_ref()) {
+                        if user_hash == host_hash {
+                            return Err(SigningError::IdenticalUserAndHostKey(authority.0));
+                        }
                     }
 
-                    if let Some(existing) = public_keys.get(&user_hash) {
-                        return Err(SigningError::DuplicatedKey(
-                            authority.0,
-                            existing.to_owned(),
-                        ));
+                    // If the user key is configured
+                    if let Some(user_hash) = user_hash {
+                        // If this fingerprint is already known in other
+                        // authorities
+                        if let Some(existing) = public_keys.get(&user_hash) {
+                            return Err(SigningError::DuplicatedKey(
+                                authority.0,
+                                existing.to_owned(),
+                            ));
+                        }
+
+                        // Remember we've seen this one
+                        public_keys.insert(user_hash, authority.0.to_owned());
                     }
 
-                    if let Some(existing) = public_keys.get(&host_hash) {
-                        return Err(SigningError::DuplicatedKey(
-                            authority.0,
-                            existing.to_owned(),
-                        ));
+                    // If the host key is configured
+                    if let Some(host_hash) = host_hash {
+                        // If this fingerprint is already known in other
+                        // authorities
+                        if let Some(existing) = public_keys.get(&host_hash) {
+                            return Err(SigningError::DuplicatedKey(
+                                authority.0,
+                                existing.to_owned(),
+                            ));
+                        }
+
+                        // Remember we've seen this one
+                        public_keys.insert(host_hash, authority.0.to_owned());
                     }
 
-                    public_keys.insert(user_hash, authority.0.to_owned());
-                    public_keys.insert(host_hash, authority.0.to_owned());
                     converted_authorities.insert(authority.0, signer);
                 }
 

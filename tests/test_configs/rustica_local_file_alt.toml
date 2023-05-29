@@ -70,13 +70,14 @@ default_authority = "example_test_environment"
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
 [signing.signing_configuration.example_test_environment]
+kind = "File"
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-QyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+gAAAKhxqRWZcakV
-mQAAAAtzc2gtZWQyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+g
-AAAEA8yRG/XWtjlY007gj8tNflVX9fnHPDcQYH2HTImTKvPeGrtTSBxbrqYk1amwv/gAM1
-eg5Qwsddhszw8gduo9P6AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+QyNTUxOQAAACAipVtvuI/JPxiyNkRWEjiBE/JtQi8iGjz4sSeLmBMz/wAAAKhiepqoYnqa
+qAAAAAtzc2gtZWQyNTUxOQAAACAipVtvuI/JPxiyNkRWEjiBE/JtQi8iGjz4sSeLmBMz/w
+AAAEBHwGHZTQ6oGSiiz7kB6/g5g2mNWSX3U4e5WnVZFCv8jSKlW2+4j8k/GLI2RFYSOIET
+8m1CLyIaPPixJ4uYEzP/AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
 ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
@@ -99,17 +100,7 @@ client_certificate_authority_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGe
 client_certificate_authority_private_key_alg = "p384"
 client_certificate_authority_common_name = "RusticaAccess"
 
-[logging]
-identifier = "Some Instance"
-heartbeat_interval = 240
-
 [logging."stdout"]
-
-# This is not a real token, I randomly generated a UUID
-[logging."splunk"]
-token = "c46d7213-19ea-4a66-b83b-e4b06188d197"
-url = "https://http-inputs-examplecompany.splunkcloud.com/services/collector"
-timeout = 5
 
 [authorization."database"]
 path = "examples/example.db"

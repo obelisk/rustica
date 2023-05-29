@@ -18,11 +18,13 @@ use rcgen::{Certificate as X509Certificate, CertificateParams, DnType, IsCa, Rem
 #[derive(Deserialize)]
 pub struct Config {
     /// The slot on the Yubikey to use for signing user certificates
-    #[serde(deserialize_with = "parse_slot")]
-    user_slot: SlotId,
+    #[serde(default)]
+    #[serde(deserialize_with = "parse_option_slot")]
+    user_slot: Option<SlotId>,
     /// The slot on the Yubikey to use for signing host certificates
-    #[serde(deserialize_with = "parse_slot")]
-    host_slot: SlotId,
+    #[serde(default)]
+    #[serde(deserialize_with = "parse_option_slot")]
+    host_slot: Option<SlotId>,
     /// The slot on the Yubikey to use for signing X509 certificates
     #[serde(default)]
     #[serde(deserialize_with = "parse_option_slot")]
@@ -35,15 +37,24 @@ pub struct Config {
     client_certificate_authority_common_name: Option<String>,
 }
 
-pub struct YubikeySigner {
+struct SshKey {
     /// The slot on the Yubikey to use for signing user certificates
-    user_slot: SlotId,
+    slot: SlotId,
     // The public key of the CA used for signing user certificates
-    user_public_key: PublicKey,
-    /// The slot on the Yubikey to use for signing host certificates
-    host_slot: SlotId,
-    /// The public key of the CA used for signing host certificates
-    host_public_key: PublicKey,
+    public_key: PublicKey,
+}
+
+struct SshKeys {
+    /// The key that will be used to sign user SSH certificate requests
+    user: SshKey,
+    /// The key that will be used to sign host SSH certificate requests
+    host: SshKey,
+}
+
+pub struct YubikeySigner {
+    /// The possibly configured SSH keys to be used for fulfilling SSH
+    /// certificate signing requests
+    ssh_keys: Option<SshKeys>,
     /// The X509 certificate that will be the issuer for requested x509 certificates
     x509_certificate: Option<X509Certificate>,
     /// The X509 certificate that will be the issuer for client certificates
@@ -89,19 +100,29 @@ impl SignerConfig for Config {
         let yubikey = new_yubikey_mutex();
         let serial = yubikey.lock().unwrap().yk.serial().0;
 
-        let (user_public_key, host_public_key) = {
-            let mut yk = yubikey.lock().map_err(|e| {
-                SigningError::AccessError(format!("Could not lock Yubikey. Error: {}", e))
-            })?;
+        let ssh_keys = match (self.user_slot, self.host_slot) {
+            (Some(user_slot), Some(host_slot)) => {
+                let mut yk = yubikey.lock().map_err(|e| {
+                    SigningError::AccessError(format!("Could not lock Yubikey. Error: {}", e))
+                })?;
+    
+                let user = SshKey {
+                    slot: user_slot,
+                    public_key: yk.ssh_cert_fetch_pubkey(&user_slot).map_err(|_| {
+                        SigningError::AccessError(format!("Could fetch public key for user key"))
+                    })?
+                };
 
-            (
-                yk.ssh_cert_fetch_pubkey(&self.user_slot).map_err(|_| {
-                    SigningError::AccessError(format!("Could fetch public key for user key"))
-                })?,
-                yk.ssh_cert_fetch_pubkey(&self.host_slot).map_err(|_| {
-                    SigningError::AccessError(format!("Could fetch public key for host key"))
-                })?,
-            )
+                let host = SshKey {
+                    slot: host_slot,
+                    public_key: yk.ssh_cert_fetch_pubkey(&host_slot).map_err(|_| {
+                        SigningError::AccessError(format!("Could fetch public key for user key"))
+                    })?
+                };
+                Some(SshKeys {user, host})
+            }
+            (None, None) => None,
+            _ => return Err(SigningError::SignerDoesNotAllRequiredSSHKeys),
         };
 
         let x509_certificate = match self.x509_slot {
@@ -119,10 +140,7 @@ impl SignerConfig for Config {
         };
 
         Ok(Box::new(YubikeySigner {
-            user_slot: self.user_slot,
-            user_public_key,
-            host_slot: self.host_slot,
-            host_public_key,
+            ssh_keys,
             x509_certificate,
             client_certificate_authority,
             yubikey,
@@ -133,9 +151,11 @@ impl SignerConfig for Config {
 #[async_trait]
 impl Signer for YubikeySigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
+        let ssh_keys = self.ssh_keys.as_ref().ok_or(SigningError::SignerDoesNotHaveSSHKeys)?;
+
         let slot = match cert.cert_type {
-            CertType::User => self.user_slot,
-            CertType::Host => self.host_slot,
+            CertType::User => ssh_keys.user.slot,
+            CertType::Host => ssh_keys.host.slot,
         };
 
         match self.yubikey.lock() {
@@ -155,10 +175,12 @@ impl Signer for YubikeySigner {
         }
     }
 
-    fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {
+    fn get_signer_public_key(&self, cert_type: CertType) -> Option<PublicKey> {
+        let ssh_keys = self.ssh_keys.as_ref()?;
+
         match cert_type {
-            CertType::User => self.user_public_key.clone(),
-            CertType::Host => self.host_public_key.clone(),
+            CertType::User => Some(ssh_keys.user.public_key.clone()),
+            CertType::Host => Some(ssh_keys.host.public_key.clone()),
         }
     }
 
@@ -168,27 +190,6 @@ impl Signer for YubikeySigner {
 
     fn get_client_certificate_authority(&self) -> Option<&rcgen::Certificate> {
         self.client_certificate_authority.as_ref()
-    }
-}
-
-pub fn parse_slot<'de, D>(deserializer: D) -> Result<SlotId, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let slot = String::deserialize(deserializer)?;
-    // If first character is R, then we need to parse the nice
-    // notation
-    if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
-        let slot_value = slot[1..].parse::<u8>();
-        match slot_value {
-            Ok(v) if v <= 20 => Ok(SlotId::try_from(0x81_u8 + v).unwrap()),
-            _ => Err(serde::de::Error::custom("Invalid Slot")),
-        }
-    } else if slot.len() == 4 && slot.starts_with("0x") {
-        let slot_value = hex::decode(&slot[2..]).unwrap()[0];
-        Ok(SlotId::try_from(slot_value).unwrap())
-    } else {
-        Err(serde::de::Error::custom("Invalid Slot"))
     }
 }
 
