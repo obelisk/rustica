@@ -66,11 +66,12 @@ expiration_renewal_period = 181439980 #60480000 # One Week * 100
 default_authority = "example_prod_environment"
 
 [signing.signing_configuration."example_prod_environment"]
+kind = "Yubikey"
 user_slot = "R1"
 host_slot = "R2"
-x509_slot = "0x9a"
-#client_certificate_authority_slot = "R5"
-#client_certificate_authority_common_name = "RusticaAccess"
+#x509_slot = "0x9a"
+client_certificate_authority_slot = "R1"
+client_certificate_authority_common_name = "RusticaAccess"
 
 [logging."stdout"]
 

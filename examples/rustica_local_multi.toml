@@ -48,7 +48,7 @@ UF5oo8pmUycUdA7DWZcL1IDR/lmEBX6uCFTMMqVR4Mk2CTvpQADxHsjz
 # automatic renewal settings.
 [client_authority]
 # This must be one of the signing authorities defined in the signing structure
-authority = "example_test_environment"
+authority = "example_corp_hardware_mtls"
 # When we issue a new access certificate, how long is it valid for. 
 validity_length = 181440000 # Three weeks * 100
 
@@ -68,6 +68,7 @@ expiration_renewal_period = 181439980 #60480000 # One Week * 100
 default_authority = "example_test_environment"
 
 [signing.signing_configuration.example_test_environment]
+kind = "File"
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
@@ -90,19 +91,28 @@ ECAwQ=
 -----END OPENSSH PRIVATE KEY-----
 '''
 
-x509_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDOLp3ZkQZasW1BKZ+fG3ODQgNThvI7pV38DOEFCz6c+gr8whSiV6EHWT04VrddShehZANiAARKbU0hcFy5+9qqHxGx/FBQb2dh6u+pAYh4ASh7skBkPv5DK/46FH6pvyPp6Gfkp8gagcFsr9nAKbwjkVTtBopuhh45KUM5k4VqIqaNox7g+XCrgG29oVqA5WZpW8DFH2c="
-x509_private_key_alg = "p384"
-
-client_certificate_authority_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDOLp3ZkQZasW1BKZ+fG3ODQgNThvI7pV38DOEFCz6c+gr8whSiV6EHWT04VrddShehZANiAARKbU0hcFy5+9qqHxGx/FBQb2dh6u+pAYh4ASh7skBkPv5DK/46FH6pvyPp6Gfkp8gagcFsr9nAKbwjkVTtBopuhh45KUM5k4VqIqaNox7g+XCrgG29oVqA5WZpW8DFH2c="
-client_certificate_authority_private_key_alg = "p384"
-client_certificate_authority_common_name = "RusticaAccess"
-
-[signing.signing_configuration."example_prod_environment"]
+[signing.signing_configuration."example_corp_hardware_mtls"]
+kind = "Yubikey"
 user_slot = "R2"
 host_slot = "R3"
 x509_slot = "R4"
 client_certificate_authority_slot = "R5"
 client_certificate_authority_common_name = "RusticaAccess"
+
+[signing.signing_configuration."example_prod_ssh_environment"]
+kind = "AmazonKMS"
+aws_access_key_id = "XXXXXXXXXXXXXXXXXXXX"
+aws_secret_access_key = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+aws_region = "us-west-2"
+
+[signing.signing_configuration."amazonkms".user_key]
+id = "mrk-00000000000000000000000000000000"
+algorithm = "ECDSA_SHA_384"
+
+[signing.signing_configuration."amazonkms".host_key]
+id = "mrk-00000000000000000000000000000000"
+algorithm = "ECDSA_SHA_384"
+
 
 [authorization."database"]
 path = "examples/example.db"

@@ -70,6 +70,7 @@ default_authority = "example_test_environment"
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
 [signing.signing_configuration.example_test_environment]
+kind = "File"
 # The key that will be used to sign certificates given to user clients. 
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----

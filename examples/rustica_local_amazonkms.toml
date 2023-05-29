@@ -71,18 +71,28 @@ default_authority = "amazonkms"
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
 [signing.signing_configuration."amazonkms"]
+kind = "AmazonKMS"
 aws_access_key_id = "XXXXXXXXXXXXXXXXXXXX"
 aws_secret_access_key = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 aws_region = "us-west-2"
-user_key_id = "mrk-00000000000000000000000000000000"
-user_key_signing_algorithm = "ECDSA_SHA_384"
-host_key_id = "mrk-00000000000000000000000000000000"
-host_key_signing_algorithm = "ECDSA_SHA_384"
-x509_key_id = "mrk-0000000000"
-x509_key_signing_algorithm = "ECDSA_SHA_384"
-client_certificate_authority_key_id = "mrk-00000000000000000000000000000000"
-client_certificate_authority_key_signing_algorithm = "ECDSA_SHA_256"
-client_certificate_authority_common_name = "RusticaAccess"
+
+[signing.signing_configuration."amazonkms".user_key]
+id = "mrk-00000000000000000000000000000000"
+algorithm = "ECDSA_SHA_384"
+
+[signing.signing_configuration."amazonkms".host_key]
+id = "mrk-00000000000000000000000000000000"
+algorithm = "ECDSA_SHA_384"
+
+[signing.signing_configuration."amazonkms".x509_key]
+id = "mrk-00000000000000000000000000000000"
+algorithm = "ECDSA_SHA_384"
+
+[signing.signing_configuration."amazonkms".client_certificate_authority_key]
+id = "mrk-00000000000000000000000000000000"
+algorithm = "ECDSA_SHA_384"
+common_name = "RusticaAccess"
+
 
 [logging."stdout"]
 

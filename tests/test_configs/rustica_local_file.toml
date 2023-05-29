@@ -70,6 +70,7 @@ default_authority = "example_test_environment"
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
 [signing.signing_configuration.example_test_environment]
+kind = "File"
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
@@ -99,17 +100,7 @@ client_certificate_authority_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGe
 client_certificate_authority_private_key_alg = "p384"
 client_certificate_authority_common_name = "RusticaAccess"
 
-[logging]
-identifier = "Some Instance"
-heartbeat_interval = 240
-
 [logging."stdout"]
-
-# This is not a real token, I randomly generated a UUID
-[logging."webhook"]
-auth_header = "Basic c46d7213-19ea-4a66-b83b-e4b06188d197"
-url = "http://localhost:4554/some/webhook/another_long_string_that_can_act_as_a_webhook_secret"
-timeout = 5
 
 [authorization."database"]
 path = "examples/example.db"
