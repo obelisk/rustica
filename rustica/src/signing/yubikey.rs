@@ -24,8 +24,9 @@ pub struct Config {
     #[serde(deserialize_with = "parse_slot")]
     host_slot: SlotId,
     /// The slot on the Yubikey to use for signing X509 certificates
-    #[serde(deserialize_with = "parse_slot")]
-    x509_slot: SlotId,
+    #[serde(default)]
+    #[serde(deserialize_with = "parse_option_slot")]
+    x509_slot: Option<SlotId>,
     /// The slot on the Yubikey to use for signing client certificates
     #[serde(default)]
     #[serde(deserialize_with = "parse_option_slot")]
@@ -44,7 +45,7 @@ pub struct YubikeySigner {
     /// The public key of the CA used for signing host certificates
     host_public_key: PublicKey,
     /// The X509 certificate that will be the issuer for requested x509 certificates
-    x509_certificate: X509Certificate,
+    x509_certificate: Option<X509Certificate>,
     /// The X509 certificate that will be the issuer for client certificates
     client_certificate_authority: Option<X509Certificate>,
     /// A mutex to ensure there is no concurrent access to the Yubikey. Without
@@ -103,7 +104,11 @@ impl SignerConfig for Config {
             )
         };
 
-        let x509_certificate = rcgen_certificate_from_yubikey("Rustica", serial, self.x509_slot)?;
+        let x509_certificate = match self.x509_slot {
+            Some(x509_slot) => Some(rcgen_certificate_from_yubikey("Rustica", serial, x509_slot)?),
+            None => None,
+        };
+
         let client_certificate_authority = if let (Some(slot), Some(cn)) = (
             self.client_certificate_authority_slot,
             self.client_certificate_authority_common_name,
@@ -157,8 +162,8 @@ impl Signer for YubikeySigner {
         }
     }
 
-    fn get_attested_x509_certificate_authority(&self) -> &rcgen::Certificate {
-        &self.x509_certificate
+    fn get_attested_x509_certificate_authority(&self) -> Option<&rcgen::Certificate> {
+        self.x509_certificate.as_ref()
     }
 
     fn get_client_certificate_authority(&self) -> Option<&rcgen::Certificate> {

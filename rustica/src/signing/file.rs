@@ -20,10 +20,10 @@ pub struct Config {
     host_key: PrivateKey,
     /// X509 base64 encoded private key that will be used to issue certificates
     /// from the request_x509 API
-    x509_private_key: String,
+    x509_private_key: Option<String>,
     /// X509 private key type to use, either ECDSA 256 or ECDSA 384.
     /// This should be one of p256 or p384
-    x509_private_key_alg: String,
+    x509_private_key_alg: Option<String>,
     /// X509 base64 encoded private key that will be used to issue client
     /// certificates
     client_certificate_authority_private_key: Option<String>,
@@ -41,7 +41,7 @@ pub struct FileSigner {
     host_key: PrivateKey,
     /// The public portion of the key that will be used to sign X509
     /// certificates
-    x509_certificate: X509Certificate,
+    x509_certificate: Option<X509Certificate>,
     /// The public portion of the key that will be used to sign client
     /// certificates
     client_certificate_authority: Option<X509Certificate>,
@@ -89,8 +89,8 @@ impl Signer for FileSigner {
         }
     }
 
-    fn get_attested_x509_certificate_authority(&self) -> &rcgen::Certificate {
-        &self.x509_certificate
+    fn get_attested_x509_certificate_authority(&self) -> Option<&rcgen::Certificate> {
+        self.x509_certificate.as_ref()
     }
 
     fn get_client_certificate_authority(&self) -> Option<&rcgen::Certificate> {
@@ -101,11 +101,15 @@ impl Signer for FileSigner {
 #[async_trait]
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
-        let x509_certificate = rcgen_certificate_from_private_key(
-            "Rustica",
-            &self.x509_private_key,
-            &self.x509_private_key_alg,
-        )?;
+        let x509_certificate = match (&self.x509_private_key, &self.x509_private_key_alg) {
+            (Some(pk), Some(pka)) => Some(rcgen_certificate_from_private_key(
+                "Rustica",
+                pk,
+                pka
+            )?),
+            _ => None
+        };
+
         let client_certificate_authority = match (
             self.client_certificate_authority_private_key,
             self.client_certificate_authority_private_key_alg,
