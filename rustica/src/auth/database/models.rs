@@ -40,7 +40,7 @@ pub struct FingerprintPermission {
 }
 
 #[derive(Insertable)]
-#[table_name = "registered_keys"]
+#[diesel(table_name = registered_keys)]
 pub struct RegisteredKey {
     pub fingerprint: String,
     pub user: String,
