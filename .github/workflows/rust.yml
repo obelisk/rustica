@@ -14,6 +14,8 @@ jobs:
     runs-on: macos-latest
 
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=all
@@ -22,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=splunk
@@ -30,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=influx
@@ -38,6 +44,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=local-db
@@ -46,6 +54,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=amazon-kms
@@ -54,6 +64,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features="splunk,influx,local-db,amazon-kms"
