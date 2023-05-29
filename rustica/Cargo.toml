@@ -2,7 +2,7 @@
 name = "rustica"
 version = "0.11.0"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
-edition = "2018"
+edition = "2021"
 
 [features]
 default = []
@@ -24,7 +24,7 @@ crossbeam-channel = "0.5"
 env_logger = "0.8.2"
 hex = "0.4.2"
 log = "0.4.13"
-prost = "0.9"
+prost = "0.11"
 ring = "0.16.20"
 serde = {version = "1.0", features = ["derive"]}
 # For Production
@@ -34,7 +34,7 @@ sshcerts = {version = "0.12", default-features = false, features = ["fido-lite",
 #sshcerts = {path = "../../sshcerts", features = ["fido-lite", "x509-support", "yubikey-lite"] }
 tokio = { version = "1", features = ["full"] }
 toml = "0.5"
-tonic = { version = "0.6", features = ["tls"] }
+tonic = { version = "0.9", features = ["tls"] }
 x509-parser = { version = "0.9", features = ["verify"] }
 
 # These are needed for the X509 certificate integrations
@@ -47,15 +47,15 @@ aws-sdk-kms = { version = "0.5", optional = true }
 aws-types = { version = "0.5", optional = true }
 
 # Dependencies for local-db
-diesel = { version = "1.4.4", features = ["sqlite"], optional = true }
+diesel = { version = "2", features = ["sqlite"], optional = true }
 
 # Dependencies for Influx
-influxdb = { version = "0.5.1", optional = true }
+influxdb = { version = "0.6", optional = true }
 
 # Dependencies for Splunk/Webhook
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"], optional = true }
 serde_json = { version = "1.0", optional = true }
 
 [build-dependencies]
-tonic-build = "0.6"
+tonic-build = "0.9"
 

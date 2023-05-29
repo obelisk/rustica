@@ -42,11 +42,11 @@ impl LocalDatabase {
             Err(_e) => 0xEFFFFFFFFFFFFFFF,
         };
 
-        let conn = establish_connection(&self.path);
+        let mut conn = establish_connection(&self.path);
         let principals = {
             use schema::fingerprint_principal_authorizations::dsl::*;
             let results = fingerprint_principal_authorizations.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
-                .load::<models::FingerprintPrincipalAuthorization>(&conn)
+                .load::<models::FingerprintPrincipalAuthorization>(&mut conn)
                 .expect("Error loading authorized hosts");
             
             results.into_iter().map(|x| x.principal).collect()
@@ -56,7 +56,7 @@ impl LocalDatabase {
             use schema::fingerprint_host_authorizations::dsl::*;
 
             let results = fingerprint_host_authorizations.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
-                .load::<models::FingerprintHostAuthorization>(&conn)
+                .load::<models::FingerprintHostAuthorization>(&mut conn)
                 .expect("Error loading authorized hosts");
             
             Some(results.into_iter().map(|x| x.hostname).collect())
@@ -66,7 +66,7 @@ impl LocalDatabase {
             use schema::fingerprint_extensions::dsl::*;
 
             let results = fingerprint_extensions.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
-                .load::<models::FingerprintExtension>(&conn)
+                .load::<models::FingerprintExtension>(&mut conn)
                 .expect("Error loading fingerprint extensions");
             
             results.into_iter().map(|x| (x.extension_name, x.extension_value.unwrap_or(String::new()))).collect()
@@ -75,7 +75,7 @@ impl LocalDatabase {
         {
             use schema::fingerprint_permissions::dsl::*;
             let results = fingerprint_permissions.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
-                .load::<models::FingerprintPermission>(&conn)
+                .load::<models::FingerprintPermission>(&mut conn)
                 .expect("Error loading authorized hosts");
             
             if !results.is_empty() {
@@ -112,7 +112,7 @@ impl LocalDatabase {
     }
     
     pub fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<(), AuthorizationError> {
-        let connection = establish_connection(&self.path);
+        let mut conn = establish_connection(&self.path);
         let mut registered_key = models::RegisteredKey {
             fingerprint: req.fingerprint.clone(),
             user: req.mtls_identities.join(","),
@@ -156,7 +156,7 @@ impl LocalDatabase {
             use schema::registered_keys::dsl::*;
             diesel::insert_into(registered_keys)
                 .values(&registered_key)
-                .execute(&connection)
+                .execute(&mut conn)
         };
 
         match result {
@@ -169,7 +169,7 @@ impl LocalDatabase {
         &self,
         auth_props: &X509AuthorizationRequestProperties,
     ) -> Result<X509Authorization, AuthorizationError> {
-        let conn = establish_connection(&self.path);
+        let mut conn = establish_connection(&self.path);
 
         let (att_serial, touch_policy) = match &auth_props.key.attestation {
             None => return Err(AuthorizationError::AuthorizerError),
@@ -182,7 +182,7 @@ impl LocalDatabase {
         let authorization: Vec<_> = {
             use schema::x509_authorizations::dsl::*;
             let results = x509_authorizations.filter(user.eq(mtls_user).and(hsm_serial.eq(att_serial.to_string())))
-                .load::<models::X509Authorization>(&conn)
+                .load::<models::X509Authorization>(&mut conn)
                 .expect("Error loading authorized hosts");
             
             results.into_iter().collect()
