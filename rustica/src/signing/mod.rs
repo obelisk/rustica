@@ -265,6 +265,13 @@ impl SigningMechanism {
             }
         }
     }
+
+    pub fn get_authorities(&self) -> Vec<String> {
+        match &self.signing_system {
+            SigningSystem::Internal(i) =>
+                i.keys().map(|x| x.to_owned()).collect(),
+        }
+    }
 }
 
 impl SigningConfiguration {
