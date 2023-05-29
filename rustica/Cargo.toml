@@ -5,7 +5,7 @@ authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2018"
 
 [features]
-default = []
+default = ["amazon-kms", "yubikey-support"]
 
 all = ["amazon-kms", "influx", "splunk", "yubikey-support", "local-db", "webhook"]
 

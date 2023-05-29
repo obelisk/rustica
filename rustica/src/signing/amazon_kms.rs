@@ -24,6 +24,13 @@ use serde::Deserialize;
 
 use rcgen::{Certificate as X509Certificate, CertificateParams, DnType, IsCa, RcgenError};
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct KmsKeyDefinition {
+    id: String,
+    algorithm: String,
+    common_name: Option<String>,
+}
+
 /// Defines the configuration of the AmazonKMS signer
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -33,28 +40,18 @@ pub struct Config {
     aws_secret_access_key: String,
     /// The region to be used
     aws_region: String,
-    /// The KMS key id to use as the user key
-    user_key_id: String,
-    /// The signing algorithm to use. This should be ECDSA_SHA_256 and
-    /// ECDSA_SHA_384 for a Nistp256 and Nistp384 respectively
-    user_key_signing_algorithm: String,
-    /// The signing algorithm to use. This should be ECDSA_SHA_256 and
-    /// ECDSA_SHA_384 for a Nistp256 and Nistp384 respectively
-    host_key_signing_algorithm: String,
-    /// The KMS key id to use as the host key
-    host_key_id: String,
-    /// The signing algorithm to use. This should be ECDSA_SHA_256 and
-    /// ECDSA_SHA_384 for a Nistp256 and Nistp384 respectively
-    x509_key_signing_algorithm: Option<String>,
-    /// The KMS key id to use as the x509 key
-    x509_key_id: Option<String>,
-    /// The signing algorithm to use. This should be ECDSA_SHA_256 and
-    /// ECDSA_SHA_384 for a Nistp256 and Nistp384 respectively
-    client_certificate_authority_key_signing_algorithm: Option<String>,
-    /// The KMS key id to use as the client refresh key
-    client_certificate_authority_key_id: Option<String>,
-    /// The common name to use in the client certificate authority
-    client_certificate_authority_common_name: Option<String>,
+
+    // The key to be used to sign user SSH certificates
+    user_key: Option<KmsKeyDefinition>,
+
+    // The key to be used to sign host SSH certificates
+    host_key: Option<KmsKeyDefinition>,
+
+    // The key to be used to sign attested X509 certificate requests
+    x509_key: Option<KmsKeyDefinition>,
+
+    // The key to be used to issue new client mTLS certificates
+    client_certificate_authority_key: Option<KmsKeyDefinition>,
 }
 
 /// Defines the information needed for an AmazonKMS backed SSH key
@@ -67,13 +64,17 @@ struct SshKmsKey {
     key_signing_algorithm: SigningAlgorithmSpec,
 }
 
+struct SshKeys {
+    user: SshKmsKey,
+    host: SshKmsKey,
+}
+
 /// Represents a fully configured AmazonKMS signer that when created with
 /// `new()` prefetches the public portion of the user and host keys.
 pub struct AmazonKMSSigner {
-    /// The key to sign user certificates
-    user_key: SshKmsKey,
-    /// The key to sign host certificates
-    host_key: SshKmsKey,
+    /// The configured SSH keys that will be used to sign SSH certificate
+    /// requests for users and hosts
+    ssh_keys: Option<SshKeys>,
     /// The public portion of the key that will be used to sign X509
     /// certificates but also contains the remote signer.
     x509_certificate: Option<X509Certificate>,
@@ -275,35 +276,32 @@ impl SignerConfig for Config {
             .await;
         let client = Client::new(&aws_config);
 
-        let user_key =
-            ssh_key_from_kms(&client, &self.user_key_id, &self.user_key_signing_algorithm).await?;
-        let host_key =
-            ssh_key_from_kms(&client, &self.host_key_id, &self.host_key_signing_algorithm).await?;
+        let ssh_keys = match (self.user_key, self.host_key) {
+            (Some(user), Some(host)) => Some(SshKeys {
+                user: ssh_key_from_kms(&client, &user.id, &user.algorithm).await?,
+                host: ssh_key_from_kms(&client, &host.id, &host.algorithm).await?,
+            }),
+            (None, None) => None,
+            _ => return Err(SigningError::SignerDoesNotAllRequiredSSHKeys),
+        };
 
-        let x509_certificate = match (
-            &self.x509_key_id,
-            &self.x509_key_signing_algorithm,
-        ) {
-            (Some(id), Some(alg)) => {
-                Some(rcgen_certificate_from_kms(client.clone(), "Rustica", id, alg).await?)
+        let x509_certificate = match self.x509_key {
+            Some(x509_key) => {
+                Some(rcgen_certificate_from_kms(client.clone(), "Rustica", &x509_key.id, &x509_key.algorithm).await?)
             }
             _ => None,
         };
 
-        let client_certificate_authority = match (
-            &self.client_certificate_authority_key_id,
-            &self.client_certificate_authority_key_signing_algorithm,
-            &self.client_certificate_authority_common_name,
-        ) {
-            (Some(id), Some(alg), Some(cn)) => {
-                Some(rcgen_certificate_from_kms(client.clone(), &cn, id, alg).await?)
+        let client_certificate_authority = match self.client_certificate_authority_key {
+            Some(client_ca_authority) => {
+                let common_name = client_ca_authority.common_name.unwrap_or("RusticaAccess".to_owned());
+                Some(rcgen_certificate_from_kms(client.clone(), &common_name, &client_ca_authority.id, &client_ca_authority.algorithm).await?)
             }
             _ => None,
         };
 
         Ok(Box::new(AmazonKMSSigner {
-            user_key,
-            host_key,
+            ssh_keys,
             x509_certificate,
             client_certificate_authority,
             client,
@@ -314,17 +312,18 @@ impl SignerConfig for Config {
 #[async_trait]
 impl Signer for AmazonKMSSigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
+        let ssh_keys = self.ssh_keys.as_ref().ok_or(SigningError::SignerDoesNotHaveSSHKeys)?;
         let data = cert.tbs_certificate();
         let (pubkey, key_id, key_algo) = match &cert.cert_type {
             CertType::User => (
-                &self.user_key.public_key,
-                &self.user_key.key_id,
-                &self.user_key.key_signing_algorithm,
+                &ssh_keys.user.public_key,
+                &ssh_keys.user.key_id,
+                &ssh_keys.user.key_signing_algorithm,
             ),
             CertType::Host => (
-                &self.host_key.public_key,
-                &self.host_key.key_id,
-                &self.host_key.key_signing_algorithm,
+                &ssh_keys.host.public_key,
+                &ssh_keys.host.key_id,
+                &ssh_keys.host.key_signing_algorithm,
             ),
         };
         let result = self
@@ -353,7 +352,7 @@ impl Signer for AmazonKMSSigner {
         };
 
         // Convert to SSH styled signature
-        let signature = match format_signature_for_ssh(pubkey, &signature) {
+        let signature = match format_signature_for_ssh(&pubkey, &signature) {
             Some(s) => s,
             None => return Err(SigningError::ParsingError),
         };
@@ -362,10 +361,11 @@ impl Signer for AmazonKMSSigner {
             .map_err(|_| SigningError::SigningFailure)
     }
 
-    fn get_signer_public_key(&self, cert_type: CertType) -> PublicKey {
+    fn get_signer_public_key(&self, cert_type: CertType) -> Option<PublicKey> {
+        let ssh_keys = self.ssh_keys.as_ref()?;
         match cert_type {
-            CertType::User => self.user_key.public_key.clone(),
-            CertType::Host => self.host_key.public_key.clone(),
+            CertType::User => Some(ssh_keys.user.public_key.clone()),
+            CertType::Host => Some(ssh_keys.host.public_key.clone()),
         }
     }
 

@@ -35,7 +35,7 @@ else
 fi
 
 # Start a Rustica Server
-./target/debug/rustica --config examples/rustica_local_file_alt.toml > /dev/null 2>&1 &
+./target/debug/rustica --config tests/test_configs/rustica_local_file_alt.toml > /dev/null 2>&1 &
 RUSTICA_PID=$!
 sleep 2
 
@@ -159,7 +159,7 @@ rm $SSH_AUTH_SOCK
 kill $AGENT_PID $RUSTICA_PID
 wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
 
-./target/debug/rustica --config examples/rustica_local_file.toml > /dev/null 2>&1 &
+./target/debug/rustica --config tests/test_configs/rustica_local_file.toml > /dev/null 2>&1 &
 RUSTICA_PID=$!
 sleep 2
 
