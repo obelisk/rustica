@@ -69,7 +69,7 @@ default_authority = "example_test_environment"
 # clients. This method uses private keys embedded in the configuration
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
-[signing.signing_configuration.example_test_environment]
+[signing.authority_configurations.example_test_environment]
 kind = "File"
 user_key = '''
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -97,7 +97,7 @@ x509_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDOLp3ZkQZasW1B
 x509_private_key_alg = "p384"
 
 client_certificate_authority_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDOLp3ZkQZasW1BKZ+fG3ODQgNThvI7pV38DOEFCz6c+gr8whSiV6EHWT04VrddShehZANiAARKbU0hcFy5+9qqHxGx/FBQb2dh6u+pAYh4ASh7skBkPv5DK/46FH6pvyPp6Gfkp8gagcFsr9nAKbwjkVTtBopuhh45KUM5k4VqIqaNox7g+XCrgG29oVqA5WZpW8DFH2c="
-client_certificate_authority_private_key_alg = "p384"
+client_certificate_authority_private_key_algorithm = "p384"
 client_certificate_authority_common_name = "RusticaAccess"
 
 [logging]

@@ -13,9 +13,11 @@ use async_trait::async_trait;
 #[derive(Deserialize)]
 pub struct Config {
     /// The private key used to sign user certificates
+    #[serde(default)]
     #[serde(deserialize_with = "option_parse_private_key")]
     user_key: Option<PrivateKey>,
     /// The private key used to sign host certificates
+    #[serde(default)]
     #[serde(deserialize_with = "option_parse_private_key")]
     host_key: Option<PrivateKey>,
     /// X509 base64 encoded private key that will be used to issue certificates
@@ -23,13 +25,13 @@ pub struct Config {
     x509_private_key: Option<String>,
     /// X509 private key type to use, either ECDSA 256 or ECDSA 384.
     /// This should be one of p256 or p384
-    x509_private_key_alg: Option<String>,
+    x509_private_key_algorithm: Option<String>,
     /// X509 base64 encoded private key that will be used to issue client
     /// certificates
     client_certificate_authority_private_key: Option<String>,
     /// X509 private key type to use, either ECDSA 256 or ECDSA 384.
     /// This should be one of p256 or p384
-    client_certificate_authority_private_key_alg: Option<String>,
+    client_certificate_authority_private_key_algorithm: Option<String>,
     /// The common name to use in the client certificate authority
     client_certificate_authority_common_name: Option<String>,
 }
@@ -109,7 +111,7 @@ impl Signer for FileSigner {
 #[async_trait]
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
-        let x509_certificate = match (&self.x509_private_key, &self.x509_private_key_alg) {
+        let x509_certificate = match (&self.x509_private_key, &self.x509_private_key_algorithm) {
             (Some(pk), Some(pka)) => Some(rcgen_certificate_from_private_key(
                 "Rustica",
                 pk,
@@ -120,7 +122,7 @@ impl SignerConfig for Config {
 
         let client_certificate_authority = match (
             self.client_certificate_authority_private_key,
-            self.client_certificate_authority_private_key_alg,
+            self.client_certificate_authority_private_key_algorithm,
             self.client_certificate_authority_common_name,
         ) {
             (Some(ccapk), Some(ccapka), Some(cn)) => {

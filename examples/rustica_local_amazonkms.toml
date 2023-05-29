@@ -70,7 +70,7 @@ default_authority = "amazonkms"
 # clients. This method uses private keys embedded in the configuration
 # file. This will mean the hosts which you want to login to via Rustica
 # must respect the public portion of the user key variable below.
-[signing.signing_configuration."amazonkms"]
+[signing.authority_configurations."amazonkms"]
 kind = "AmazonKMS"
 aws_access_key_id = "XXXXXXXXXXXXXXXXXXXX"
 aws_secret_access_key = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
