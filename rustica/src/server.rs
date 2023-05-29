@@ -773,9 +773,16 @@ impl Rustica for RusticaServer {
     ) -> Result<Response<AttestedX509CertificateResponse>, Status> {
         let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
 
-        let peer = if let Some(cert) = request.peer_certs().ok_or(Status::permission_denied(""))?.get(0) {
-            cert.clone()
+        let peer_certs = request.peer_certs().ok_or(Status::permission_denied(""))?;
+
+        let peer = if let Some(peer) = peer_certs.get(0) {
+            if peer_certs.len() != 1 {
+                rustica_warning!(self, format!("Received request with multiple peer identities from {remote_addr}"));
+                return Err(Status::permission_denied(""));
+            }
+            peer
         } else {
+            rustica_error!(self, format!("No peer certificate was presented. Tonic issue?"));
             return Err(Status::permission_denied(""))
         };
 
@@ -858,8 +865,20 @@ impl Rustica for RusticaServer {
             .signer
             .get_attested_x509_certificate_authority(&authorization.authority)
             .map_err(|_| Status::permission_denied("message"))?;
-        let cert = csr.serialize_der_with_signer(ca_cert).unwrap();
 
+        let cert = match ca_cert {
+            Some(ca_cert) => csr.serialize_der_with_signer(ca_cert),
+            None => {
+                rustica_error!(self, format!("The requested authority {} does not exist or is not configured", &authorization.authority));
+                return Err(Status::permission_denied(""));
+            }
+        };
+
+        let cert = cert.map_err(|_| {
+            rustica_error!(self, format!("Could not serialize attested x509 certificate for {}", authorization.common_name.clone()));
+            Status::permission_denied("")
+        })?;
+        
         // Assert that the CSR contains the same public key as the provided
         // leaf. Ideally we would check this first but rcgen does not seem
         // to provide anyway for that to happen.

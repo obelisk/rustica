@@ -45,9 +45,9 @@ pub struct Config {
     host_key_id: String,
     /// The signing algorithm to use. This should be ECDSA_SHA_256 and
     /// ECDSA_SHA_384 for a Nistp256 and Nistp384 respectively
-    x509_key_signing_algorithm: String,
+    x509_key_signing_algorithm: Option<String>,
     /// The KMS key id to use as the x509 key
-    x509_key_id: String,
+    x509_key_id: Option<String>,
     /// The signing algorithm to use. This should be ECDSA_SHA_256 and
     /// ECDSA_SHA_384 for a Nistp256 and Nistp384 respectively
     client_certificate_authority_key_signing_algorithm: Option<String>,
@@ -76,7 +76,7 @@ pub struct AmazonKMSSigner {
     host_key: SshKmsKey,
     /// The public portion of the key that will be used to sign X509
     /// certificates but also contains the remote signer.
-    x509_certificate: X509Certificate,
+    x509_certificate: Option<X509Certificate>,
     /// The public portion of the key that will be used to sign client
     /// certificates used to connect to rustica
     client_certificate_authority: Option<X509Certificate>,
@@ -280,14 +280,15 @@ impl SignerConfig for Config {
         let host_key =
             ssh_key_from_kms(&client, &self.host_key_id, &self.host_key_signing_algorithm).await?;
 
-        // Create the x509 certificate
-        let x509_certificate = rcgen_certificate_from_kms(
-            client.clone(),
-            "Rustica",
+        let x509_certificate = match (
             &self.x509_key_id,
             &self.x509_key_signing_algorithm,
-        )
-        .await?;
+        ) {
+            (Some(id), Some(alg)) => {
+                Some(rcgen_certificate_from_kms(client.clone(), "Rustica", id, alg).await?)
+            }
+            _ => None,
+        };
 
         let client_certificate_authority = match (
             &self.client_certificate_authority_key_id,
@@ -368,8 +369,8 @@ impl Signer for AmazonKMSSigner {
         }
     }
 
-    fn get_attested_x509_certificate_authority(&self) -> &X509Certificate {
-        return &self.x509_certificate;
+    fn get_attested_x509_certificate_authority(&self) -> Option<&X509Certificate> {
+        return self.x509_certificate.as_ref();
     }
 
     fn get_client_certificate_authority(&self) -> Option<&X509Certificate> {
