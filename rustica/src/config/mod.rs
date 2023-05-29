@@ -53,7 +53,7 @@ pub enum ConfigurationError {
     SigningMechanismError(SigningError),
     ValidateOnly,
     DefaultAuthorityNotDefined,
-    NoSuchSigningMechanismForClientCa,
+    NoSuchSigningMechanismForClientCa(String, Vec<String>),
 }
 
 impl From<sshcerts::error::Error> for ConfigurationError {
@@ -82,9 +82,9 @@ impl std::fmt::Display for ConfigurationError {
                 f,
                 "The default authority provided did not have a matching configuration"
             ),
-            Self::NoSuchSigningMechanismForClientCa => write!(
+            Self::NoSuchSigningMechanismForClientCa(chosen, options) => write!(
                 f,
-                "The requested signing mechanism to issue client certificates is not configured"
+                "The requested signing mechanism to issue client certificates ({chosen}) is not configured. Options are: {}", options.join(", ")
             ),
         }
     }
@@ -113,6 +113,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
                 .help("Only validate the configuration and then quit. Useful for testing configuration changes.")
                 .long("validate-config")
                 .short('v')
+                .action(clap::ArgAction::Count)
                 .takes_value(false),
         )
         .get_matches();
@@ -131,6 +132,12 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
             return Err(ConfigurationError::ParsingError);
         }
     };
+
+    // Only validate that the configuration parses correctly
+    // Do not check that we could access keys and build certificates.
+    if matches.get_count("validate") == 1 {
+        return Err(ConfigurationError::ValidateOnly);
+    }
 
     let address = match config.listen_address.parse() {
         Ok(addr) => addr,
@@ -160,20 +167,23 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let hmac_key = hmac::Key::generate(hmac::HMAC_SHA256, &rng).unwrap();
     let challenge_key = PrivateKey::new(KeyTypeKind::Ed25519, "RusticaChallengeKey").unwrap();
 
-    if matches.is_present("validate") {
-        return Err(ConfigurationError::ValidateOnly);
-    }
-
     let client_ca_cert = signer
         .get_client_certificate_authority(&config.client_authority.authority)
         .map_err(|e| ConfigurationError::SigningMechanismError(e))?
-        .ok_or(ConfigurationError::NoSuchSigningMechanismForClientCa)?
+        .ok_or(ConfigurationError::NoSuchSigningMechanismForClientCa(config.client_authority.authority.clone(), signer.get_authorities()))?
         .serialize_pem()
         .map_err(|e| {
             ConfigurationError::SigningMechanismError(SigningError::AccessError(format!(
                 "Could not create a PEM from the requested signing system: {e}"
             )))
         })?;
+    
+    // We're only validating that we can use this configuration so do not start
+    // This happens after we've parsed the config but also confirmed access to
+    // keys and created certificates.
+    if matches.get_count("validate") > 1 {
+        return Err(ConfigurationError::ValidateOnly);
+    }
 
     let server = RusticaServer {
         log_sender,
