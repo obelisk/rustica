@@ -76,19 +76,19 @@ aws_access_key_id = "XXXXXXXXXXXXXXXXXXXX"
 aws_secret_access_key = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 aws_region = "us-west-2"
 
-[signing.signing_configuration."amazonkms".user_key]
+[signing.authority_configurations."amazonkms".user_key]
 id = "mrk-00000000000000000000000000000000"
 algorithm = "ECDSA_SHA_384"
 
-[signing.signing_configuration."amazonkms".host_key]
+[signing.authority_configurations."amazonkms".host_key]
 id = "mrk-00000000000000000000000000000000"
 algorithm = "ECDSA_SHA_384"
 
-[signing.signing_configuration."amazonkms".x509_key]
+[signing.authority_configurations."amazonkms".x509_key]
 id = "mrk-00000000000000000000000000000000"
 algorithm = "ECDSA_SHA_384"
 
-[signing.signing_configuration."amazonkms".client_certificate_authority_key]
+[signing.authority_configurations."amazonkms".client_certificate_authority_key]
 id = "mrk-00000000000000000000000000000000"
 algorithm = "ECDSA_SHA_384"
 common_name = "RusticaAccess"
