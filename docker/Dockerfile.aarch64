@@ -1,5 +1,7 @@
 FROM messense/rust-musl-cross:aarch64-musl as builder
 
+RUN apt-get update && apt install -y protobuf-compiler
+
 RUN rustup component add rustfmt
 RUN mkdir /rustica
 COPY proto /tmp/proto

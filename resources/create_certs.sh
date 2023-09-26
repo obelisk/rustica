@@ -86,6 +86,8 @@ openssl req -x509 -new -key ca.key -nodes -days 3650 -out ca.pem -subj '/CN=Ente
 
 # Generate Client CA key and cert
 openssl ecparam -genkey -name prime256v1 -noout -out client_ca.key
+# Convert EC key format to PKCS#8 key format to comply with ring's key format requirement
+openssl pkcs8 -topk8 -nocrypt -in client_ca.key -out client_ca_pkcs8.key
 openssl req -new -key client_ca.key -x509 -nodes -days 3650 -out client_ca.pem -subj '/CN=EnterpriseClientRootCA'
 
 # ------------ Generate Private Keys For Test Infra ------------ #
