@@ -11,6 +11,7 @@ pub struct ServerError {
 pub enum RefreshError {
     TransportError,
     SigningError,
+    ServerChallengeNotForClientKey,
     UnsupportedMode,
     InvalidUri,
     ConfigurationError(String),
@@ -25,6 +26,7 @@ impl fmt::Display for RefreshError {
         match *self {
             RefreshError::ConfigurationError(ref err) => write!(f, "Configuration is invalid: {}", err),
             RefreshError::TransportError => write!(f, "Transport Error. Generally a TLS issue"),
+            RefreshError::ServerChallengeNotForClientKey => write!(f, "Server challenge is not for your key"),
             RefreshError::SigningError => write!(f, "Signing or verification failed"),
             RefreshError::UnsupportedMode => write!(f, "Attempted to use a curve or cipher not supported by rustica-agent"),
             RefreshError::InvalidUri => write!(f, "Provided address of remote service was invalid"),
