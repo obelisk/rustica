@@ -100,6 +100,14 @@ pub async fn complete_rustica_challenge(
         SSHCertificate::from_string(&response.challenge).map_err(|_| RefreshError::SigningError)?;
     challenge_certificate.signature_key = challenge_certificate.key.clone();
 
+    // We assert that the pubkey in the challenge belongs to the client
+    // This prevents a malicious Rustica server from tricking the client into signing a
+    // malicious SSH certificate for some unknown key.
+    if challenge_certificate.key.fingerprint().hash != ssh_pubkey.fingerprint().hash {
+        error!("The public key in the challenge doesn't match the client's public key");
+        return Err(RefreshError::ServerChallengeNotForClientKey);
+    }
+
     let resigned_certificate = match signatory {
         Signatory::Yubikey(signer) => {
             let signature = signer

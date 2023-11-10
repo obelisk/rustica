@@ -209,7 +209,7 @@ fn validate_request(
     })?;
 
     let hmac_challenge = &parsed_certificate.key_id;
-    let hmac_verification = format!("{}-{}", request_time, challenge.pubkey);
+    let hmac_verification = format!("{}-{}-{}", request_time, challenge.pubkey, cert_info.identities.join(","));
     let decoded_challenge =
         hex::decode(&hmac_challenge).map_err(|_| RusticaServerError::BadChallenge)?;
 
@@ -364,7 +364,7 @@ impl Rustica for RusticaServer {
             .as_secs()
             .to_string();
         let pubkey = &request.pubkey;
-        let challenge = format!("{}-{}", timestamp, pubkey);
+        let challenge = format!("{}-{}-{}", timestamp, pubkey, mtls_identities.join(","));
         let tag = hmac::sign(&self.hmac_key, challenge.as_bytes());
 
         // Build an SSHCertificate as a challenge
