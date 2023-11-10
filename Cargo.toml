@@ -1,11 +1,7 @@
 [workspace]
+resolver = "2"
 
-members = [
-    "rustica",
-    "rustica-agent",
-    "rustica-agent-cli",
-    "rustica-agent-gui",
-]
+members = ["rustica", "rustica-agent", "rustica-agent-cli", "rustica-agent-gui"]
 
 [profile.release]
 strip = "debuginfo"

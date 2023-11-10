@@ -1,15 +1,22 @@
 [package]
 name = "rustica"
-version = "0.11.0"
+version = "0.11.1"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2021"
 
 [features]
 default = []
 
-all = ["amazon-kms", "influx", "splunk", "yubikey-support", "local-db", "webhook"]
+all = [
+    "amazon-kms",
+    "influx",
+    "splunk",
+    "yubikey-support",
+    "local-db",
+    "webhook",
+]
 
-amazon-kms = ["aws-config", "aws-sdk-kms", "aws-types"]
+amazon-kms = ["aws-config", "aws-credential-types", "aws-sdk-kms", "aws-types"]
 influx = ["influxdb"]
 local-db = ["diesel"]
 splunk = ["webhook"]
@@ -25,26 +32,34 @@ env_logger = "0.8.2"
 hex = "0.4.2"
 log = "0.4.13"
 prost = "0.11"
-ring = "0.16.20"
-serde = {version = "1.0", features = ["derive"]}
+ring = "0.17"
+serde = { version = "1.0", features = ["derive"] }
 # For Production
-sshcerts = {version = "0.12", default-features = false, features = ["fido-lite", "x509-support", "yubikey-lite"]}
+sshcerts = { version = "0.12", default-features = false, features = [
+    "fido-lite",
+    "x509-support",
+    "yubikey-lite",
+] }
 # For Development
-#sshcerts = {git = "https://github.com/obelisk/sshcerts", branch="bug_fixes_2022_07_06", default-features = false, features = ["fido-lite", "x509-support", "yubikey-lite"]}
-#sshcerts = {path = "../../sshcerts", features = ["fido-lite", "x509-support", "yubikey-lite"] }
+# sshcerts = { path = "../../sshcerts", default-features = false, features = [
+#     "fido-lite",
+#     "x509-support",
+#     "yubikey-lite",
+# ] }
 tokio = { version = "1", features = ["full"] }
 toml = "0.5"
 tonic = { version = "0.9", features = ["tls"] }
-x509-parser = { version = "0.9", features = ["verify"] }
+x509-parser = { version = "0.15", features = ["verify"] }
 
 # These are needed for the X509 certificate integrations
-rcgen = {version = "0.10", features = ["x509-parser"]}
+rcgen = { version = "0.11", features = ["x509-parser"] }
 asn1 = "0.14"
 
 # Dependencies for amazon-kms
-aws-config = { version = "0.5", optional = true }
-aws-sdk-kms = { version = "0.5", optional = true }
-aws-types = { version = "0.5", optional = true }
+aws-credential-types = { version = "0.57", optional = true }
+aws-config = { version = "0.57", optional = true }
+aws-sdk-kms = { version = "0.35", optional = true }
+aws-types = { version = "0.57", optional = true }
 
 # Dependencies for local-db
 diesel = { version = "2", features = ["sqlite"], optional = true }
@@ -53,9 +68,10 @@ diesel = { version = "2", features = ["sqlite"], optional = true }
 influxdb = { version = "0.6", optional = true }
 
 # Dependencies for Splunk/Webhook
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"], optional = true }
+reqwest = { version = "0.11", default-features = false, features = [
+    "rustls-tls",
+], optional = true }
 serde_json = { version = "1.0", optional = true }
 
 [build-dependencies]
 tonic-build = "0.9"
-
