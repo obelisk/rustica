@@ -105,28 +105,30 @@ impl SignerConfig for Config {
                 let mut yk = yubikey.lock().map_err(|e| {
                     SigningError::AccessError(format!("Could not lock Yubikey. Error: {}", e))
                 })?;
-    
+
                 let user = SshKey {
                     slot: user_slot,
                     public_key: yk.ssh_cert_fetch_pubkey(&user_slot).map_err(|_| {
                         SigningError::AccessError(format!("Could fetch public key for user key"))
-                    })?
+                    })?,
                 };
 
                 let host = SshKey {
                     slot: host_slot,
                     public_key: yk.ssh_cert_fetch_pubkey(&host_slot).map_err(|_| {
                         SigningError::AccessError(format!("Could fetch public key for user key"))
-                    })?
+                    })?,
                 };
-                Some(SshKeys {user, host})
+                Some(SshKeys { user, host })
             }
             (None, None) => None,
             _ => return Err(SigningError::SignerDoesNotAllRequiredSSHKeys),
         };
 
         let x509_certificate = match self.x509_slot {
-            Some(x509_slot) => Some(rcgen_certificate_from_yubikey("Rustica", serial, x509_slot)?),
+            Some(x509_slot) => Some(rcgen_certificate_from_yubikey(
+                "Rustica", serial, x509_slot,
+            )?),
             None => None,
         };
 
@@ -151,7 +153,10 @@ impl SignerConfig for Config {
 #[async_trait]
 impl Signer for YubikeySigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
-        let ssh_keys = self.ssh_keys.as_ref().ok_or(SigningError::SignerDoesNotHaveSSHKeys)?;
+        let ssh_keys = self
+            .ssh_keys
+            .as_ref()
+            .ok_or(SigningError::SignerDoesNotHaveSSHKeys)?;
 
         let slot = match cert.cert_type {
             CertType::User => ssh_keys.user.slot,

@@ -1,6 +1,15 @@
 use std::time::Duration;
 
-use aws_config::TimeoutConfig;
+use aws_config::timeout::TimeoutConfig;
+use aws_credential_types::provider::future;
+use aws_credential_types::provider::ProvideCredentials;
+use aws_sdk_kms::types::SigningAlgorithmSpec;
+use aws_sdk_kms::{
+    config::{Credentials, Region},
+    primitives::Blob,
+    Client,
+};
+
 /// The AmazonKMS signer uses customer managed keys stored in AWS to handle
 /// signing operations. It supports Ecdsa256 and Ecdsa384. Ecdsa521 is not
 /// currently supported due to a lack of support in the Ring crypto
@@ -14,11 +23,6 @@ use tokio::task;
 use super::{Signer, SignerConfig, SigningError};
 
 use async_trait::async_trait;
-
-use aws_sdk_kms::model::SigningAlgorithmSpec;
-use aws_sdk_kms::{Blob, Client, Credentials, Region};
-use aws_types::credentials::future;
-use aws_types::credentials::ProvideCredentials;
 
 use serde::Deserialize;
 
@@ -266,8 +270,11 @@ async fn rcgen_certificate_from_kms(
 #[async_trait]
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
-        let timeout_config =
-            TimeoutConfig::new().with_api_call_timeout(Some(Duration::from_secs(3)));
+        let timeout_config = TimeoutConfig::builder()
+            .connect_timeout(Duration::from_secs(3))
+            .operation_attempt_timeout(Duration::from_secs(10))
+            .operation_timeout(Duration::from_secs(10))
+            .build();
         let aws_config = aws_config::from_env()
             .timeout_config(timeout_config)
             .region(Region::new(self.aws_region.clone()))
@@ -286,16 +293,32 @@ impl SignerConfig for Config {
         };
 
         let x509_certificate = match self.x509_key {
-            Some(x509_key) => {
-                Some(rcgen_certificate_from_kms(client.clone(), "Rustica", &x509_key.id, &x509_key.algorithm).await?)
-            }
+            Some(x509_key) => Some(
+                rcgen_certificate_from_kms(
+                    client.clone(),
+                    "Rustica",
+                    &x509_key.id,
+                    &x509_key.algorithm,
+                )
+                .await?,
+            ),
             _ => None,
         };
 
         let client_certificate_authority = match self.client_certificate_authority_key {
             Some(client_ca_authority) => {
-                let common_name = client_ca_authority.common_name.unwrap_or("RusticaAccess".to_owned());
-                Some(rcgen_certificate_from_kms(client.clone(), &common_name, &client_ca_authority.id, &client_ca_authority.algorithm).await?)
+                let common_name = client_ca_authority
+                    .common_name
+                    .unwrap_or("RusticaAccess".to_owned());
+                Some(
+                    rcgen_certificate_from_kms(
+                        client.clone(),
+                        &common_name,
+                        &client_ca_authority.id,
+                        &client_ca_authority.algorithm,
+                    )
+                    .await?,
+                )
             }
             _ => None,
         };
@@ -312,7 +335,10 @@ impl SignerConfig for Config {
 #[async_trait]
 impl Signer for AmazonKMSSigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
-        let ssh_keys = self.ssh_keys.as_ref().ok_or(SigningError::SignerDoesNotHaveSSHKeys)?;
+        let ssh_keys = self
+            .ssh_keys
+            .as_ref()
+            .ok_or(SigningError::SignerDoesNotHaveSSHKeys)?;
         let data = cert.tbs_certificate();
         let (pubkey, key_id, key_algo) = match &cert.cert_type {
             CertType::User => (

@@ -106,12 +106,12 @@ fn extract_certificate_information(
             cert_info.expiry_timestamp = cert.validity().not_after.timestamp();
 
             // Loop through all the DNs to find the common name as identified by the OID
-            for ident in cert.tbs_certificate.subject.rdn_seq {
-                for attr in ident.set {
-                    if attr.attr_type == oid!(2.5.4 .3) {
+            for ident in cert.tbs_certificate.subject.iter_rdn() {
+                for attr in ident.iter() {
+                    if attr.attr_type() == &oid!(2.5.4 .3) {
                         // CommonName
                         // Certificates must have a common name
-                        match attr.attr_value.as_str() {
+                        match attr.attr_value().as_str() {
                             Ok(s) => cert_info.identities.push(String::from(s)),
                             Err(_) => return Err(RusticaServerError::NotAuthorized),
                         };
@@ -135,7 +135,6 @@ fn validate_request(
     peer_certs: &Arc<Vec<TonicCertificate>>,
     challenge: &Challenge,
 ) -> Result<(PublicKey, Vec<String>, Option<CertificateRefreshSettings>), RusticaServerError> {
-
     // Only support the presenting of a single client certificate
     // I've never seen anyone handle multiple ones and since we don't
     // need to here, trying to support it will only lead to validation
@@ -143,7 +142,7 @@ fn validate_request(
     let cert = if let Some(cert) = peer_certs.get(0) {
         cert
     } else {
-        return Err(RusticaServerError::BadRequest)
+        return Err(RusticaServerError::BadRequest);
     };
 
     let cert_info = extract_certificate_information(cert)?;
@@ -165,7 +164,7 @@ fn validate_request(
     // practice it has not been too much of an issue.
     //
     // Also request_time is not trusted at this point so in theory could cause
-    // an underflow with the subtraction from time but this would result in a 
+    // an underflow with the subtraction from time but this would result in a
     // a large number greater than five so would stop anyway.
     if (time - request_time) > 5 {
         rustica_warning!(
@@ -209,7 +208,12 @@ fn validate_request(
     })?;
 
     let hmac_challenge = &parsed_certificate.key_id;
-    let hmac_verification = format!("{}-{}-{}", request_time, challenge.pubkey, cert_info.identities.join(","));
+    let hmac_verification = format!(
+        "{}-{}-{}",
+        request_time,
+        challenge.pubkey,
+        cert_info.identities.join(",")
+    );
     let decoded_challenge =
         hex::decode(&hmac_challenge).map_err(|_| RusticaServerError::BadChallenge)?;
 
@@ -243,13 +247,14 @@ fn validate_request(
     // certificate is expiring, it's possible that tonic accepts the request because it
     // hasn't expired (expiry == time), then when we get here another second has passed
     // so time is now larger
-    let certificate_refresh_settings = if 
-        (time > cert_info.expiry_timestamp as u64) ||
-        (cert_info.expiry_timestamp as u64 - time) < srv.client_authority.expiration_renewal_period {
-            Some(CertificateRefreshSettings {
-                not_after: time + srv.client_authority.validity_length,
-                not_before: time,
-            })
+    let certificate_refresh_settings = if (time > cert_info.expiry_timestamp as u64)
+        || (cert_info.expiry_timestamp as u64 - time)
+            < srv.client_authority.expiration_renewal_period
+    {
+        Some(CertificateRefreshSettings {
+            not_after: time + srv.client_authority.validity_length,
+            not_before: time,
+        })
     } else {
         None
     };
@@ -279,7 +284,11 @@ fn validate_request(
             );
             return Err(RusticaServerError::BadChallenge);
         }
-        return Ok((hmac_ssh_pubkey, cert_info.identities, certificate_refresh_settings));
+        return Ok((
+            hmac_ssh_pubkey,
+            cert_info.identities,
+            certificate_refresh_settings,
+        ));
     }
 
     // We now know the request has not been replayed significantly in time.
@@ -320,7 +329,11 @@ fn validate_request(
     // this point the user must have received our challenge certificate
     // containing our HMAC challenge, resigned it with their key, and
     // sent it back for which it passed all checks.
-    Ok((hmac_ssh_pubkey, cert_info.identities, certificate_refresh_settings))
+    Ok((
+        hmac_ssh_pubkey,
+        cert_info.identities,
+        certificate_refresh_settings,
+    ))
 }
 
 #[tonic::async_trait]
@@ -334,12 +347,16 @@ impl Rustica for RusticaServer {
         // as we may have guarantees on this information upstream.
         let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
 
-        let peer = if let Some(cert) = request.peer_certs().ok_or(Status::permission_denied(""))?.get(0) {
+        let peer = if let Some(cert) = request
+            .peer_certs()
+            .ok_or(Status::permission_denied(""))?
+            .get(0)
+        {
             cert.clone()
         } else {
-            return Err(Status::permission_denied(""))
+            return Err(Status::permission_denied(""));
         };
-    
+
         let request = request.into_inner();
         let mtls_identities = match extract_certificate_information(&peer) {
             Ok(ci) => ci.identities,
@@ -526,13 +543,21 @@ impl Rustica for RusticaServer {
             new_client_key: String::new(),
         };
 
-        if let (Some(settings), Ok(Some(ca))) = (&mtls_refresh, self.signer.get_client_certificate_authority(&self.client_authority.authority)) {
+        if let (Some(settings), Ok(Some(ca))) = (
+            &mtls_refresh,
+            self.signer
+                .get_client_certificate_authority(&self.client_authority.authority),
+        ) {
             let mut params = rcgen::CertificateParams::new(mtls_identities.clone());
             params.not_before = (UNIX_EPOCH + Duration::from_secs(settings.not_before)).into();
             params.not_after = (UNIX_EPOCH + Duration::from_secs(settings.not_after)).into();
-            params
-                .distinguished_name
-                .push(DnType::CommonName, mtls_identities.get(0).map(|x| x.to_owned()).unwrap_or_default());
+            params.distinguished_name.push(
+                DnType::CommonName,
+                mtls_identities
+                    .get(0)
+                    .map(|x| x.to_owned())
+                    .unwrap_or_default(),
+            );
 
             let new_certificate = rcgen::Certificate::from_params(params).unwrap();
 
@@ -777,17 +802,23 @@ impl Rustica for RusticaServer {
 
         let peer = if let Some(peer) = peer_certs.get(0) {
             if peer_certs.len() != 1 {
-                rustica_warning!(self, format!("Received request with multiple peer identities from {remote_addr}"));
+                rustica_warning!(
+                    self,
+                    format!("Received request with multiple peer identities from {remote_addr}")
+                );
                 return Err(Status::permission_denied(""));
             }
             peer
         } else {
-            rustica_error!(self, format!("No peer certificate was presented. Tonic issue?"));
-            return Err(Status::permission_denied(""))
+            rustica_error!(
+                self,
+                format!("No peer certificate was presented. Tonic issue?")
+            );
+            return Err(Status::permission_denied(""));
         };
 
-        let cert_info = extract_certificate_information(&peer)
-            .map_err(|_| Status::permission_denied(""))?;
+        let cert_info =
+            extract_certificate_information(&peer).map_err(|_| Status::permission_denied(""))?;
         let request = request.into_inner();
 
         let key =
@@ -810,7 +841,11 @@ impl Rustica for RusticaServer {
             key,
         };
 
-        let authorization = match self.authorizer.authorize_attested_x509_cert(&auth_props).await {
+        let authorization = match self
+            .authorizer
+            .authorize_attested_x509_cert(&auth_props)
+            .await
+        {
             Ok(auth) => auth,
             Err(e) => {
                 rustica_warning!(
@@ -840,7 +875,9 @@ impl Rustica for RusticaServer {
         };
 
         csr.params.subject_alt_names = vec![SanType::Rfc822Name(authorization.common_name.clone())];
-        csr.params.serial_number = Some(authorization.serial as u64);
+        csr.params.serial_number = Some(rcgen::SerialNumber::from_slice(
+            &authorization.serial.to_le_bytes(),
+        ));
         csr.params.is_ca = rcgen::IsCa::NoCa;
         csr.params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
         csr.params.extended_key_usages = vec![];
@@ -869,16 +906,28 @@ impl Rustica for RusticaServer {
         let cert = match ca_cert {
             Some(ca_cert) => csr.serialize_der_with_signer(ca_cert),
             None => {
-                rustica_error!(self, format!("The requested authority {} does not exist or is not configured", &authorization.authority));
+                rustica_error!(
+                    self,
+                    format!(
+                        "The requested authority {} does not exist or is not configured",
+                        &authorization.authority
+                    )
+                );
                 return Err(Status::permission_denied(""));
             }
         };
 
         let cert = cert.map_err(|_| {
-            rustica_error!(self, format!("Could not serialize attested x509 certificate for {}", authorization.common_name.clone()));
+            rustica_error!(
+                self,
+                format!(
+                    "Could not serialize attested x509 certificate for {}",
+                    authorization.common_name.clone()
+                )
+            );
             Status::permission_denied("")
         })?;
-        
+
         // Assert that the CSR contains the same public key as the provided
         // leaf. Ideally we would check this first but rcgen does not seem
         // to provide anyway for that to happen.
