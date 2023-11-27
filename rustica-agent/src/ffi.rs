@@ -503,6 +503,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     piv_pins: *const c_long,
     piv_key_count: c_int,
 ) -> *const RusticaAgentInstance {
+    let _ = env_logger::try_init();
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
@@ -702,6 +703,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     authority: *const c_char,
     certificate_priority: bool,
 ) -> *const RusticaAgentInstance {
+    let _ = env_logger::try_init();
     println!("Starting a new Rustica instance!");
 
     let notification_f = move || {
