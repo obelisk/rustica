@@ -291,6 +291,14 @@ impl SshAgentHandler for Handler {
         _flags: u32,
     ) -> Result<Response, AgentError> {
         trace!("Sign call");
+
+        // Extract the pubkey fingerprint from either the SSH pubkey or the SSH cert
+        let fingerprint = match (Certificate::from_bytes(&pubkey), PublicKey::from_bytes(&pubkey)) {
+            (Ok(cert), _) => cert.key.fingerprint(),
+            (_, Ok(pubkey)) => pubkey.fingerprint(),
+            _ => return Err(AgentError::from("Invalid key blob")),
+        };
+
         // Tri check to find how to sign the request. Since starting rustica with a file based
         // key is the same process as keys added afterwards, we do this to prevent duplication
         // of the private key based signing code.
@@ -334,7 +342,7 @@ impl SshAgentHandler for Handler {
             return Ok(Response::SignResponse { signature });
         } else if let Signatory::Direct(privkey) = &self.signatory {
             // Don't sign requests if the requested key does not match the signatory
-            if privkey.pubkey.encode() != pubkey {
+            if privkey.pubkey.fingerprint() != fingerprint {
                 return Err(AgentError::from("No such key"));
             }
 
@@ -348,11 +356,12 @@ impl SshAgentHandler for Handler {
                     println!("Yubikey Fetch Certificate Error: {e}");
                     AgentError::from("Yubikey fetch certificate error")
                 })?
-                .encode()
-                != pubkey
+                .fingerprint()
+                != fingerprint
             {
                 return Err(AgentError::from("No such key"));
             }
+
             // Since we are using the Yubikey for a signing operation the only time they
             // won't have to tap here is if they are using cached keys and this is right after
             // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be
