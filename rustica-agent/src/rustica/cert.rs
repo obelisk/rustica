@@ -1,6 +1,6 @@
 use super::error::{RefreshError, ServerError};
 use super::{CertificateRequest, RusticaCert, Signatory};
-use crate::{CertificateConfig, RusticaServer, MtlsCredentials};
+use crate::{CertificateConfig, MtlsCredentials, RusticaServer};
 use sshcerts::Certificate;
 use tokio::runtime::Handle;
 
@@ -10,7 +10,7 @@ use std::time::SystemTime;
 impl RusticaServer {
     pub async fn refresh_certificate_async(
         &self,
-        signatory: &mut Signatory,
+        signatory: &Signatory,
         options: &CertificateConfig,
     ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
         let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await?;
@@ -54,10 +54,13 @@ impl RusticaServer {
             None
         };
 
-        Ok((RusticaCert {
-            cert: response.certificate,
-            comment: "JITC".to_string(),
-        }, mtls_credentials))
+        Ok((
+            RusticaCert {
+                cert: response.certificate,
+                comment: "JITC".to_string(),
+            },
+            mtls_credentials,
+        ))
     }
 
     pub fn get_custom_certificate(
@@ -66,7 +69,6 @@ impl RusticaServer {
         options: &CertificateConfig,
         handle: &Handle,
     ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
-        handle
-            .block_on(async { self.refresh_certificate_async(signatory, options).await })
+        handle.block_on(async { self.refresh_certificate_async(signatory, options).await })
     }
 }

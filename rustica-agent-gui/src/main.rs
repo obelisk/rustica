@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent = load_environments()?; //.into_iter().map(|x| x.to_string_lossy().to_string()).collect();
 
     let options = eframe::NativeOptions::default();
-    eframe::run_native(
+    let _ = eframe::run_native(
         "Rustica Agent",
         options,
         Box::new(move |_cc| Box::new(agent)),
@@ -304,13 +304,13 @@ impl eframe::App for RusticaAgentGui {
                                         let certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
 
                                         let handler = rustica_agent::Handler {
-                                            updatable_configuration,
-                                            cert: None,
+                                            updatable_configuration: updatable_configuration.into(),
+                                            cert: None.into(),
                                             pubkey,
                                             signatory,
-                                            stale_at: 0,
+                                            stale_at: 0.into(),
                                             certificate_options,
-                                            identities: HashMap::new(),
+                                            identities:HashMap::new().into(),
                                             piv_identities: self.piv_keys.iter().filter_map(|x| if x.1.in_use {Some((x.0.clone(), x.1.descriptor.clone()))} else {None}).collect(),
                                             notification_function: None,
                                             certificate_priority: self.certificate_priority,
