@@ -16,7 +16,10 @@ use sshcerts::ssh::PrivateKey;
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
 use tokio::{
     runtime::Runtime,
-    sync::mpsc::{channel, Sender},
+    sync::{
+        mpsc::{channel, Sender},
+        Mutex,
+    },
 };
 
 use std::fs::File;

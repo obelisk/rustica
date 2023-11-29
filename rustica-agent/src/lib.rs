@@ -294,7 +294,10 @@ impl SshAgentHandler for Handler {
         trace!("Sign call");
 
         // Extract the pubkey fingerprint from either the SSH pubkey or the SSH cert
-        let fingerprint = match (Certificate::from_bytes(&pubkey), PublicKey::from_bytes(&pubkey)) {
+        let fingerprint = match (
+            Certificate::from_bytes(&pubkey),
+            PublicKey::from_bytes(&pubkey),
+        ) {
             (Ok(cert), _) => cert.key.fingerprint(),
             (_, Ok(pubkey)) => pubkey.fingerprint(),
             _ => return Err(AgentError::from("Invalid key blob")),
@@ -304,15 +307,13 @@ impl SshAgentHandler for Handler {
         // key is the same process as keys added afterwards, we do this to prevent duplication
         // of the private key based signing code.
         // TODO: @obelisk make this better
-        if let Some(private_key) =
-            self.identities.lock().await.get(&pubkey).map(|x| x.clone())
-        {
+        if let Some(private_key) = self.identities.lock().await.get(&pubkey).map(|x| x.clone()) {
             let signature = match private_key.sign(&data) {
                 None => return Err(AgentError::from("Signing Error")),
                 Some(signature) => signature,
             };
 
-            return Ok(Response::SignResponse { signature })
+            return Ok(Response::SignResponse { signature });
         } else if let Some(descriptor) = self.piv_identities.get(&pubkey) {
             let mut yk = Yubikey::open(descriptor.serial).map_err(|e| {
                 println!("Unable to open Yubikey: {e}");
@@ -361,7 +362,7 @@ impl SshAgentHandler for Handler {
                 Some(signature) => signature,
             };
 
-            return Ok(Response::SignResponse { signature })
+            return Ok(Response::SignResponse { signature });
         } else if let Signatory::Yubikey(signer) = &self.signatory {
             let mut yk = signer.yk.lock().await;
             // Don't sign requests if the requested key does not match the signatory
