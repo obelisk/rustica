@@ -9,8 +9,8 @@ pub use error::RefreshError;
 
 pub use rustica_proto::rustica_client::RusticaClient;
 pub use rustica_proto::{
-    CertificateRequest, CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, AttestedX509CertificateRequest, AttestedX509CertificateResponse,
-    RegisterU2fKeyRequest,
+    AttestedX509CertificateRequest, AttestedX509CertificateResponse, CertificateRequest,
+    CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, RegisterU2fKeyRequest,
 };
 
 use sshcerts::ssh::Certificate as SSHCertificate;
@@ -28,7 +28,9 @@ pub struct RusticaCert {
     pub comment: String,
 }
 
-pub async fn get_rustica_client(server: &RusticaServer) -> Result<RusticaClient<tonic::transport::Channel>, RefreshError> {
+pub async fn get_rustica_client(
+    server: &RusticaServer,
+) -> Result<RusticaClient<tonic::transport::Channel>, RefreshError> {
     let client_identity = Identity::from_pem(&server.mtls_cert, &server.mtls_key);
 
     let channel = match Channel::from_shared(server.address.clone()) {
@@ -54,12 +56,13 @@ pub async fn get_rustica_client(server: &RusticaServer) -> Result<RusticaClient<
 
 pub async fn complete_rustica_challenge(
     server: &RusticaServer,
-    signatory: &mut Signatory,
+    signatory: &Signatory,
 ) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
     let ssh_pubkey = match signatory {
         Signatory::Yubikey(signer) => {
-            signer.yk.reconnect()?;
-            match signer.yk.ssh_cert_fetch_pubkey(&signer.slot) {
+            let mut yk = signer.yk.lock().await;
+            yk.reconnect()?;
+            match yk.ssh_cert_fetch_pubkey(&signer.slot) {
                 Ok(pkey) => pkey,
                 Err(_) => return Err(RefreshError::SigningError),
             }
@@ -112,6 +115,8 @@ pub async fn complete_rustica_challenge(
         Signatory::Yubikey(signer) => {
             let signature = signer
                 .yk
+                .lock()
+                .await
                 .ssh_cert_signer(&challenge_certificate.tbs_certificate(), &signer.slot)
                 .map_err(|_| RefreshError::SigningError)?;
             challenge_certificate
