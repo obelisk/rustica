@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::net::UnixListener;
 use tokio::net::UnixStream;
 use tokio::select;
@@ -12,7 +14,7 @@ pub struct Agent;
 
 impl Agent {
     async fn handle_client<T: SshAgentHandler>(
-        handler: &mut T,
+        handler: Arc<T>,
         mut stream: UnixStream,
     ) -> HandleResult<()> {
         loop {
@@ -29,11 +31,12 @@ impl Agent {
     }
 
     pub async fn run_with_termination_channel<T: SshAgentHandler + 'static>(
-        mut handler: T,
+        handler: T,
         socket_path: String,
         term_channel: Option<Receiver<()>>,
     ) {
         let listener = UnixListener::bind(socket_path).unwrap();
+        let handler = Arc::new(handler);
 
         if let Some(mut term_channel) = term_channel {
             loop {
@@ -45,11 +48,14 @@ impl Agent {
                     v = listener.accept() => {
                         match v {
                             Ok(stream) => {
-                                debug!("Got connection from: {:?}", stream.1);
-                                match Agent::handle_client(&mut handler, stream.0).await {
-                                    Ok(_) => {}
-                                    Err(e) => debug!("handler: {:?}", e),
-                                }
+                                debug!("Got connection from: {:?}. Spawing thread to handle.", stream.1);
+                                let handler = handler.clone();
+                                tokio::spawn(async move {
+                                    match Agent::handle_client(handler, stream.0).await {
+                                        Ok(_) => {}
+                                        Err(e) => debug!("handler: {:?}", e),
+                                    }
+                                });
                             }
                             Err(e) => {
                                 // connection failed
@@ -66,10 +72,13 @@ impl Agent {
                     v = listener.accept() => {
                         match v {
                             Ok(stream) => {
-                                match Agent::handle_client(&mut handler, stream.0).await {
-                                    Ok(_) => {}
-                                    Err(e) => debug!("handler: {:?}", e),
-                                }
+                                let handler = handler.clone();
+                                tokio::spawn(async move {
+                                    match Agent::handle_client(handler, stream.0).await {
+                                        Ok(_) => {}
+                                        Err(e) => debug!("handler: {:?}", e),
+                                    }
+                                });
                             }
                             Err(e) => {
                                 // connection failed

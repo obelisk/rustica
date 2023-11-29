@@ -28,6 +28,8 @@ use std::{convert::TryFrom, env};
 
 use std::time::SystemTime;
 
+use tokio::sync::Mutex;
+
 #[derive(Debug)]
 pub struct CertificateConfig {
     pub principals: Vec<String>,
@@ -48,7 +50,7 @@ pub struct RusticaServer {
 #[derive(Debug)]
 pub struct YubikeySigner {
     pub slot: SlotId,
-    pub yk: Yubikey,
+    pub yk: Mutex<Yubikey>,
 }
 
 #[derive(Debug)]
@@ -119,23 +121,24 @@ impl std::fmt::Display for RusticaAgentLibraryError {
 
 impl std::error::Error for RusticaAgentLibraryError {}
 
-
 pub struct Handler {
     /// Configuration path that can be updated if a server returns updated
     /// settings
-    pub updatable_configuration: UpdatableConfiguration,
+    pub updatable_configuration: Mutex<UpdatableConfiguration>,
     /// A previously issued certificate
-    pub cert: Option<Identity>,
+    pub cert: Mutex<Option<Identity>>,
     /// The public key we for the key we are providing a certificate for
     pub pubkey: PublicKey,
-    /// The signing method for the private part of our public key
+    /// The signing method for the private part of our public key. This needs to have
+    /// interior mutability because it's sometimes a Yubikey that requires exclusive
+    /// access to the USB interface
     pub signatory: Signatory,
     /// When our certificate expires and we must request a new one
-    pub stale_at: u64,
+    pub stale_at: Mutex<u64>,
     /// Any settings we wish to ask the server for in our certificate
     pub certificate_options: CertificateConfig,
     /// Any other identities added to our agent
-    pub identities: HashMap<Vec<u8>, PrivateKey>,
+    pub identities: Mutex<HashMap<Vec<u8>, PrivateKey>>,
     /// Other PIV identities
     pub piv_identities: HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>,
     /// A function that we will call before calling the signatory
@@ -147,20 +150,12 @@ pub struct Handler {
 
 impl std::fmt::Debug for Handler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Handler")
-            .field("server", &self.updatable_configuration.get_configuration().servers)
-            .field("cert", &self.cert)
-            .finish()
+        f.debug_struct("Handler").field("cert", &self.cert).finish()
     }
 }
 
 impl RusticaServer {
-    pub fn new(
-        address: String,
-        ca_pem: String,
-        mtls_cert: String,
-        mtls_key: String,
-    ) -> Self {
+    pub fn new(address: String, ca_pem: String, mtls_cert: String, mtls_key: String) -> Self {
         Self {
             address,
             ca_pem,
@@ -196,18 +191,20 @@ impl From<Option<Options>> for CertificateConfig {
 
 #[async_trait]
 impl SshAgentHandler for Handler {
-    fn add_identity(&mut self, private_key: PrivateKey) -> Result<Response, AgentError> {
+    async fn add_identity(&self, private_key: PrivateKey) -> Result<Response, AgentError> {
         trace!("Add Identity call");
         let public_key = private_key.pubkey.encode();
-        self.identities.insert(public_key, private_key);
+        self.identities.lock().await.insert(public_key, private_key);
         Ok(Response::Success)
     }
 
-    async fn identities(&mut self) -> Result<Response, AgentError> {
+    async fn identities(&self) -> Result<Response, AgentError> {
         trace!("Identities call");
         // We start building identies with the manually loaded keys
         let mut identities: Vec<Identity> = self
             .identities
+            .lock()
+            .await
             .iter()
             .map(|x| Identity {
                 key_blob: x.1.pubkey.encode().to_vec(),
@@ -226,8 +223,12 @@ impl SshAgentHandler for Handler {
             .unwrap()
             .as_secs();
 
+        let mut stale_at = self.stale_at.lock().await;
+        let mut existing_cert = self.cert.lock().await;
+        let mut configuration = self.updatable_configuration.lock().await;
+
         // Fetch a new certificate or use the cached one if it's still valid
-        let certificate = match (&self.cert, timestamp < self.stale_at) {
+        let certificate = match (&*existing_cert, timestamp < *stale_at) {
             // In the case we have a certificate and it's not expired.
             (Some(cert), true) => Ok(cert.clone()),
             // All other cases require us to fetch a certificate from one
@@ -242,8 +243,8 @@ impl SshAgentHandler for Handler {
 
                 // Fetch a new certificate from one of the servers
                 fetch_new_certificate(
-                    &mut self.updatable_configuration,
-                    &mut self.signatory,
+                    &mut configuration,
+                    &self.signatory,
                     &self.certificate_options,
                 )
                 .await
@@ -255,8 +256,8 @@ impl SshAgentHandler for Handler {
 
                     // This is ugly doing a mutation in a map
                     // Look for a better way to do this.
-                    self.cert = Some(ident.clone());
-                    self.stale_at = cert.valid_before;
+                    *existing_cert = Some(ident.clone());
+                    *stale_at = cert.valid_before;
 
                     ident
                 })
@@ -284,8 +285,8 @@ impl SshAgentHandler for Handler {
     }
 
     /// Sign a request coming in from an SSH command.
-    fn sign_request(
-        &mut self,
+    async fn sign_request(
+        &self,
         pubkey: Vec<u8>,
         data: Vec<u8>,
         _flags: u32,
@@ -303,8 +304,10 @@ impl SshAgentHandler for Handler {
         // key is the same process as keys added afterwards, we do this to prevent duplication
         // of the private key based signing code.
         // TODO: @obelisk make this better
-        let private_key: Option<&PrivateKey> = if self.identities.contains_key(&pubkey) {
-            Some(&self.identities[&pubkey])
+        let private_key: Option<PrivateKey> = if let Some(private_key) =
+            self.identities.lock().await.get(&pubkey).map(|x| x.clone())
+        {
+            Some(private_key)
         } else if let Some(descriptor) = self.piv_identities.get(&pubkey) {
             let mut yk = Yubikey::open(descriptor.serial).map_err(|e| {
                 println!("Unable to open Yubikey: {e}");
@@ -346,11 +349,11 @@ impl SshAgentHandler for Handler {
                 return Err(AgentError::from("No such key"));
             }
 
-            Some(privkey)
-        } else if let Signatory::Yubikey(signer) = &mut self.signatory {
+            Some(privkey.clone())
+        } else if let Signatory::Yubikey(signer) = &self.signatory {
+            let mut yk = signer.yk.lock().await;
             // Don't sign requests if the requested key does not match the signatory
-            if signer
-                .yk
+            if yk
                 .ssh_cert_fetch_pubkey(&signer.slot)
                 .map_err(|e| {
                     println!("Yubikey Fetch Certificate Error: {e}");
@@ -370,13 +373,10 @@ impl SshAgentHandler for Handler {
                 f()
             }
 
-            let signature = signer
-                .yk
-                .ssh_cert_signer(&data, &signer.slot)
-                .map_err(|e| {
-                    println!("Signing Error: {e}");
-                    AgentError::from("Yubikey signing error")
-                })?;
+            let signature = yk.ssh_cert_signer(&data, &signer.slot).map_err(|e| {
+                println!("Signing Error: {e}");
+                AgentError::from("Yubikey signing error")
+            })?;
 
             return Ok(Response::SignResponse { signature });
         } else {
@@ -427,8 +427,8 @@ pub fn slot_validator(slot: &str) -> Result<(), String> {
 }
 
 /// Provisions a new keypair on the Yubikey with the given settings.
-pub fn provision_new_key(
-    mut yubikey: YubikeySigner,
+pub async fn provision_new_key(
+    yubikey: YubikeySigner,
     pin: &str,
     subj: &str,
     mgm_key: &[u8],
@@ -444,12 +444,14 @@ pub fn provision_new_key(
         TouchPolicy::Cached
     };
 
-    if yubikey.yk.unlock(pin.as_bytes(), mgm_key).is_err() {
+    let mut yk = yubikey.yk.lock().await;
+
+    if yk.unlock(pin.as_bytes(), mgm_key).is_err() {
         println!("Could not unlock key");
         return None;
     }
 
-    match yubikey.yk.provision(
+    match yk.provision(
         &yubikey.slot,
         subj,
         AlgorithmId::EccP384,
@@ -457,8 +459,8 @@ pub fn provision_new_key(
         pin_policy,
     ) {
         Ok(_) => {
-            let certificate = yubikey.yk.fetch_attestation(&yubikey.slot);
-            let intermediate = yubikey.yk.fetch_certificate(&SlotId::Attestation);
+            let certificate = yk.fetch_attestation(&yubikey.slot);
+            let intermediate = yk.fetch_certificate(&SlotId::Attestation);
 
             match (certificate, intermediate) {
                 (Ok(certificate), Ok(intermediate)) => Some(PIVAttestation {
@@ -564,7 +566,7 @@ pub fn git_config_from_public_key(public_key: &PublicKey) -> String {
 /// return a usable certificate
 pub async fn fetch_new_certificate(
     configuration: &mut UpdatableConfiguration,
-    signatory: &mut Signatory,
+    signatory: &Signatory,
     options: &CertificateConfig,
 ) -> Result<Certificate, RusticaAgentLibraryError> {
     for server in configuration.get_servers_mut() {
@@ -610,7 +612,10 @@ pub async fn fetch_new_attested_x509_certificate(
     signatory: &mut Signatory,
 ) -> Result<Vec<u8>, RusticaAgentLibraryError> {
     for server in servers.iter() {
-        match server.refresh_attested_x509_certificate_async(signatory).await {
+        match server
+            .refresh_attested_x509_certificate_async(signatory)
+            .await
+        {
             Ok(certificate) => return Ok(certificate),
             Err(e) => {
                 error!(

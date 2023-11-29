@@ -52,7 +52,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &config.management_key,
                 config.require_touch,
                 config.pin_policy,
-            ) {
+            )
+            .await
+            {
                 Some(_) => (),
                 None => {
                     println!("Provisioning Error");
@@ -184,15 +186,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await;
         }
         Ok(RusticaAgentAction::RefreshAttestedX509(mut config)) => {
-            match rustica_agent::fetch_new_attested_x509_certificate(&config.updatable_configuration.get_configuration().servers, &mut config.signatory)
-                .await
+            match rustica_agent::fetch_new_attested_x509_certificate(
+                &config.updatable_configuration.get_configuration().servers,
+                &mut config.signatory,
+            )
+            .await
             {
                 Ok(cert) => match config.signatory {
-                    Signatory::Yubikey(mut yk) => {
-                        yk.yk
-                            .unlock(config.pin.as_bytes(), &config.management_key)
+                    Signatory::Yubikey(yk) => {
+                        let slot = yk.slot;
+                        let mut yk = yk.yk.lock().await;
+                        yk.unlock(config.pin.as_bytes(), &config.management_key)
                             .unwrap();
-                        yk.yk.write_certificate(&yk.slot, &cert).unwrap();
+                        yk.write_certificate(&slot, &cert).unwrap();
                     }
                     Signatory::Direct(_) => {
                         let parsed_cert = Certificate::from_bytes(cert.to_vec()).unwrap();

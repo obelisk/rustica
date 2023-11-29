@@ -22,10 +22,12 @@ pub async fn configure_singlemode(
 
     let mut signatory = get_signatory(&slot, &config.slot, &file, &config.key)?;
     let pubkey = match &mut signatory {
-        Signatory::Yubikey(signer) => match signer.yk.ssh_cert_fetch_pubkey(&signer.slot) {
-            Ok(cert) => cert,
-            Err(_) => return Err(ConfigurationError::YubikeyNoKeypairFound),
-        },
+        Signatory::Yubikey(signer) => {
+            match signer.yk.lock().await.ssh_cert_fetch_pubkey(&signer.slot) {
+                Ok(cert) => cert,
+                Err(_) => return Err(ConfigurationError::YubikeyNoKeypairFound),
+            }
+        }
         Signatory::Direct(privkey) => {
             if let Some(path) = matches.value_of("fido-device-path") {
                 privkey.set_device_path(path);
@@ -36,17 +38,16 @@ pub async fn configure_singlemode(
     };
 
     let handler = Handler {
-        updatable_configuration,
-        cert: None,
+        updatable_configuration: updatable_configuration.into(),
+        cert: None.into(),
         pubkey: pubkey.clone(),
         signatory,
-        stale_at: 0,
+        stale_at: 0.into(),
         certificate_options,
-        identities: HashMap::new(),
+        identities: HashMap::new().into(),
         piv_identities: HashMap::new(),
         notification_function: None,
         certificate_priority: matches.is_present("certificate-priority"),
-        
     };
 
     Ok(RusticaAgentAction::Run(RunConfig {

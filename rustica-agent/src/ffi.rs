@@ -16,7 +16,10 @@ use sshcerts::ssh::PrivateKey;
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
 use tokio::{
     runtime::Runtime,
-    sync::mpsc::{channel, Sender},
+    sync::{
+        mpsc::{channel, Sender},
+        Mutex,
+    },
 };
 
 use std::fs::File;
@@ -425,7 +428,10 @@ pub unsafe extern "C" fn generate_and_enroll(
         Err(_) => return false,
     };
 
-    let mut signatory = Signatory::Yubikey(YubikeySigner { yk, slot });
+    let mut signatory = Signatory::Yubikey(YubikeySigner {
+        yk: yk.into(),
+        slot,
+    });
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
@@ -643,13 +649,13 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     certificate_options.authority = authority;
 
     let handler = Handler {
-        updatable_configuration,
-        cert: None,
-        stale_at: 0,
+        updatable_configuration: Mutex::new(updatable_configuration),
+        cert: None.into(),
+        stale_at: Mutex::new(0),
         pubkey: private_key.pubkey.clone(),
         certificate_options,
         signatory: Signatory::Direct(private_key),
-        identities: HashMap::new(),
+        identities: Mutex::new(HashMap::new()),
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
@@ -747,16 +753,16 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     };
 
     let handler = Handler {
-        updatable_configuration,
-        cert: None,
-        stale_at: 0,
+        updatable_configuration: Mutex::new(updatable_configuration),
+        cert: None.into(),
+        stale_at: Mutex::new(0),
         pubkey,
         certificate_options,
         signatory: Signatory::Yubikey(YubikeySigner {
-            yk: Yubikey::open(yubikey_serial).unwrap(),
+            yk: Mutex::new(Yubikey::open(yubikey_serial).unwrap()),
             slot: SlotId::try_from(slot).unwrap(),
         }),
-        identities: HashMap::new(),
+        identities: Mutex::new(HashMap::new()),
         piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
@@ -946,7 +952,10 @@ pub unsafe extern "C" fn ffi_refresh_x509_certificate(
         return false;
     }
 
-    let mut signatory = Signatory::Yubikey(YubikeySigner { yk, slot });
+    let mut signatory = Signatory::Yubikey(YubikeySigner {
+        yk: yk.into(),
+        slot,
+    });
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
