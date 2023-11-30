@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(RusticaAgentAction::ProvisionAndRegisterFido(prf)) => {
             let new_fido_key = generate_new_ssh_key(&prf.app_name, &prf.comment, prf.pin, None)?;
 
-            let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
+            let mut signatory = Signatory::Direct(new_fido_key.private_key.clone().into());
             let u2f_attestation = U2FAttestation {
                 auth_data: new_fido_key.attestation.auth_data,
                 auth_data_sig: new_fido_key.attestation.auth_data_sig,

@@ -3,6 +3,7 @@ pub mod error;
 pub mod key;
 pub mod x509;
 
+use std::ops::Deref;
 use std::time::Duration;
 
 pub use error::RefreshError;
@@ -67,7 +68,7 @@ pub async fn complete_rustica_challenge(
                 Err(_) => return Err(RefreshError::SigningError),
             }
         }
-        Signatory::Direct(ref privkey) => privkey.pubkey.clone(),
+        Signatory::Direct(privkey) => privkey.lock().await.pubkey.clone(),
     };
 
     let encoded_key = format!("{}", ssh_pubkey);
@@ -123,9 +124,12 @@ pub async fn complete_rustica_challenge(
                 .add_signature(&signature)
                 .map_err(|_| RefreshError::SigningError)?
         }
-        Signatory::Direct(privkey) => challenge_certificate
-            .sign(privkey)
-            .map_err(|_| RefreshError::SigningError)?,
+        Signatory::Direct(privkey) => {
+            let privkey = privkey.lock().await;
+            challenge_certificate
+            .sign(privkey.deref())
+            .map_err(|_| RefreshError::SigningError)?
+        }
     };
 
     Ok((

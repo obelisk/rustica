@@ -16,10 +16,7 @@ use sshcerts::ssh::PrivateKey;
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
 use tokio::{
     runtime::Runtime,
-    sync::{
-        mpsc::{channel, Sender},
-        Mutex,
-    },
+    sync::mpsc::{channel, Sender},
 };
 
 use std::fs::File;
@@ -295,7 +292,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
+    let mut signatory = Signatory::Direct(new_fido_key.private_key.clone().into());
     let u2f_attestation = U2FAttestation {
         auth_data: new_fido_key.attestation.auth_data,
         auth_data_sig: new_fido_key.attestation.auth_data_sig,
@@ -649,13 +646,13 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     certificate_options.authority = authority;
 
     let handler = Handler {
-        updatable_configuration: Mutex::new(updatable_configuration),
+        updatable_configuration: updatable_configuration.into(),
         cert: None.into(),
-        stale_at: Mutex::new(0),
+        stale_at: 0.into(),
         pubkey: private_key.pubkey.clone(),
         certificate_options,
-        signatory: Signatory::Direct(private_key),
-        identities: Mutex::new(HashMap::new()),
+        signatory: Signatory::Direct(private_key.into()),
+        identities: HashMap::new().into(),
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
@@ -753,16 +750,16 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     };
 
     let handler = Handler {
-        updatable_configuration: Mutex::new(updatable_configuration),
+        updatable_configuration: updatable_configuration.into(),
         cert: None.into(),
-        stale_at: Mutex::new(0),
+        stale_at: 0.into(),
         pubkey,
         certificate_options,
         signatory: Signatory::Yubikey(YubikeySigner {
-            yk: Mutex::new(Yubikey::open(yubikey_serial).unwrap()),
+            yk: Yubikey::open(yubikey_serial).unwrap().into(),
             slot: SlotId::try_from(slot).unwrap(),
         }),
-        identities: Mutex::new(HashMap::new()),
+        identities: HashMap::new().into(),
         piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,

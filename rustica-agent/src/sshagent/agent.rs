@@ -48,7 +48,7 @@ impl Agent {
                     v = listener.accept() => {
                         match v {
                             Ok(stream) => {
-                                debug!("Got connection from: {:?}. Spawing thread to handle.", stream.1);
+                                debug!("Got connection from: {:?}. Spawning thread to handle.", stream.1);
                                 let handler = handler.clone();
                                 tokio::spawn(async move {
                                     match Agent::handle_client(handler, stream.0).await {

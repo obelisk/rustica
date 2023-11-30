@@ -29,6 +29,7 @@ pub async fn configure_singlemode(
             }
         }
         Signatory::Direct(privkey) => {
+            let mut privkey = privkey.lock().await;
             if let Some(path) = matches.value_of("fido-device-path") {
                 privkey.set_device_path(path);
             }

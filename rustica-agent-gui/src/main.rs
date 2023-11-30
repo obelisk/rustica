@@ -299,7 +299,7 @@ impl eframe::App for RusticaAgentGui {
                                         private_key.set_device_path(&self.fido_devices[*fido_device].path);
 
                                         let pubkey = private_key.pubkey.clone();
-                                        let signatory = Signatory::Direct(private_key);
+                                        let signatory = Signatory::Direct(private_key.into());
 
                                         let certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
 

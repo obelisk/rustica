@@ -91,7 +91,7 @@ fn get_signatory(
             None => Err(ConfigurationError::BadSlot),
         },
         (_, _, Some(file), _) => match PrivateKey::from_path(file) {
-            Ok(p) => Ok(Signatory::Direct(p)),
+            Ok(p) => Ok(Signatory::Direct(p.into())),
             Err(e) => Err(ConfigurationError::CannotReadFile(format!(
                 "{}: {}",
                 e, file
@@ -104,7 +104,7 @@ fn get_signatory(
             })),
             None => Err(ConfigurationError::BadSlot),
         },
-        (_, _, _, Some(key_string)) => Ok(Signatory::Direct(PrivateKey::from_string(key_string)?)),
+        (_, _, _, Some(key_string)) => Ok(Signatory::Direct(PrivateKey::from_string(key_string)?.into())),
         (None, None, None, None) => Err(ConfigurationError::MissingSSHKey),
     }
 }

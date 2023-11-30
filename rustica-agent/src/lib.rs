@@ -57,7 +57,7 @@ pub struct YubikeySigner {
 #[allow(clippy::large_enum_variant)]
 pub enum Signatory {
     Yubikey(YubikeySigner),
-    Direct(PrivateKey),
+    Direct(Mutex<PrivateKey>),
 }
 
 #[derive(Debug, Clone)]
@@ -304,10 +304,15 @@ impl SshAgentHandler for Handler {
         // key is the same process as keys added afterwards, we do this to prevent duplication
         // of the private key based signing code.
         // TODO: @obelisk make this better
-        let private_key: Option<PrivateKey> = if let Some(private_key) =
+        if let Some(private_key) =
             self.identities.lock().await.get(&pubkey).map(|x| x.clone())
         {
-            Some(private_key)
+            let signature = match private_key.sign(&data) {
+                None => return Err(AgentError::from("Signing Error")),
+                Some(signature) => signature,
+            };
+
+            return Ok(Response::SignResponse { signature })
         } else if let Some(descriptor) = self.piv_identities.get(&pubkey) {
             let mut yk = Yubikey::open(descriptor.serial).map_err(|e| {
                 println!("Unable to open Yubikey: {e}");
@@ -344,12 +349,19 @@ impl SshAgentHandler for Handler {
 
             return Ok(Response::SignResponse { signature });
         } else if let Signatory::Direct(privkey) = &self.signatory {
+            let privkey = privkey.lock().await;
+
             // Don't sign requests if the requested key does not match the signatory
             if privkey.pubkey.fingerprint() != fingerprint {
                 return Err(AgentError::from("No such key"));
             }
 
-            Some(privkey.clone())
+            let signature = match privkey.sign(&data) {
+                None => return Err(AgentError::from("Signing Error")),
+                Some(signature) => signature,
+            };
+
+            return Ok(Response::SignResponse { signature })
         } else if let Signatory::Yubikey(signer) = &self.signatory {
             let mut yk = signer.yk.lock().await;
             // Don't sign requests if the requested key does not match the signatory
@@ -380,20 +392,8 @@ impl SshAgentHandler for Handler {
 
             return Ok(Response::SignResponse { signature });
         } else {
-            None
+            return Err(AgentError::from("Signing Error: No Valid Keys"));
         };
-
-        match private_key {
-            Some(key) => {
-                let signature = match key.sign(&data) {
-                    None => return Err(AgentError::from("Signing Error")),
-                    Some(signature) => signature,
-                };
-
-                Ok(Response::SignResponse { signature })
-            }
-            None => Err(AgentError::from("Signing Error: No Valid Keys")),
-        }
     }
 }
 

@@ -102,7 +102,7 @@ fn get_signatory(
         if certificate_fingerprint == private_key.pubkey.fingerprint().hash {
             return Ok((
                 private_key.pubkey.clone(),
-                Signatory::Direct(private_key.clone()),
+                Signatory::Direct(private_key.clone().into()),
             ));
         }
     }
