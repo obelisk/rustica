@@ -10,7 +10,7 @@ use crate::config::RusticaAgentAction;
 use rustica_agent::rustica::key::U2FAttestation;
 use rustica_agent::*;
 
-use sshcerts::fido::{generate::generate_new_ssh_key, list_fido_devices};
+use sshcerts::fido::generate::generate_new_ssh_key;
 use tokio::sync::mpsc::channel;
 
 use std::fs::File;
@@ -25,9 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", git_config_from_public_key(&public_key))
         }
         Ok(RusticaAgentAction::ListFidoDevices) => {
-            for device in list_fido_devices() {
+            /*for device in list_fido_devices() {
                 println!("{} - {}", device.path, device.product_string);
-            }
+            }*/
         }
         // This lists all keys we can find on connected devices
         Ok(RusticaAgentAction::ListPIVKeys(config)) => {

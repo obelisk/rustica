@@ -862,6 +862,7 @@ pub unsafe extern "C" fn ffi_free_rust_string(string_ptr: *mut c_char) {
     drop(CString::from_raw(string_ptr));
 }
 
+/*
 /// Check if the device path will require a pin to generate a new key
 /// # Safety
 #[no_mangle]
@@ -908,7 +909,7 @@ pub unsafe extern "C" fn ffi_device_pin_retries(device: *const c_char) -> i32 {
         }
     }
 }
-
+ */
 /// Refresh and load a new certificate onto a yubikey
 ///
 /// # Safety

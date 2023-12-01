@@ -12,7 +12,11 @@ hex = "0.4"
 log = "0.4.13"
 notify-rust = "4"
 rustica-agent = { path = "../rustica-agent" }
-sshcerts = { version = "0.12", features = ["yubikey-support", "fido-support"] }
+#sshcerts = { version = "0.12", features = ["yubikey-support", "fido-support"] }
+sshcerts = { git = "https://github.com/obelisk/sshcerts", branch = "moz_auth_2023", default-features = false, features = [
+    "experimental",
+] }
+
 # sshcerts = { path = "../../sshcerts", features = [
 #     "yubikey-support",
 #     "fido-support",
