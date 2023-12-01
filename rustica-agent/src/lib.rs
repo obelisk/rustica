@@ -228,9 +228,18 @@ impl SshAgentHandler for Handler {
         let mut configuration = self.updatable_configuration.lock().await;
 
         // Fetch a new certificate or use the cached one if it's still valid
-        let certificate = match (&*existing_cert, timestamp < *stale_at) {
+        // We add 5 to the timestamp to try and ensure by the time the user
+        // taps their key, the certificate is still valid. This appears to
+        // primarily be an issue with GitHub pull and push tiers.
+        let certificate = match (&*existing_cert, timestamp + 5 < *stale_at) {
             // In the case we have a certificate and it's not expired.
-            (Some(cert), true) => Ok(cert.clone()),
+            (Some(cert), true) => {
+                debug!(
+                    "Using cached certificate which expires in {} seconds",
+                    *stale_at - timestamp
+                );
+                Ok(cert.clone())
+            }
             // All other cases require us to fetch a certificate from one
             // of the configured servers
             _ => {
@@ -294,7 +303,10 @@ impl SshAgentHandler for Handler {
         trace!("Sign call");
 
         // Extract the pubkey fingerprint from either the SSH pubkey or the SSH cert
-        let fingerprint = match (Certificate::from_bytes(&pubkey), PublicKey::from_bytes(&pubkey)) {
+        let fingerprint = match (
+            Certificate::from_bytes(&pubkey),
+            PublicKey::from_bytes(&pubkey),
+        ) {
             (Ok(cert), _) => cert.key.fingerprint(),
             (_, Ok(pubkey)) => pubkey.fingerprint(),
             _ => return Err(AgentError::from("Invalid key blob")),
