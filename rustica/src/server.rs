@@ -717,6 +717,7 @@ impl Rustica for RusticaServer {
             request.alg,
             &request.u2f_challenge,
             &request.sk_application,
+            request.u2f_challenge_hashed,
         ) {
             Ok(key) => {
                 // This can only occur if an attestation chain has been provided

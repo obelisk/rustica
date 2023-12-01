@@ -1,4 +1,4 @@
-use asn1::{Utf8String};
+use asn1::Utf8String;
 use author::author_client::AuthorClient;
 use author::{AddIdentityDataRequest, AuthorizeRequest};
 
@@ -7,8 +7,8 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use x509_parser::oid_registry::Oid;
 
 use super::{
-    SshAuthorization, AuthorizationError, SshAuthorizationRequestProperties, KeyAttestation,
-    RegisterKeyRequestProperties, X509Authorization, X509AuthorizationRequestProperties,
+    AuthorizationError, KeyAttestation, RegisterKeyRequestProperties, SshAuthorization,
+    SshAuthorizationRequestProperties, X509Authorization, X509AuthorizationRequestProperties,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -287,7 +287,10 @@ impl AuthServer {
         );
 
         identities.insert(format!("leaf"), hex::encode(&auth_props.attestation));
-        identities.insert(format!("intermediate"), hex::encode(&auth_props.attestation_intermediate));
+        identities.insert(
+            format!("intermediate"),
+            hex::encode(&auth_props.attestation_intermediate),
+        );
 
         let request = tonic::Request::new(AuthorizeRequest {
             identities,
@@ -296,12 +299,12 @@ impl AuthServer {
 
         let client_identity =
             Identity::from_pem(self.mtls_cert.as_bytes(), &self.mtls_key.as_bytes());
-        
+
         let tls = ClientTlsConfig::new()
             .domain_name(&self.server)
             .ca_certificate(Certificate::from_pem(self.ca.as_bytes()))
             .identity(client_identity);
-        
+
         let channel =
             match Channel::from_shared(format!("https://{}:{}", &self.server, &self.port)) {
                 Ok(c) => c,
@@ -339,44 +342,59 @@ impl AuthServer {
 
         // For all the returned objects that are OIDs, pull them out and
         // process them.
-        let extensions = response.iter().filter_map(|entry| {
-            if let Ok(oid) = Oid::from_str(entry.0.as_str()) {
-                let oid_ints: Vec<u64> = match oid.iter() {
-                    Some(ints) => ints.collect(),
-                    _ => return None,
-                };
-                let entry_bytes = match asn1::write_single(&Utf8String::new(entry.1)) {
-                    Ok(b) => b,
-                    Err(_) => return None,
-                };
-                let ext = CustomExtension::from_oid_content(&oid_ints, entry_bytes);
-                Some(ext)
-            } else {
-                None
-            }
-        }).collect();
+        let extensions = response
+            .iter()
+            .filter_map(|entry| {
+                if let Ok(oid) = Oid::from_str(entry.0.as_str()) {
+                    let oid_ints: Vec<u64> = match oid.iter() {
+                        Some(ints) => ints.collect(),
+                        _ => return None,
+                    };
+                    let entry_bytes = match asn1::write_single(&Utf8String::new(entry.1)) {
+                        Ok(b) => b,
+                        Err(_) => return None,
+                    };
+                    let ext = CustomExtension::from_oid_content(&oid_ints, entry_bytes);
+                    Some(ext)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let mtls_user = auth_props.mtls_identities.get(0).ok_or(AuthorizationError::AuthorizerError)?;
-        
-        let (valid_before, valid_after) = match (response.get("valid_before").map(|x| x.parse::<u64>()), response.get("valid_after").map(|x| x.parse::<u64>())) {
+        let mtls_user = auth_props
+            .mtls_identities
+            .get(0)
+            .ok_or(AuthorizationError::AuthorizerError)?;
+
+        let (valid_before, valid_after) = match (
+            response.get("valid_before").map(|x| x.parse::<u64>()),
+            response.get("valid_after").map(|x| x.parse::<u64>()),
+        ) {
             (Some(Ok(vb)), Some(Ok(va))) => (vb, va),
             (None, None) => {
-                let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+                let current_time = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
                 (current_time + (3600 * 12), current_time)
             }
-            _ => return Err(AuthorizationError::AuthorizerError)
+            _ => return Err(AuthorizationError::AuthorizerError),
         };
 
         let serial = match response.get("serial").map(|x| x.parse::<i64>()) {
             Some(Ok(serial)) => serial,
             Some(Err(_)) => return Err(AuthorizationError::AuthorizerError),
-            None => 0xFEFEFEFEFE
+            None => 0xFEFEFEFEFE,
         };
-        
+
         // Success, build the response
         return Ok(X509Authorization {
             authority: auth_props.authority.clone(),
-            issuer: response.get("issuer").unwrap_or(&"Rustica".to_owned()).to_string(),
+            issuer: response
+                .get("issuer")
+                .unwrap_or(&"Rustica".to_owned())
+                .to_string(),
             common_name: mtls_user.clone(),
             sans: vec![mtls_user.clone()],
             extensions,

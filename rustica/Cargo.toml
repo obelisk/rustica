@@ -35,12 +35,17 @@ prost = "0.11"
 ring = "0.17"
 serde = { version = "1.0", features = ["derive"] }
 # For Production
-sshcerts = { version = "0.12", default-features = false, features = [
+# sshcerts = { version = "0.12", default-features = false, features = [
+#     "fido-lite",
+#     "x509-support",
+#     "yubikey-lite",
+# ] }
+# For Development
+sshcerts = { git = "https://github.com/obelisk/sshcerts", branch = "moz_auth_2023", default-features = false, features = [
     "fido-lite",
     "x509-support",
     "yubikey-lite",
 ] }
-# For Development
 # sshcerts = { path = "../../sshcerts", default-features = false, features = [
 #     "fido-lite",
 #     "x509-support",

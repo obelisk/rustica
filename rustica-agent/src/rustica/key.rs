@@ -48,8 +48,7 @@ impl RusticaServer {
         key: &PIVAttestation,
         handle: &Handle,
     ) -> Result<(), RefreshError> {
-        handle
-            .block_on(async { self.register_key_async(signatory, key).await })
+        handle.block_on(async { self.register_key_async(signatory, key).await })
     }
 
     pub async fn register_u2f_key_async(
@@ -68,6 +67,7 @@ impl RusticaServer {
             intermediate: attestation.intermediate.clone(),
             alg: attestation.alg,
             challenge: Some(challenge),
+            u2f_challenge_hashed: true,
         };
 
         let request = tonic::Request::new(request);

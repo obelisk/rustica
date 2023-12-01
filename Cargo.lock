@@ -3836,7 +3836,7 @@ dependencies = [
  "ring 0.17.5",
  "serde",
  "serde_json",
- "sshcerts 0.12.1",
+ "sshcerts",
  "tokio",
  "toml 0.5.11",
  "tonic",
@@ -3859,7 +3859,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha2 0.9.9",
- "sshcerts 0.13.0",
+ "sshcerts",
  "tokio",
  "toml 0.7.8",
  "tonic",
@@ -3878,7 +3878,7 @@ dependencies = [
  "log",
  "notify-rust",
  "rustica-agent",
- "sshcerts 0.13.0",
+ "sshcerts",
  "tokio",
  "toml 0.7.8",
  "yubikey",
@@ -3893,7 +3893,7 @@ dependencies = [
  "hex",
  "home",
  "rustica-agent",
- "sshcerts 0.13.0",
+ "sshcerts",
  "tokio",
  "toml 0.5.11",
  "tracing-subscriber",
@@ -4360,23 +4360,6 @@ checksum = "67cf02bbac7a337dc36e4f5a693db6c21e7863f45070f7064577eb4367a3212b"
 dependencies = [
  "base64ct",
  "der",
-]
-
-[[package]]
-name = "sshcerts"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7180145a992df0e9705844dc7cddec09eca063a59ab5b8bb9761a3d1a224ce59"
-dependencies = [
- "base64 0.13.1",
- "der-parser 5.1.2",
- "minicbor",
- "rcgen",
- "ring 0.17.5",
- "x509",
- "x509-parser 0.15.1",
- "yubikey",
- "zeroize",
 ]
 
 [[package]]
