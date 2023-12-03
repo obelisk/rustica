@@ -20,15 +20,20 @@ pub use rustica::{
     RefreshError::{ConfigurationError, SigningError},
 };
 
-use sshcerts::ssh::{CertType, Certificate, PrivateKey, PublicKey, SSHCertificateSigner};
-use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
-
 use std::collections::HashMap;
 use std::{convert::TryFrom, env};
 
 use std::time::SystemTime;
 
 use tokio::sync::Mutex;
+
+pub use sshcerts::{
+    error::Error as SSHCertsError,
+    fido::{generate::generate_new_ssh_key, list_fido_devices},
+    ssh::{CertType, SSHCertificateSigner},
+    yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey},
+    Certificate, PrivateKey, PublicKey,
+};
 
 #[derive(Debug)]
 pub struct CertificateConfig {

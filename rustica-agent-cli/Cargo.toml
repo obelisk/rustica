@@ -1,9 +1,12 @@
 [package]
 name = "rustica-agent-cli"
-version = "0.11.1"
+version = "0.12.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["mozilla"]
+mozilla = ["rustica-agent/mozilla"]
+ctap2_hid = ["rustica-agent/ctap2_hid"]
 
 [dependencies]
 clap = "3.0.5"
@@ -11,16 +14,7 @@ env_logger = "0.8.2"
 hex = "0.4"
 log = "0.4.13"
 notify-rust = "4"
-rustica-agent = { path = "../rustica-agent" }
-#sshcerts = { version = "0.12", features = ["yubikey-support", "fido-support"] }
-sshcerts = { git = "https://github.com/obelisk/sshcerts", branch = "moz_auth_2023", default-features = false, features = [
-    "experimental",
-] }
-
-# sshcerts = { path = "../../sshcerts", features = [
-#     "yubikey-support",
-#     "fido-support",
-# ] }
+rustica-agent = { path = "../rustica-agent", default-features = false }
 tokio = { version = "1", features = ["full"] }
 toml = "0.7"
 yubikey = "0.7"

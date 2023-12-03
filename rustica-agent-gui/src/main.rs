@@ -8,7 +8,7 @@ use egui::ComboBox;
 
 use home::home_dir;
 use rustica_agent::{Agent, CertificateConfig, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys, config::UpdatableConfiguration};
-use sshcerts::{ PrivateKey, yubikey::piv::Yubikey};
+use rustica_agent::{ PrivateKey, Yubikey};
 use tokio::{
     runtime::Runtime,
     sync::mpsc::{channel, Sender},

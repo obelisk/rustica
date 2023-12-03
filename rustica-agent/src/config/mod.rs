@@ -1,8 +1,10 @@
-use std::{fs, path::{Path, PathBuf}};
-
-use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::{RusticaAgentLibraryError, RusticaServer};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Options {
