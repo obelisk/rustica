@@ -1,7 +1,7 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::UpdatableConfiguration, list_yubikey_serials, CertificateConfig, Handler, Signatory,
-    YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::UpdatableConfiguration, generate_new_ssh_key, list_yubikey_serials, CertificateConfig,
+    Handler, PrivateKey, Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -11,9 +11,10 @@ pub use crate::rustica::{
 
 use crate::rustica::key::U2FAttestation;
 
-use sshcerts::fido::generate::generate_new_ssh_key;
-use sshcerts::ssh::PrivateKey;
+use sshcerts::error::Error as SSHCertsError;
+use sshcerts::fido::Error as FidoError;
 use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
+
 use tokio::{
     runtime::Runtime,
     sync::{
@@ -213,6 +214,19 @@ pub unsafe extern "C" fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
     }
 }
 
+pub enum GenerateAndEnrollStatus {
+    Success = 0,
+    ConfigurationError = 1,
+    ParameterError,
+    PinRequired,
+    KeyLocked,
+    KeyBlocked,
+    UnknownAttemptsRemaining,
+    InternalError,
+    KeyFileError,
+    KeyRegistrationError,
+}
+
 #[no_mangle]
 /// Generate and enroll a new FIDO key with a Rustica backend
 ///
@@ -220,16 +234,21 @@ pub unsafe extern "C" fn free_list_keys(length: c_int, keys: *mut *mut c_char) {
 /// All c_char pointers passed to this function must be null terminated C
 /// strings or undefined behaviour occurs possibly resulting in corruption
 /// or crashes.
-pub unsafe extern "C" fn generate_and_enroll_fido(
+///
+/// # Return
+/// Returns a GenerateAndEnrollStatus enum cast to i64.
+/// If the key fails to generate due to pin, a negative value representing the attempts remaining
+/// is returned instead.
+pub unsafe extern "C" fn ffi_generate_and_enroll_fido(
     config_path: *const c_char,
     out: *const c_char,
     comment: *const c_char,
     pin: *const c_char,
     device: *const c_char,
-) -> bool {
+) -> i64 {
     let cf = CStr::from_ptr(config_path);
     let config_path = match cf.to_str() {
-        Err(_) => return false,
+        Err(_) => return GenerateAndEnrollStatus::ConfigurationError as i64,
         Ok(s) => s,
     };
 
@@ -237,20 +256,20 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         Ok(c) => c,
         Err(e) => {
             error!("Configuration was invalid: {e}");
-            return false;
+            return GenerateAndEnrollStatus::ConfigurationError as i64;
         }
     };
 
     let out = CStr::from_ptr(out);
     let out = match out.to_str() {
-        Err(_) => return false,
+        Err(_) => return GenerateAndEnrollStatus::ParameterError as i64,
         Ok(s) => s,
     };
 
     let comment = if !comment.is_null() {
         let comment = CStr::from_ptr(comment);
         let comment = match comment.to_str() {
-            Err(_) => return false,
+            Err(_) => return GenerateAndEnrollStatus::ParameterError as i64,
             Ok(s) => s,
         };
         comment.to_string()
@@ -261,7 +280,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
     let pin = if !pin.is_null() {
         let pin = CStr::from_ptr(pin);
         let pin = match pin.to_str() {
-            Err(_) => return false,
+            Err(_) => return GenerateAndEnrollStatus::ParameterError as i64,
             Ok(s) => s,
         };
         Some(pin.to_string())
@@ -272,7 +291,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
     let device = if !device.is_null() {
         let device = CStr::from_ptr(device);
         let device = match device.to_str() {
-            Err(_) => return false,
+            Err(_) => return GenerateAndEnrollStatus::ParameterError as i64,
             Ok(s) => s,
         };
         Some(device.to_string())
@@ -282,15 +301,30 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
 
     let new_fido_key = match generate_new_ssh_key("ssh:", &comment, pin, device) {
         Ok(nfk) => nfk,
+        Err(SSHCertsError::FidoError(FidoError::InvalidPin(Some(attempts)))) => {
+            if attempts == 0 {
+                return GenerateAndEnrollStatus::UnknownAttemptsRemaining as i64;
+            }
+            return -(attempts as i64);
+        }
+        Err(SSHCertsError::FidoError(FidoError::KeyLocked)) => {
+            return GenerateAndEnrollStatus::KeyLocked as i64
+        }
+        Err(SSHCertsError::FidoError(FidoError::KeyBlocked)) => {
+            return GenerateAndEnrollStatus::KeyBlocked as i64
+        }
+        Err(SSHCertsError::FidoError(FidoError::PinRequired)) => {
+            return GenerateAndEnrollStatus::PinRequired as i64
+        }
         Err(e) => {
-            println!("Error: {}", e);
-            return false;
+            error!("Unknown Error: {e}");
+            return GenerateAndEnrollStatus::InternalError as i64;
         }
     };
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
-        _ => return false,
+        _ => return GenerateAndEnrollStatus::InternalError as i64,
     };
 
     let runtime_handle = runtime.handle().to_owned();
@@ -307,8 +341,8 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
     let mut out_file = match File::create(out) {
         Ok(f) => f,
         Err(e) => {
-            println!("Error: Could not create keyfile at {}: {}", out, e);
-            return false;
+            error!("Error: Could not create keyfile at {}: {}", out, e);
+            return GenerateAndEnrollStatus::KeyFileError as i64;
         }
     };
 
@@ -316,14 +350,14 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
         let mut permissions = md.permissions();
         permissions.set_mode(0o600);
     } else {
-        println!("Error: Could get file info {}", out);
-        return false;
+        error!("Error: Could get file info {}", out);
+        return GenerateAndEnrollStatus::KeyFileError as i64;
     };
 
     if new_fido_key.private_key.write(&mut out_file).is_err() {
         std::fs::remove_file(out).unwrap_or_default();
-        println!("Error: Could not write to file. Basically should never happen");
-        return false;
+        error!("Error: Could not write to file. Basically should never happen");
+        return GenerateAndEnrollStatus::KeyFileError as i64;
     };
 
     for server in &updatable_configuration.get_configuration().servers {
@@ -333,7 +367,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
                     "Key was successfully registered with server: {}",
                     server.address
                 );
-                return true;
+                return GenerateAndEnrollStatus::Success as i64;
             }
             Err(e) => {
                 error!("Key could not be registered. Server said: {}", e);
@@ -342,7 +376,7 @@ pub unsafe extern "C" fn generate_and_enroll_fido(
     }
 
     std::fs::remove_file(out).unwrap();
-    false
+    return GenerateAndEnrollStatus::KeyRegistrationError as i64;
 }
 
 /// Generate and enroll a new key on the given yubikey in the given slot
