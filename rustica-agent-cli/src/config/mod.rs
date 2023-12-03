@@ -11,8 +11,7 @@ mod singlemode;
 use clap::{Arg, ArgMatches, Command};
 
 use rustica_agent::config::UpdatableConfiguration;
-use sshcerts::yubikey::piv::Yubikey;
-use sshcerts::{CertType, PrivateKey, PublicKey};
+use rustica_agent::{CertType, PrivateKey, PublicKey, SSHCertsError, Yubikey};
 
 use rustica_agent::*;
 
@@ -62,8 +61,8 @@ impl From<std::io::Error> for ConfigurationError {
     }
 }
 
-impl From<sshcerts::error::Error> for ConfigurationError {
-    fn from(_: sshcerts::error::Error) -> Self {
+impl From<SSHCertsError> for ConfigurationError {
+    fn from(_: SSHCertsError) -> Self {
         ConfigurationError::ParsingError
     }
 }
