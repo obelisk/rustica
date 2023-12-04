@@ -57,6 +57,7 @@ pub async fn get_rustica_client(
 pub async fn complete_rustica_challenge(
     server: &RusticaServer,
     signatory: &Signatory,
+    notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
 ) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
     let ssh_pubkey = match signatory {
         Signatory::Yubikey(signer) => {
@@ -109,6 +110,12 @@ pub async fn complete_rustica_challenge(
     if challenge_certificate.key.fingerprint().hash != ssh_pubkey.fingerprint().hash {
         error!("The public key in the challenge doesn't match the client's public key");
         return Err(RefreshError::ServerChallengeNotForClientKey);
+    }
+
+    // We need to sign the challenge so let's notify the user they
+    // will need to interact with their device if (if a device is being used)
+    if let Some(f) = notification_function {
+        f();
     }
 
     let resigned_certificate = match signatory {

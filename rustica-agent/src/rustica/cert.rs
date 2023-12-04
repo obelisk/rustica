@@ -12,8 +12,10 @@ impl RusticaServer {
         &self,
         signatory: &Signatory,
         options: &CertificateConfig,
+        notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
     ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
-        let (mut client, challenge) = super::complete_rustica_challenge(self, signatory).await?;
+        let (mut client, challenge) =
+            super::complete_rustica_challenge(self, signatory, notification_function).await?;
 
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(ts) => ts.as_secs(),
@@ -68,7 +70,11 @@ impl RusticaServer {
         signatory: &mut Signatory,
         options: &CertificateConfig,
         handle: &Handle,
+        notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
     ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
-        handle.block_on(async { self.refresh_certificate_async(signatory, options).await })
+        handle.block_on(async {
+            self.refresh_certificate_async(signatory, options, notification_function)
+                .await
+        })
     }
 }
