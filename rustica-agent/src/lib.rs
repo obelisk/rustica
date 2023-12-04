@@ -248,18 +248,12 @@ impl SshAgentHandler for Handler {
             // All other cases require us to fetch a certificate from one
             // of the configured servers
             _ => {
-                // Send a notification in case the user is going to need to
-                // tap their key to prove ownership before receiving their
-                // certificate
-                if let Some(f) = &self.notification_function {
-                    f()
-                }
-
                 // Fetch a new certificate from one of the servers
                 fetch_new_certificate(
                     &mut configuration,
                     &self.signatory,
                     &self.certificate_options,
+                    &self.notification_function,
                 )
                 .await
                 .map(|cert| {
@@ -335,7 +329,10 @@ impl SshAgentHandler for Handler {
             })?;
 
             if let Some(f) = &self.notification_function {
+                println!("Trying to send a notification");
                 f()
+            } else {
+                println!("No notification function set");
             }
 
             if let Some(pin) = &descriptor.pin {
@@ -408,7 +405,7 @@ impl SshAgentHandler for Handler {
             return Ok(Response::SignResponse { signature });
         } else {
             return Err(AgentError::from("Signing Error: No Valid Keys"));
-        };
+        }
     }
 }
 
@@ -583,9 +580,13 @@ pub async fn fetch_new_certificate(
     configuration: &mut UpdatableConfiguration,
     signatory: &Signatory,
     options: &CertificateConfig,
+    notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
 ) -> Result<Certificate, RusticaAgentLibraryError> {
     for server in configuration.get_servers_mut() {
-        match server.refresh_certificate_async(signatory, options).await {
+        match server
+            .refresh_certificate_async(signatory, options, notification_function)
+            .await
+        {
             Ok((cert, mtls_credentials)) => {
                 let parsed_cert = Certificate::from_string(&cert.cert)
                     .map_err(|e| RusticaAgentLibraryError::ServerReturnedInvalidCertificate(e))?;

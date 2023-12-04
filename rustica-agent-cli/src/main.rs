@@ -140,6 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut config.updatable_configuration,
                 &mut config.signatory,
                 &config.certificate_options,
+                &None,
             )
             .await
             {
