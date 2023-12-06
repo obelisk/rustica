@@ -1,5 +1,5 @@
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::{slot_validator, PIVAttestation, Signatory, config::UpdatableConfiguration};
+use rustica_agent::{config::UpdatableConfiguration, slot_validator, PIVAttestation, Signatory};
 use yubikey::piv::SlotId;
 
 use super::{get_signatory, parse_config_from_args, ConfigurationError, RusticaAgentAction};
@@ -32,12 +32,10 @@ pub async fn configure_register(
             Signatory::Direct(_) => return Err(ConfigurationError::CannotAttestFileBasedKey),
         };
 
-        attestation.certificate = signer
-            .yk
-            .fetch_attestation(&signer.slot)
-            .unwrap_or_default();
-        attestation.intermediate = signer
-            .yk
+        let mut yk = signer.yk.lock().await;
+
+        attestation.certificate = yk.fetch_attestation(&signer.slot).unwrap_or_default();
+        attestation.intermediate = yk
             .fetch_certificate(&SlotId::Attestation)
             .unwrap_or_default();
 

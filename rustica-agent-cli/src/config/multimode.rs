@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs};
 
 use rustica_agent::{
     get_all_piv_keys, Handler, RusticaAgentLibraryError, Signatory, YubikeyPIVKeyDescriptor,
-    YubikeySigner
+    YubikeySigner,
 };
 
 use clap::{Arg, ArgMatches, Command};
@@ -91,7 +91,7 @@ fn get_signatory(
         let key = PublicKey::from_bytes(key).unwrap();
         if certificate_fingerprint == key.fingerprint().hash {
             let sig = Signatory::Yubikey(YubikeySigner {
-                yk: Yubikey::open(des.serial).unwrap(),
+                yk: Yubikey::open(des.serial).unwrap().into(),
                 slot: des.slot,
             });
             return Ok((des.public_key.clone(), sig));
@@ -102,7 +102,7 @@ fn get_signatory(
         if certificate_fingerprint == private_key.pubkey.fingerprint().hash {
             return Ok((
                 private_key.pubkey.clone(),
-                Signatory::Direct(private_key.clone()),
+                Signatory::Direct(private_key.clone().into()),
             ));
         }
     }
@@ -157,17 +157,16 @@ pub async fn configure_multimode(
     key_map.remove(&pubkey.encode().to_vec());
 
     let handler = Handler {
-        updatable_configuration,
-        cert: None,
+        updatable_configuration: updatable_configuration.into(),
+        cert: None.into(),
         pubkey: pubkey.clone(),
         signatory,
-        stale_at: 0,
+        stale_at: 0.into(),
         certificate_options,
-        identities: private_keys,
+        identities: private_keys.into(),
         piv_identities: key_map,
         notification_function: None,
         certificate_priority: matches.is_present("certificate-priority"),
-        
     };
 
     Ok(RusticaAgentAction::Run(RunConfig {

@@ -52,7 +52,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &config.management_key,
                 config.require_touch,
                 config.pin_policy,
-            ) {
+            )
+            .await
+            {
                 Some(_) => (),
                 None => {
                     println!("Provisioning Error");
@@ -65,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(RusticaAgentAction::ProvisionAndRegisterFido(prf)) => {
             let new_fido_key = generate_new_ssh_key(&prf.app_name, &prf.comment, prf.pin, None)?;
 
-            let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
+            let mut signatory = Signatory::Direct(new_fido_key.private_key.clone().into());
             let u2f_attestation = U2FAttestation {
                 auth_data: new_fido_key.attestation.auth_data,
                 auth_data_sig: new_fido_key.attestation.auth_data_sig,
@@ -184,15 +186,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await;
         }
         Ok(RusticaAgentAction::RefreshAttestedX509(mut config)) => {
-            match rustica_agent::fetch_new_attested_x509_certificate(&config.updatable_configuration.get_configuration().servers, &mut config.signatory)
-                .await
+            match rustica_agent::fetch_new_attested_x509_certificate(
+                &config.updatable_configuration.get_configuration().servers,
+                &mut config.signatory,
+            )
+            .await
             {
                 Ok(cert) => match config.signatory {
-                    Signatory::Yubikey(mut yk) => {
-                        yk.yk
-                            .unlock(config.pin.as_bytes(), &config.management_key)
+                    Signatory::Yubikey(yk) => {
+                        let slot = yk.slot;
+                        let mut yk = yk.yk.lock().await;
+                        yk.unlock(config.pin.as_bytes(), &config.management_key)
                             .unwrap();
-                        yk.yk.write_certificate(&yk.slot, &cert).unwrap();
+                        yk.write_certificate(&slot, &cert).unwrap();
                     }
                     Signatory::Direct(_) => {
                         let parsed_cert = Certificate::from_bytes(cert.to_vec()).unwrap();

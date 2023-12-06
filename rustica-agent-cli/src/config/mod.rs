@@ -53,7 +53,7 @@ pub enum RusticaAgentAction {
     ListPIVKeys(listpivkeys::ListPIVKeysConfig),
     ListFidoDevices,
     GitConfig(PublicKey),
-    RefreshAttestedX509(refresh_attested_x509_certificate::RefreshAttestedX509Config)
+    RefreshAttestedX509(refresh_attested_x509_certificate::RefreshAttestedX509Config),
 }
 
 impl From<std::io::Error> for ConfigurationError {
@@ -85,13 +85,13 @@ fn get_signatory(
     match (cmd_slot, config_slot, file, &config_key) {
         (Some(slot), _, _, _) => match slot_parser(slot) {
             Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
-                yk: Yubikey::new().unwrap(),
+                yk: Yubikey::new().unwrap().into(),
                 slot: s,
             })),
             None => Err(ConfigurationError::BadSlot),
         },
         (_, _, Some(file), _) => match PrivateKey::from_path(file) {
-            Ok(p) => Ok(Signatory::Direct(p)),
+            Ok(p) => Ok(Signatory::Direct(p.into())),
             Err(e) => Err(ConfigurationError::CannotReadFile(format!(
                 "{}: {}",
                 e, file
@@ -99,12 +99,12 @@ fn get_signatory(
         },
         (_, Some(slot), _, _) => match slot_parser(slot) {
             Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
-                yk: Yubikey::new().unwrap(),
+                yk: Yubikey::new().unwrap().into(),
                 slot: s,
             })),
             None => Err(ConfigurationError::BadSlot),
         },
-        (_, _, _, Some(key_string)) => Ok(Signatory::Direct(PrivateKey::from_string(key_string)?)),
+        (_, _, _, Some(key_string)) => Ok(Signatory::Direct(PrivateKey::from_string(key_string)?.into())),
         (None, None, None, None) => Err(ConfigurationError::MissingSSHKey),
     }
 }
@@ -166,7 +166,9 @@ pub fn add_daemon_options(cmd: Command) -> Command {
         )
 }
 
-fn parse_config_from_args(matches: &ArgMatches) -> Result<UpdatableConfiguration, ConfigurationError> {
+fn parse_config_from_args(
+    matches: &ArgMatches,
+) -> Result<UpdatableConfiguration, ConfigurationError> {
     UpdatableConfiguration::new(matches.value_of("config").unwrap())
         .map_err(|e| ConfigurationError::BadConfiguration(e))
 }
@@ -255,10 +257,11 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             .about("Show the git configuration for code-signing with the provided key"),
     );
 
-    let refresh_x509 = refresh_attested_x509_certificate::add_configuration(new_run_agent_subcommand(
-        "refresh-attested-x509",
-        "Refresh an X509 certificate in a Yubikey slot",
-    ));
+    let refresh_x509 =
+        refresh_attested_x509_certificate::add_configuration(new_run_agent_subcommand(
+            "refresh-attested-x509",
+            "Refresh an X509 certificate in a Yubikey slot",
+        ));
 
     let command_configuration = command_configuration
         .subcommand(immediate_mode)
@@ -312,7 +315,8 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
     }
 
     if let Some(x509_config) = matches.subcommand_matches("refresh-x509") {
-        return refresh_attested_x509_certificate::configure_refresh_x509_certificate(x509_config).await;
+        return refresh_attested_x509_certificate::configure_refresh_x509_certificate(x509_config)
+            .await;
     }
 
     cc_help.print_help().unwrap();
