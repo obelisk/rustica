@@ -13,6 +13,7 @@ ctap2_hid = ["sshcerts/fido-support", "sshcerts/yubikey-support"]
 
 [dependencies]
 sshcerts = { git = "https://github.com/obelisk/sshcerts", branch = "moz_auth_2023", default-features = false }
+#sshcerts = { path = "../../sshcerts", default-features = false }
 async-trait = "0.1"
 base64 = "0.12.1"
 byteorder = "1.4.2"
