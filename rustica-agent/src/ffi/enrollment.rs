@@ -127,7 +127,7 @@ pub unsafe extern "C" fn ffi_generate_and_enroll_fido(
 
     let runtime_handle = runtime.handle().to_owned();
 
-    let mut signatory = Signatory::Direct(new_fido_key.private_key.clone());
+    let mut signatory = Signatory::Direct(new_fido_key.private_key.clone().into());
     let u2f_attestation = U2FAttestation {
         auth_data: new_fido_key.attestation.auth_data,
         auth_data_sig: new_fido_key.attestation.auth_data_sig,

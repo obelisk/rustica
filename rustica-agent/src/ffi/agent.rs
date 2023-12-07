@@ -221,13 +221,13 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     certificate_options.authority = authority;
 
     let handler = Handler {
-        updatable_configuration: Mutex::new(updatable_configuration),
+        updatable_configuration: updatable_configuration.into(),
         cert: None.into(),
-        stale_at: Mutex::new(0),
+        stale_at: 0.into(),
         pubkey: private_key.pubkey.clone(),
         certificate_options,
-        signatory: Signatory::Direct(private_key),
-        identities: Mutex::new(HashMap::new()),
+        signatory: Signatory::Direct(private_key.into()),
+        identities: HashMap::new().into(),
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
