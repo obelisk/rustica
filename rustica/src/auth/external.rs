@@ -270,9 +270,7 @@ impl AuthServer {
         auth_props: &X509AuthorizationRequestProperties,
     ) -> Result<X509Authorization, AuthorizationError> {
         let mut authorization_request = HashMap::new();
-        // TODO: This is an anachronistic hold over and should be updated from
-        // quorum_mtls to rustica_mtls or rustica_x509
-        authorization_request.insert(format!("type"), "quorum_mtls".to_string());
+        authorization_request.insert(format!("type"), "rustica_mtls".to_string());
         authorization_request.insert("authority".to_string(), auth_props.authority.clone());
 
         // Identities
@@ -390,7 +388,10 @@ impl AuthServer {
 
         // Success, build the response
         return Ok(X509Authorization {
-            authority: auth_props.authority.clone(),
+            authority: response
+                .get("authority")
+                .ok_or(AuthorizationError::AuthorizerError)?
+                .to_string(),
             issuer: response
                 .get("issuer")
                 .unwrap_or(&"Rustica".to_owned())
