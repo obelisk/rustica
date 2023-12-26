@@ -63,4 +63,5 @@ pub struct X509Authorization {
     pub user: String,
     pub hsm_serial: String,
     pub require_touch: bool,
+    pub authority: String,
 }
