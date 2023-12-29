@@ -34,7 +34,19 @@ message AddIdentityDataRequest {
 
 message AddIdentityDataResponse {}
 
+message SignerItem {
+    string identity = 1;
+    string pubkey = 2;
+}
+
+message SignerListRequest {}
+
+message SignerListResponse {
+    repeated SignerItem signers = 1;
+}
+
 service Author {
     rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
     rpc AddIdentityData(AddIdentityDataRequest) returns (AddIdentityDataResponse);
+    rpc GetSignerList(SignerListRequest) returns (SignerListResponse);
 }

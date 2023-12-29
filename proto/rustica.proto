@@ -84,10 +84,22 @@ message AttestedX509CertificateResponse {
     int64 error_code = 3;
 }
 
+message SignerItem {
+    string identity = 1;
+    string pubkey = 2;
+}
+
+message SignerListRequest {}
+
+message SignerListResponse {
+    repeated SignerItem signers = 1;
+}
+
 service Rustica {
     rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
     rpc Certificate(CertificateRequest) returns (CertificateResponse);
     rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
     rpc RegisterU2FKey(RegisterU2FKeyRequest) returns (RegisterU2FKeyResponse);
     rpc AttestedX509Certificate(AttestedX509CertificateRequest) returns (AttestedX509CertificateResponse);
+    rpc SignerList(SignerListRequest) returns (SignerListResponse);
 }

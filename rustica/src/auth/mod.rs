@@ -98,9 +98,22 @@ pub struct X509Authorization {
 #[derive(Debug)]
 pub struct RegisterKeyRequestProperties {
     pub fingerprint: String,
+    pub pubkey: String,
     pub mtls_identities: Vec<String>,
     pub requester_ip: String,
     pub attestation: Option<KeyAttestation>,
+}
+
+
+#[derive(Debug)]
+pub struct Signer {
+    pub identity: String,
+    pub pubkey: String,
+}
+
+#[derive(Debug)]
+pub struct SignerList {
+    pub signers: Vec<Signer>,
 }
 
 pub enum AuthorizationMechanism {
@@ -145,6 +158,18 @@ impl AuthorizationMechanism {
             AuthorizationMechanism::Local(local) => local.register_key(register_properties),
             AuthorizationMechanism::External(external) => {
                 external.register_key(register_properties).await
+            }
+        }
+    }
+
+    pub async fn get_signer_list(
+        &self,
+    ) -> Result<SignerList, AuthorizationError> {
+        match &self {
+            #[cfg(feature = "local-db")]
+            AuthorizationMechanism::Local(local) => local.get_signer_list(),
+            AuthorizationMechanism::External(external) => {
+                external.get_signer_list().await
             }
         }
     }

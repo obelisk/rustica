@@ -89,6 +89,7 @@ pub enum RusticaAgentLibraryError {
     CouldNotReadConfigurationFile(String),
     BadConfiguration(String),
     UnknownConfigurationVersion(u64),
+    NoServersReturnedSignerList,
 }
 
 impl std::fmt::Display for RusticaAgentLibraryError {
@@ -119,6 +120,9 @@ impl std::fmt::Display for RusticaAgentLibraryError {
             }
             RusticaAgentLibraryError::UnknownConfigurationVersion(e) => {
                 write!(f, "Cannot use configuration version: {e}")
+            }
+            RusticaAgentLibraryError::NoServersReturnedSignerList => {
+                write!(f, "All servers failed to return a signer list when requested")
             }
         }
     }
@@ -695,4 +699,28 @@ pub async fn register_key(
         }
     }
     Err(RusticaAgentLibraryError::NoServersCouldRegisterKey)
+}
+
+pub async fn get_signers(
+    servers: &[RusticaServer],
+) -> Result<Vec<(String, String)>, RusticaAgentLibraryError> {
+    for server in servers.iter() {
+        match server.get_signer_list().await {
+            Ok(signers) => {
+                let signers = signers.into_iter()
+                    .map(|signer_item| (signer_item.identity, signer_item.pubkey))
+                    .collect();
+
+                return Ok(signers)
+            },
+            Err(e) => {
+                error!(
+                    "Could not fetch signer list from server: {}. Gave error: {}",
+                    server.address,
+                    e.to_string(),
+                )
+            }
+        }
+    }
+    Err(RusticaAgentLibraryError::NoServersReturnedSignerList)
 }

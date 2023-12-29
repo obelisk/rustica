@@ -11,7 +11,7 @@ use crate::logging::{
 use crate::rustica::{
     rustica_server::Rustica, CertificateRequest, CertificateResponse, Challenge, ChallengeRequest,
     ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
-    RegisterU2fKeyResponse,
+    RegisterU2fKeyResponse, SignerListRequest, SignerListResponse, SignerItem,
 };
 use crate::rustica::{AttestedX509CertificateRequest, AttestedX509CertificateResponse};
 use crate::signing::SigningMechanism;
@@ -600,6 +600,60 @@ impl Rustica for RusticaServer {
         Ok(Response::new(reply))
     }
 
+    // Handler used to fetch a list of all signers and their pubkeys
+    async fn signer_list(
+        &self,
+        request: Request<SignerListRequest>,
+    ) -> Result<Response<SignerListResponse>, Status> {
+        let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
+
+        let peer = request.peer_certs();
+
+        let peer = peer.ok_or(Status::permission_denied(""))?;
+
+        // Only support the presenting of a single client certificate
+        // I've never seen anyone handle multiple ones and since we don't
+        // need to here, trying to support it will only lead to validation
+        // issues or inconsistencies.
+        let cert = if let Some(cert) = peer.get(0) {
+            cert
+        } else {
+            return Err(Status::permission_denied(""));
+        };
+
+        let cert_info = match extract_certificate_information(cert) {
+            Ok(cert_info) => cert_info,
+            Err(e) => {
+                rustica_error!(self, format!("Could not validate request: {:?}", e));
+                return Err(Status::cancelled(""));
+            }
+        };
+
+        let mtls_identities = cert_info.identities;
+
+        debug!(
+            "[{}] from [{}] requests the signer list",
+            mtls_identities.join(","),
+            remote_addr,
+        );
+
+        let response = match self.authorizer.get_signer_list().await {
+            Ok(response) => response,
+            Err(_) => return Err(Status::permission_denied("")),
+        };
+
+        let signers = response.signers.into_iter()
+            .map(|signer| SignerItem{
+                identity: signer.identity,
+                pubkey: signer.pubkey,
+            })
+            .collect();
+
+        let reply = SignerListResponse {signers};
+
+        Ok(Response::new(reply))
+    }
+
     async fn register_key(
         &self,
         request: Request<RegisterKeyRequest>,
@@ -671,6 +725,7 @@ impl Rustica for RusticaServer {
 
         let register_properties = RegisterKeyRequestProperties {
             fingerprint: fingerprint.clone(),
+            pubkey: ssh_pubkey.to_string(),
             mtls_identities: mtls_identities.clone(),
             requester_ip,
             attestation,
@@ -776,6 +831,7 @@ impl Rustica for RusticaServer {
 
         let register_properties = RegisterKeyRequestProperties {
             fingerprint: fingerprint.clone(),
+            pubkey: ssh_pubkey.to_string(),
             mtls_identities: mtls_identities.clone(),
             requester_ip,
             attestation,
@@ -796,6 +852,8 @@ impl Rustica for RusticaServer {
                     fingerprint,
                     mtls_identities,
                 };
+
+                println!("Key register error: {}", e);
 
                 let _ = self
                     .log_sender

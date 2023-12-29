@@ -18,6 +18,8 @@ use super::{
     KeyAttestation,
     X509AuthorizationRequestProperties,
     X509Authorization,
+    SignerList,
+    Signer,
 };
 
 use sshcerts::ssh::CertType;
@@ -115,6 +117,7 @@ impl LocalDatabase {
         let mut conn = establish_connection(&self.path);
         let mut registered_key = models::RegisteredKey {
             fingerprint: req.fingerprint.clone(),
+            pubkey: req.pubkey.clone(),
             user: req.mtls_identities.join(","),
             firmware: None,
             hsm_serial: None,
@@ -210,5 +213,33 @@ impl LocalDatabase {
             valid_before: current_time + (3600 * 12), // 12 hours
             valid_after: current_time,
         })
+    }
+
+    pub fn get_signer_list(&self) -> Result<SignerList, AuthorizationError> {
+        let mut conn = establish_connection(&self.path);
+
+        let result = {
+            use schema::registered_keys::dsl::*;
+
+            // Fetch every pubkey and the owner's identity
+            schema::registered_keys::table
+                .select((user, pubkey))
+                .load(&mut conn)
+        };
+
+        if let Err(e) = result {
+            return Err(AuthorizationError::DatabaseError(format!("{}", e)));
+        }
+
+        // Get the response from the backend service
+        let signers: Vec<(String, String)> = result.unwrap();
+        let signers = signers.into_iter()
+            .map(|signer| Signer{
+                identity: signer.0,
+                pubkey: signer.1,
+            })
+            .collect();
+
+        Ok(SignerList{ signers })
     }
 }

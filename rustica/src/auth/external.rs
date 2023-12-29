@@ -1,6 +1,6 @@
 use asn1::Utf8String;
 use author::author_client::AuthorClient;
-use author::{AddIdentityDataRequest, AuthorizeRequest};
+use author::{AddIdentityDataRequest, AuthorizeRequest, SignerListRequest};
 
 use rcgen::CustomExtension;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
@@ -8,7 +8,8 @@ use x509_parser::oid_registry::Oid;
 
 use super::{
     AuthorizationError, KeyAttestation, RegisterKeyRequestProperties, SshAuthorization,
-    SshAuthorizationRequestProperties, X509Authorization, X509AuthorizationRequestProperties,
+    SshAuthorizationRequestProperties, X509Authorization, X509AuthorizationRequestProperties, SignerList,
+    Signer,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -403,5 +404,60 @@ impl AuthServer {
             valid_before,
             valid_after,
         });
+    }
+
+    pub async fn get_signer_list(&self) -> Result<SignerList, AuthorizationError> {
+        let request = tonic::Request::new(SignerListRequest {});
+
+        let client_identity =
+            Identity::from_pem(self.mtls_cert.as_bytes(), &self.mtls_key.as_bytes());
+
+        let tls = ClientTlsConfig::new()
+            .domain_name(&self.server)
+            .ca_certificate(Certificate::from_pem(self.ca.as_bytes()))
+            .identity(client_identity);
+
+        let channel =
+            match Channel::from_shared(format!("https://{}:{}", &self.server, &self.port)) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!(
+                        "Could not open a channel to the authorization server: {}",
+                        e
+                    );
+                    return Err(AuthorizationError::ConnectionFailure);
+                }
+            }
+            .timeout(Duration::from_secs(10))
+            .tls_config(tls)
+            .map_err(|_| AuthorizationError::ConnectionFailure)?
+            .connect()
+            .await
+            .map_err(|_| AuthorizationError::ConnectionFailure)?;
+
+        let mut client = AuthorClient::new(channel);
+        let response = client.get_signer_list(request).await;
+
+        if let Err(e) = response {
+            error!("Authorization server returned error: {}", e);
+            if e.code() == tonic::Code::PermissionDenied {
+                error!("Permission denied from backend");
+                return Err(AuthorizationError::AuthorizerError);
+            } else {
+                error!("Backend threw an unexpected error");
+                return Err(AuthorizationError::AuthorizerError);
+            }
+        }
+
+        // Get the response from the backend service
+        let signers = response.unwrap().into_inner().signers;
+        let signers = signers.into_iter()
+            .map(|signer| Signer{
+                identity: signer.identity,
+                pubkey: signer.pubkey,
+            })
+            .collect();
+
+        Ok(SignerList{ signers })
     }
 }
