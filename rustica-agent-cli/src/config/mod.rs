@@ -313,7 +313,7 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         return gitconfig::configure_git_config(git_config);
     }
 
-    if let Some(x509_config) = matches.subcommand_matches("refresh-x509") {
+    if let Some(x509_config) = matches.subcommand_matches("refresh-attested-x509") {
         return refresh_attested_x509_certificate::configure_refresh_x509_certificate(x509_config)
             .await;
     }
