@@ -9,12 +9,29 @@ use sshcerts::{
 };
 use std::convert::TryFrom;
 
+// For Yubikey 5 Nano:
+// - PIV intermediate cert size is approx 800 bytes
+// - PIV client cert is approx 700 bytes
+// - U2F intermediate cert is approx 800 bytes
+// - U2F attestation statement is approx 256 bytes
+const CERT_MAX_SIZE: usize = 1024 * 2; // 2 KiB
+
 /// Verify a provided yubikey attestation certification and intermediate
 /// certificate are valid against the Yubico attestation Root CA.
 pub fn verify_piv_certificate_chain(
     client: &[u8],
     intermediate: &[u8],
 ) -> Result<Key, RusticaServerError> {
+    // Restrict the max size of certificates
+    // For Yubikey 5 Nano, actual intermediate cert size is approx 800 bytes
+    if intermediate.len() > CERT_MAX_SIZE {
+        return Err(RusticaServerError::PivIntermediateCertTooBig);
+    }
+    // For Yubikey 5 Nano, actual client cert size is approx 700 bytes
+    if client.len() > CERT_MAX_SIZE {
+        return Err(RusticaServerError::PivClientCertTooBig);
+    }
+
     // Extract the certificate public key and convert to an sshcerts PublicKey
     let validated_piv_data = verify_certificate_chain(client, intermediate, None)
         .map_err(|_| RusticaServerError::InvalidKey)?;
@@ -47,6 +64,16 @@ pub fn verify_u2f_certificate_chain(
     application: &[u8],
     u2f_challenge_hashed: bool,
 ) -> Result<Key, RusticaServerError> {
+    // Restrict the max size for the attestation data and intermediate certificate
+    // For Yubikey 5 Nano, actual intermediate cert size is approx 800 bytes
+    if intermediate.len() > CERT_MAX_SIZE {
+        return Err(RusticaServerError::U2fIntermediateCertTooBig);
+    }
+    // For Yubikey 5 Nano, actual auth_data size is approx 256 bytes
+    if auth_data.len() > CERT_MAX_SIZE {
+        return Err(RusticaServerError::U2fAttestationTooBig);
+    }
+
     // Take all the provided data and validate it up to the Yubico U2F Root CA
 
     let challenge = if u2f_challenge_hashed {
