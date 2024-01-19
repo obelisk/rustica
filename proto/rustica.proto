@@ -58,6 +58,7 @@ message RegisterU2FKeyRequest {
     bytes intermediate = 5;
     int32 alg = 6;
     Challenge challenge = 7;
+    bool u2f_challenge_hashed = 8;
 }
 
 message RegisterU2FKeyResponse {}

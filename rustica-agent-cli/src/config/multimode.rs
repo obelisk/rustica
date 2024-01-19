@@ -6,7 +6,7 @@ use rustica_agent::{
 };
 
 use clap::{Arg, ArgMatches, Command};
-use sshcerts::{yubikey::piv::Yubikey, PrivateKey, PublicKey};
+use rustica_agent::{PrivateKey, PublicKey, Yubikey};
 
 use crate::config::{
     parse_certificate_config_from_args, parse_config_from_args, parse_socket_path_from_args,

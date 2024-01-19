@@ -75,6 +75,7 @@ table! {
         user -> Text,
         hsm_serial -> Text,
         require_touch -> Bool,
+        authority -> Text,
     }
 }
 

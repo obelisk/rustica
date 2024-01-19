@@ -363,6 +363,22 @@ impl Rustica for RusticaServer {
             Err(_) => return Err(Status::permission_denied("")),
         };
 
+        // Limit the size of the public key to mitigate DoS
+        // ED25519 public key strings are 127 chars in length.
+        // But we will set a reasonably higher upper bound to accommodate other types of
+        // public keys
+        if request.pubkey.len() > 1024 {
+            rustica_warning!(
+                self,
+                format!(
+                    "The pubkey size is too large ({} chars) for a challenge request from [{}]",
+                    request.pubkey.len(),
+                    mtls_identities.join(","),
+                )
+            );
+            return Err(Status::permission_denied(""));
+        }
+
         let ssh_pubkey = match PublicKey::from_string(&request.pubkey) {
             Ok(sshpk) => sshpk,
             Err(_) => return Err(Status::permission_denied("")),
@@ -717,6 +733,7 @@ impl Rustica for RusticaServer {
             request.alg,
             &request.u2f_challenge,
             &request.sk_application,
+            request.u2f_challenge_hashed,
         ) {
             Ok(key) => {
                 // This can only occur if an attestation chain has been provided

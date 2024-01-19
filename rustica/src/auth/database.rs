@@ -181,7 +181,7 @@ impl LocalDatabase {
 
         let authorization: Vec<_> = {
             use schema::x509_authorizations::dsl::*;
-            let results = x509_authorizations.filter(user.eq(mtls_user).and(hsm_serial.eq(att_serial.to_string())))
+            let results = x509_authorizations.filter(user.eq(mtls_user).and(authority.eq(&auth_props.authority).and(hsm_serial.eq(att_serial.to_string()))))
                 .load::<models::X509Authorization>(&mut conn)
                 .expect("Error loading authorized hosts");
             

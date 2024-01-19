@@ -1,21 +1,19 @@
 [package]
 name = "rustica-agent-gui"
-version = "0.11.1"
+version = "0.12.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["mozilla"]
+mozilla = ["rustica-agent/mozilla"]
+ctap2_hid = ["rustica-agent/ctap2_hid"]
 
 [dependencies]
 base64 = "0.12"
 eframe = "0.22"
 hex = "0.4"
 home = "0.5"
-rustica-agent = { path = "../rustica-agent" }
-sshcerts = { version = "0.12", features = ["yubikey-support", "fido-support"] }
-# sshcerts = { path = "../../sshcerts", features = [
-#     "yubikey-support",
-#     "fido-support",
-# ] }
+rustica-agent = { path = "../rustica-agent", default-features = false }
 tokio = { version = "1", features = ["full"] }
 toml = "0.5"
 tracing-subscriber = "0.3"

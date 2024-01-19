@@ -1,6 +1,6 @@
 use clap::{Arg, ArgMatches, Command};
 use rustica_agent::{get_all_piv_keys, slot_parser, slot_validator};
-use sshcerts::{PrivateKey, PublicKey};
+use rustica_agent::{PrivateKey, PublicKey};
 
 use super::{ConfigurationError, RusticaAgentAction};
 
