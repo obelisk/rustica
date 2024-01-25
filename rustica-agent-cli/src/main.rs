@@ -215,9 +215,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await
             {
-                // TODO: Save this to the authorizedSSHSigners file
                 Ok(signer_keys) => {
-                    println!("{:?}", &signer_keys);
+                    println!("List of authorized signer keys:");
+                    for signer_key in signer_keys.iter() {
+                        println!("{} {}", signer_key.1, signer_key.0);
+                    }
                 }
                 Err(e) => return Err(Box::new(e))?,
             }
