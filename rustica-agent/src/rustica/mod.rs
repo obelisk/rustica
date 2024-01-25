@@ -13,7 +13,7 @@ pub use rustica_proto::rustica_client::RusticaClient;
 pub use rustica_proto::{
     AttestedX509CertificateRequest, AttestedX509CertificateResponse, CertificateRequest,
     CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, RegisterU2fKeyRequest,
-    SignerListRequest, SignerItem,
+    AuthorizedSignerKeysRequest, AuthorizedSignerKeysResponse, AuthorizedSignerKey
 };
 
 use sshcerts::ssh::Certificate as SSHCertificate;

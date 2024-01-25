@@ -1,20 +1,20 @@
 use super::error::RefreshError;
 use crate::RusticaServer;
 
-use super::{SignerListRequest, SignerItem};
+use super::{AuthorizedSignerKeysRequest, AuthorizedSignerKey};
 
 impl RusticaServer {
-    pub async fn get_signer_list(
+    pub async fn get_all_signer_keys(
         &self,
-    ) -> Result<Vec<SignerItem>, RefreshError> {
-        let request = SignerListRequest{};
+    ) -> Result<Vec<AuthorizedSignerKey>, RefreshError> {
+        let request = AuthorizedSignerKeysRequest{};
         let request = tonic::Request::new(request);
 
         let mut client = super::get_rustica_client(&self).await?;
 
-        let response = client.signer_list(request).await?;
+        let response = client.authorized_signer_keys(request).await?;
         let response = response.into_inner();
 
-        Ok(response.signers)
+        Ok(response.signer_keys)
     }
 }

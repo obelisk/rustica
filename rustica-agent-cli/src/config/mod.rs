@@ -54,7 +54,7 @@ pub enum RusticaAgentAction {
     ListFidoDevices,
     GitConfig(PublicKey),
     RefreshAttestedX509(refresh_attested_x509_certificate::RefreshAttestedX509Config),
-    GetSignerList(signers::SignerListConfig),
+    GetAuthorizedSigners(signers::GetAuthorizedSignersConfig),
 }
 
 impl From<std::io::Error> for ConfigurationError {

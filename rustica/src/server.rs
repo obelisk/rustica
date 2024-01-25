@@ -11,7 +11,8 @@ use crate::logging::{
 use crate::rustica::{
     rustica_server::Rustica, CertificateRequest, CertificateResponse, Challenge, ChallengeRequest,
     ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
-    RegisterU2fKeyResponse, SignerListRequest, SignerListResponse, SignerItem,
+    RegisterU2fKeyResponse, AuthorizedSignerKeysRequest, AuthorizedSignerKeysResponse,
+    AuthorizedSignerKey,
 };
 use crate::rustica::{AttestedX509CertificateRequest, AttestedX509CertificateResponse};
 use crate::signing::SigningMechanism;
@@ -601,10 +602,10 @@ impl Rustica for RusticaServer {
     }
 
     // Handler used to fetch a list of all signers and their pubkeys
-    async fn signer_list(
+    async fn authorized_signer_keys(
         &self,
-        request: Request<SignerListRequest>,
-    ) -> Result<Response<SignerListResponse>, Status> {
+        request: Request<AuthorizedSignerKeysRequest>,
+    ) -> Result<Response<AuthorizedSignerKeysResponse>, Status> {
         let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
 
         let peer = request.peer_certs();
@@ -637,19 +638,19 @@ impl Rustica for RusticaServer {
             remote_addr,
         );
 
-        let response = match self.authorizer.get_signer_list().await {
+        let response = match self.authorizer.get_all_signer_keys().await {
             Ok(response) => response,
             Err(_) => return Err(Status::permission_denied("")),
         };
 
-        let signers = response.signers.into_iter()
-            .map(|signer| SignerItem{
-                identity: signer.identity,
-                pubkey: signer.pubkey,
+        let signer_keys = response.signer_keys.into_iter()
+            .map(|signer_key| AuthorizedSignerKey{
+                identity: signer_key.identity,
+                pubkey: signer_key.pubkey,
             })
             .collect();
 
-        let reply = SignerListResponse {signers};
+        let reply = AuthorizedSignerKeysResponse { signer_keys };
 
         Ok(Response::new(reply))
     }

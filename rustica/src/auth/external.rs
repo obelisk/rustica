@@ -1,6 +1,6 @@
 use asn1::Utf8String;
 use author::author_client::AuthorClient;
-use author::{AddIdentityDataRequest, AuthorizeRequest, SignerListRequest};
+use author::{AddIdentityDataRequest, AuthorizeRequest, AuthorizedSignerKeysRequest};
 
 use rcgen::CustomExtension;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
@@ -8,8 +8,8 @@ use x509_parser::oid_registry::Oid;
 
 use super::{
     AuthorizationError, KeyAttestation, RegisterKeyRequestProperties, SshAuthorization,
-    SshAuthorizationRequestProperties, X509Authorization, X509AuthorizationRequestProperties, SignerList,
-    Signer,
+    SshAuthorizationRequestProperties, X509Authorization, X509AuthorizationRequestProperties,
+    SignerKeys, SignerKey,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -406,8 +406,8 @@ impl AuthServer {
         });
     }
 
-    pub async fn get_signer_list(&self) -> Result<SignerList, AuthorizationError> {
-        let request = tonic::Request::new(SignerListRequest {});
+    pub async fn get_all_signer_keys(&self) -> Result<SignerKeys, AuthorizationError> {
+        let request = tonic::Request::new(AuthorizedSignerKeysRequest {});
 
         let client_identity =
             Identity::from_pem(self.mtls_cert.as_bytes(), &self.mtls_key.as_bytes());
@@ -436,7 +436,7 @@ impl AuthServer {
             .map_err(|_| AuthorizationError::ConnectionFailure)?;
 
         let mut client = AuthorClient::new(channel);
-        let response = client.get_signer_list(request).await;
+        let response = client.get_all_signer_keys(request).await;
 
         if let Err(e) = response {
             error!("Authorization server returned error: {}", e);
@@ -450,14 +450,14 @@ impl AuthServer {
         }
 
         // Get the response from the backend service
-        let signers = response.unwrap().into_inner().signers;
-        let signers = signers.into_iter()
-            .map(|signer| Signer{
-                identity: signer.identity,
-                pubkey: signer.pubkey,
+        let signer_keys = response.unwrap().into_inner().signer_keys;
+        let signer_keys = signer_keys.into_iter()
+            .map(|signer_key| SignerKey{
+                identity: signer_key.identity,
+                pubkey: signer_key.pubkey,
             })
             .collect();
 
-        Ok(SignerList{ signers })
+        Ok(SignerKeys{ signer_keys })
     }
 }

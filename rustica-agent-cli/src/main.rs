@@ -209,14 +209,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => println!("Error: {:?}", e),
             }
         }
-        Ok(RusticaAgentAction::GetSignerList(config)) => {
-            match rustica_agent::get_signers(
+        Ok(RusticaAgentAction::GetAuthorizedSigners(config)) => {
+            match rustica_agent::get_authorized_signers(
                 &config.updatable_configuration.get_configuration().servers,
             )
             .await
             {
-                Ok(signers) => {
-                    println!("{:?}", &signers);
+                // TODO: Save this to the authorizedSSHSigners file
+                Ok(signer_keys) => {
+                    println!("{:?}", &signer_keys);
                 }
                 Err(e) => return Err(Box::new(e))?,
             }

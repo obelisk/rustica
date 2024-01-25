@@ -106,14 +106,14 @@ pub struct RegisterKeyRequestProperties {
 
 
 #[derive(Debug)]
-pub struct Signer {
+pub struct SignerKey {
     pub identity: String,
     pub pubkey: String,
 }
 
 #[derive(Debug)]
-pub struct SignerList {
-    pub signers: Vec<Signer>,
+pub struct SignerKeys {
+    pub signer_keys: Vec<SignerKey>,
 }
 
 pub enum AuthorizationMechanism {
@@ -162,14 +162,14 @@ impl AuthorizationMechanism {
         }
     }
 
-    pub async fn get_signer_list(
+    pub async fn get_all_signer_keys(
         &self,
-    ) -> Result<SignerList, AuthorizationError> {
+    ) -> Result<SignerKeys, AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
-            AuthorizationMechanism::Local(local) => local.get_signer_list(),
+            AuthorizationMechanism::Local(local) => local.get_all_signer_keys(),
             AuthorizationMechanism::External(external) => {
-                external.get_signer_list().await
+                external.get_all_signer_keys().await
             }
         }
     }
