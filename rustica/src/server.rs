@@ -2,7 +2,7 @@ use crate::auth::{
     AuthorizationMechanism, RegisterKeyRequestProperties, SshAuthorizationRequestProperties,
     X509AuthorizationRequestProperties,
 };
-use crate::config::ClientAuthorityConfiguration;
+use crate::config::{ClientAuthorityConfiguration, AuthorizedSignerKeysConfiguration};
 use crate::error::RusticaServerError;
 use crate::logging::{
     CertificateIssued, InternalMessage, KeyInfo, KeyRegistrationFailure, Log, Severity,
@@ -30,8 +30,15 @@ use std::{sync::Arc, time::SystemTime};
 use tonic::transport::Certificate as TonicCertificate;
 use tonic::{Request, Response, Status};
 
+use tokio::sync::RwLock;
+
 use x509_parser::der_parser::oid;
 use x509_parser::prelude::*;
+
+pub struct AuthorizedSignerKeysCache {
+    pub authorized_signer_keys: Vec<AuthorizedSignerKey>,
+    pub expiry_timestamp: u64,
+}
 
 pub struct RusticaServer {
     pub log_sender: Sender<Log>,
@@ -42,6 +49,8 @@ pub struct RusticaServer {
     pub require_rustica_proof: bool,
     pub require_attestation_chain: bool,
     pub client_authority: ClientAuthorityConfiguration,
+    pub authorized_signer_keys: AuthorizedSignerKeysConfiguration,
+    pub authorized_signer_keys_cache: Arc<RwLock<AuthorizedSignerKeysCache>>,
 }
 
 struct MtlsCertificateInfo {
@@ -633,24 +642,79 @@ impl Rustica for RusticaServer {
         let mtls_identities = cert_info.identities;
 
         debug!(
-            "[{}] from [{}] requests the signer list",
+            "[{}] from [{}] requested the list of signer keys",
             mtls_identities.join(","),
             remote_addr,
         );
 
+        // Get current time to check cache expiry
+        let current_time = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(time) => time.as_secs(),
+            _ => {
+                error!("Unable to get the current time");
+                return Err(Status::permission_denied(""));
+            },
+        };
+
+        // Acquire the read lock to check if the cache expired
+        let cache_ref = self.authorized_signer_keys_cache.clone();
+        let cache = cache_ref.read().await;
+
+        // Cache still valid
+        if current_time <= cache.expiry_timestamp {
+            let reply = AuthorizedSignerKeysResponse {
+                signer_keys: cache.authorized_signer_keys.clone(),
+            };
+            return Ok(Response::new(reply));
+        }
+
+        // Cache expired. We now need to get the write lock
+        // We need to drop the read lock before acquiring the write lock
+        drop(cache);
+        let mut cache = cache_ref.write().await;
+
+        // It's possible the cache got refreshed while we were waiting on the write lock
+        // Check again if we need to refresh the cache
+
+        // Get current time to check cache expiry for the second time
+        let current_time = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(time) => time.as_secs(),
+            _ => {
+                error!("Unable to get the current time");
+                return Err(Status::permission_denied(""));
+            },
+        };
+
+        // Cache has been refreshed while we waited on the write lock
+        if current_time <= cache.expiry_timestamp {
+            let reply = AuthorizedSignerKeysResponse {
+                signer_keys: cache.authorized_signer_keys.clone(),
+            };
+            return Ok(Response::new(reply));
+        }
+
+        // Refresh the cache by fetching a new list of signers from the authorizer
         let response = match self.authorizer.get_all_signer_keys().await {
             Ok(response) => response,
             Err(_) => return Err(Status::permission_denied("")),
         };
 
-        let signer_keys = response.signer_keys.into_iter()
+        let signer_keys: Vec<AuthorizedSignerKey> = response.signer_keys.into_iter()
             .map(|signer_key| AuthorizedSignerKey{
                 identity: signer_key.identity,
                 pubkey: signer_key.pubkey,
             })
-            .collect();
+        .collect();
 
-        let reply = AuthorizedSignerKeysResponse { signer_keys };
+        // Update the cache
+        cache.expiry_timestamp = current_time + self.authorized_signer_keys.cache_validity_length;
+        cache.authorized_signer_keys = signer_keys;
+
+        info!("Authorized Signer Keys cache was successfully updated");
+
+        let reply = AuthorizedSignerKeysResponse {
+            signer_keys: cache.authorized_signer_keys.clone(),
+        }; 
 
         Ok(Response::new(reply))
     }
