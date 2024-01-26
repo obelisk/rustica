@@ -25,7 +25,6 @@ pub struct ClientAuthorityConfiguration {
 
 #[derive(Deserialize)]
 pub struct AuthorizedSignerKeysConfiguration {
-    pub authority: String,
     pub cache_validity_length: u64,
 }
 
@@ -188,7 +187,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         })?;
 
     let authorized_signer_keys_cache = AuthorizedSignerKeysCache {
-        authorized_signer_keys: vec![],
+        compressed_authorized_signer_keys: vec![],
         expiry_timestamp: 0,
     };
     

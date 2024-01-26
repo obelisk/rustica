@@ -17,7 +17,8 @@ pub enum RefreshError {
     ConfigurationError(String),
     TransportBadStatus(tonic::Status),
     BadEncodedData(hex::FromHexError),
-    RusticaServerError(ServerError)
+    RusticaServerError(ServerError),
+    BadAuthorizedSignerKeys,
 }
 
 
@@ -32,7 +33,8 @@ impl fmt::Display for RefreshError {
             RefreshError::InvalidUri => write!(f, "Provided address of remote service was invalid"),
             RefreshError::TransportBadStatus(ref err) => write!(f, "Bad status from server: {}", err),
             RefreshError::BadEncodedData(ref err) => write!(f, "Bad hex encoding: {}", err),
-            RefreshError::RusticaServerError(ref err) => write!(f, "Error from server: {}", err.message)
+            RefreshError::RusticaServerError(ref err) => write!(f, "Error from server: {}", err.message),
+            RefreshError::BadAuthorizedSignerKeys => write!(f, "Bad authorized signer keys data"),
         }
     }
 }

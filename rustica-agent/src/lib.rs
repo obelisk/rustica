@@ -703,16 +703,10 @@ pub async fn register_key(
 
 pub async fn get_authorized_signers(
     servers: &[RusticaServer],
-) -> Result<Vec<(String, String)>, RusticaAgentLibraryError> {
+) -> Result<String, RusticaAgentLibraryError> {
     for server in servers.iter() {
         match server.get_all_signer_keys().await {
-            Ok(signers) => {
-                let signers = signers.into_iter()
-                    .map(|signer_item| (signer_item.identity, signer_item.pubkey))
-                    .collect();
-
-                return Ok(signers)
-            },
+            Ok(signer_keys) => return Ok(signer_keys),
             Err(e) => {
                 error!(
                     "Could not fetch signer list from server: {}. Gave error: {}",
