@@ -209,6 +209,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => println!("Error: {:?}", e),
             }
         }
+        Ok(RusticaAgentAction::GetAuthorizedSigners(config)) => {
+            match rustica_agent::get_authorized_signers(
+                &config.updatable_configuration.get_configuration().servers,
+            )
+            .await
+            {
+                Ok(signer_keys) => {
+                    println!("List of authorized signer keys:");
+                    println!("{}", signer_keys);
+                }
+                Err(e) => return Err(Box::new(e))?,
+            }
+        }
         Err(config::ConfigurationError::NoMode) => (),
         Err(e) => println!("Error: {:?}", e),
     };

@@ -84,10 +84,18 @@ message AttestedX509CertificateResponse {
     int64 error_code = 3;
 }
 
+// This call fetches a list of all authorized signers and their signing pubkeys
+message AuthorizedSignerKeysRequest {}
+
+message AuthorizedSignerKeysResponse {
+    bytes compressed_signer_keys = 1;
+}
+
 service Rustica {
     rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
     rpc Certificate(CertificateRequest) returns (CertificateResponse);
     rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
     rpc RegisterU2FKey(RegisterU2FKeyRequest) returns (RegisterU2FKeyResponse);
     rpc AttestedX509Certificate(AttestedX509CertificateRequest) returns (AttestedX509CertificateResponse);
+    rpc AuthorizedSignerKeys(AuthorizedSignerKeysRequest) returns (AuthorizedSignerKeysResponse);
 }

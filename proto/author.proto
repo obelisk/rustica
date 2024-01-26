@@ -34,7 +34,20 @@ message AddIdentityDataRequest {
 
 message AddIdentityDataResponse {}
 
+message AuthorizedSignerKey {
+    string identity = 1;
+    string pubkey = 2;
+}
+
+// This call fetches a list of all authorized signers and their signing pubkeys
+message AuthorizedSignerKeysRequest {}
+
+message AuthorizedSignerKeysResponse {
+    repeated AuthorizedSignerKey signer_keys = 1;
+}
+
 service Author {
     rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
     rpc AddIdentityData(AddIdentityDataRequest) returns (AddIdentityDataResponse);
+    rpc GetAllSignerKeys(AuthorizedSignerKeysRequest) returns (AuthorizedSignerKeysResponse);
 }

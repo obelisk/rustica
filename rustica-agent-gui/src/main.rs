@@ -7,11 +7,11 @@ use eframe::egui::{self, Grid, Sense, TextEdit, Button /*Sense*/};
 use egui::ComboBox;
 
 use home::home_dir;
-use rustica_agent::{Agent, CertificateConfig, Signatory, YubikeyPIVKeyDescriptor, get_all_piv_keys, config::UpdatableConfiguration};
-use rustica_agent::{ PrivateKey, Yubikey};
+use rustica_agent::{YubikeyPIVKeyDescriptor, get_all_piv_keys};
+use rustica_agent::{Yubikey};
 use tokio::{
     runtime::Runtime,
-    sync::mpsc::{channel, Sender},
+    sync::mpsc::Sender,
 };
 
 #[derive(Debug)]

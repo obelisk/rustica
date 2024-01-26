@@ -1,6 +1,6 @@
 use crate::auth::AuthorizationConfiguration;
 use crate::logging::{Log, LoggingConfiguration};
-use crate::server::RusticaServer;
+use crate::server::{RusticaServer, AuthorizedSignerKeysCache};
 use crate::signing::{SigningConfiguration, SigningError};
 
 use clap::{Arg, Command};
@@ -12,6 +12,8 @@ use serde::Deserialize;
 use std::convert::TryInto;
 use std::net::SocketAddr;
 
+use tokio::sync::RwLock;
+
 use sshcerts::{ssh::KeyTypeKind, CertType, PrivateKey};
 
 #[derive(Deserialize)]
@@ -19,6 +21,11 @@ pub struct ClientAuthorityConfiguration {
     pub authority: String,
     pub validity_length: u64,
     pub expiration_renewal_period: u64,
+}
+
+#[derive(Deserialize)]
+pub struct AuthorizedSignerKeysConfiguration {
+    pub cache_validity_length: u64,
 }
 
 #[derive(Deserialize)]
@@ -32,6 +39,7 @@ pub struct Configuration {
     pub require_rustica_proof: bool,
     pub require_attestation_chain: bool,
     pub logging: LoggingConfiguration,
+    pub authorized_signers: AuthorizedSignerKeysConfiguration,
 }
 
 pub struct RusticaSettings {
@@ -177,6 +185,11 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
                 "Could not create a PEM from the requested signing system: {e}"
             )))
         })?;
+
+    let authorized_signer_keys_cache = AuthorizedSignerKeysCache {
+        compressed_authorized_signer_keys: vec![],
+        expiry_timestamp: 0,
+    };
     
     // We're only validating that we can use this configuration so do not start
     // This happens after we've parsed the config but also confirmed access to
@@ -194,6 +207,8 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         require_rustica_proof: config.require_rustica_proof,
         require_attestation_chain: config.require_attestation_chain,
         client_authority: config.client_authority,
+        authorized_signer_keys: config.authorized_signers,
+        authorized_signer_keys_cache: RwLock::new(authorized_signer_keys_cache).into(),
     };
 
     Ok(RusticaSettings {

@@ -2,7 +2,7 @@ use crate::auth::{
     AuthorizationMechanism, RegisterKeyRequestProperties, SshAuthorizationRequestProperties,
     X509AuthorizationRequestProperties,
 };
-use crate::config::ClientAuthorityConfiguration;
+use crate::config::{ClientAuthorityConfiguration, AuthorizedSignerKeysConfiguration};
 use crate::error::RusticaServerError;
 use crate::logging::{
     CertificateIssued, InternalMessage, KeyInfo, KeyRegistrationFailure, Log, Severity,
@@ -11,7 +11,7 @@ use crate::logging::{
 use crate::rustica::{
     rustica_server::Rustica, CertificateRequest, CertificateResponse, Challenge, ChallengeRequest,
     ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
-    RegisterU2fKeyResponse,
+    RegisterU2fKeyResponse, AuthorizedSignerKeysRequest, AuthorizedSignerKeysResponse,
 };
 use crate::rustica::{AttestedX509CertificateRequest, AttestedX509CertificateResponse};
 use crate::signing::SigningMechanism;
@@ -24,13 +24,25 @@ use sshcerts::ssh::{CertType, Certificate, PrivateKey, PublicKey};
 
 use ring::hmac;
 use std::collections::HashMap;
+use std::io::Write;
 use std::time::{Duration, UNIX_EPOCH};
 use std::{sync::Arc, time::SystemTime};
 use tonic::transport::Certificate as TonicCertificate;
 use tonic::{Request, Response, Status};
 
+use tokio::sync::RwLock;
+
 use x509_parser::der_parser::oid;
 use x509_parser::prelude::*;
+
+use flate2::Compression;
+use flate2::write::GzEncoder;
+
+pub struct AuthorizedSignerKeysCache {
+    // authorized_signer_keys is compressed using Gzip
+    pub compressed_authorized_signer_keys: Vec<u8>,
+    pub expiry_timestamp: u64,
+}
 
 pub struct RusticaServer {
     pub log_sender: Sender<Log>,
@@ -41,6 +53,8 @@ pub struct RusticaServer {
     pub require_rustica_proof: bool,
     pub require_attestation_chain: bool,
     pub client_authority: ClientAuthorityConfiguration,
+    pub authorized_signer_keys: AuthorizedSignerKeysConfiguration,
+    pub authorized_signer_keys_cache: Arc<RwLock<AuthorizedSignerKeysCache>>,
 }
 
 struct MtlsCertificateInfo {
@@ -671,6 +685,7 @@ impl Rustica for RusticaServer {
 
         let register_properties = RegisterKeyRequestProperties {
             fingerprint: fingerprint.clone(),
+            pubkey: ssh_pubkey.to_string(),
             mtls_identities: mtls_identities.clone(),
             requester_ip,
             attestation,
@@ -776,6 +791,7 @@ impl Rustica for RusticaServer {
 
         let register_properties = RegisterKeyRequestProperties {
             fingerprint: fingerprint.clone(),
+            pubkey: ssh_pubkey.to_string(),
             mtls_identities: mtls_identities.clone(),
             requester_ip,
             attestation,
@@ -796,6 +812,8 @@ impl Rustica for RusticaServer {
                     fingerprint,
                     mtls_identities,
                 };
+
+                println!("Key register error: {}", e);
 
                 let _ = self
                     .log_sender
@@ -1020,5 +1038,134 @@ impl Rustica for RusticaServer {
             error: "".to_owned(),
             error_code: 0,
         }));
+    }
+
+    // Handler used to fetch a list of all signers and their pubkeys
+    async fn authorized_signer_keys(
+        &self,
+        request: Request<AuthorizedSignerKeysRequest>,
+    ) -> Result<Response<AuthorizedSignerKeysResponse>, Status> {
+        let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
+
+        let peer = request.peer_certs();
+
+        let peer = peer.ok_or(Status::permission_denied(""))?;
+
+        // Only support the presenting of a single client certificate
+        // I've never seen anyone handle multiple ones and since we don't
+        // need to here, trying to support it will only lead to validation
+        // issues or inconsistencies.
+        let cert = if let Some(cert) = peer.get(0) {
+            cert
+        } else {
+            return Err(Status::permission_denied(""));
+        };
+
+        let cert_info = match extract_certificate_information(cert) {
+            Ok(cert_info) => cert_info,
+            Err(e) => {
+                rustica_error!(self, format!("Could not validate request: {:?}", e));
+                return Err(Status::cancelled(""));
+            }
+        };
+
+        let mtls_identities = cert_info.identities;
+
+        debug!(
+            "[{}] from [{}] requested the list of signer keys",
+            mtls_identities.join(","),
+            remote_addr,
+        );
+
+        // Get current time to check cache expiry
+        let current_time = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(time) => time.as_secs(),
+            _ => {
+                error!("Unable to get the current time");
+                return Err(Status::permission_denied(""));
+            },
+        };
+
+        // Acquire the read lock to check if the cache expired
+        let cache_ref = self.authorized_signer_keys_cache.clone();
+        let cache = cache_ref.read().await;
+
+        // Cache still valid
+        if current_time <= cache.expiry_timestamp {
+            let reply = AuthorizedSignerKeysResponse {
+                compressed_signer_keys: cache.compressed_authorized_signer_keys.clone(),
+            };
+            return Ok(Response::new(reply));
+        }
+
+        // Cache expired. We now need to get the write lock
+        // We need to drop the read lock before acquiring the write lock
+        drop(cache);
+        let mut cache = cache_ref.write().await;
+
+        // It's possible the cache got refreshed while we were waiting on the write lock
+        // Check again if we need to refresh the cache
+
+        // Get current time to check cache expiry for the second time
+        let current_time = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(time) => time.as_secs(),
+            _ => {
+                error!("Unable to get the current time");
+                return Err(Status::permission_denied(""));
+            },
+        };
+
+        // Cache has been refreshed while we waited on the write lock
+        if current_time <= cache.expiry_timestamp {
+            let reply = AuthorizedSignerKeysResponse {
+                compressed_signer_keys: cache.compressed_authorized_signer_keys.clone(),
+            };
+            return Ok(Response::new(reply));
+        }
+
+        // Refresh the cache by fetching a new list of signers from the authorizer
+        let response = match self.authorizer.get_all_signer_keys().await {
+            Ok(response) => response,
+            Err(e) => {
+                error!("Failed to call get_all_signer_keys on the authorizer: {}", e.to_string());
+                return Err(Status::permission_denied(""));
+            },
+        };
+
+        // Construct the content of authorized signers file in this format
+        // pubkey1 identity1
+        // pubkey2 identity2
+        // ...
+        let signer_keys: String = response.signer_keys
+            .into_iter()
+            .map(|signer_key| format!("{} {}", signer_key.pubkey, signer_key.identity))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        // Compress the signer_keys
+        let mut signer_keys_encoder = GzEncoder::new(Vec::new(), Compression::default());
+        if let Err(e) = signer_keys_encoder.write_all(signer_keys.as_bytes()) {
+            error!("Failed to compress signer_keys: {}", e.to_string());
+            return Err(Status::permission_denied(""));
+        };
+        let compressed_signer_keys = match signer_keys_encoder.finish() {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to complete compressing signer_keys: {}", e.to_string());
+                return Err(Status::permission_denied(""));
+            },
+        };
+
+        // Update the cache
+        cache.expiry_timestamp = current_time + self.authorized_signer_keys.cache_validity_length;
+        cache.compressed_authorized_signer_keys = compressed_signer_keys;
+
+        info!("Authorized Signer Keys cache was successfully updated");
+
+        let reply = AuthorizedSignerKeysResponse {
+            compressed_signer_keys: cache.compressed_authorized_signer_keys.clone(),
+        }; 
+
+        Ok(Response::new(reply))
     }
 }
