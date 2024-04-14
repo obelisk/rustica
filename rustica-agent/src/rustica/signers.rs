@@ -4,7 +4,6 @@ use crate::RusticaServer;
 use super::AuthorizedSignerKeysRequest;
 
 use std::io::Read;
-use flate2::read::GzDecoder;
 
 use x509_parser::nom::AsBytes;
 
@@ -21,7 +20,13 @@ impl RusticaServer {
         let response = response.into_inner();
 
         // Decode Gzip compressed authorized signer keys
-        let mut signer_keys_decoder = GzDecoder::new(response.compressed_signer_keys.as_bytes());
+        let mut signer_keys_decoder = match zstd::stream::Decoder::new(response.compressed_signer_keys.as_bytes()) {
+            Ok(decoder) => decoder,
+            Err(e) => {
+                error!("Unable to initialize zstd decoder: {}", e.to_string());
+                return Err(RefreshError::UnknownError);
+            },
+        };
         let mut signer_keys = String::new();
         if let Err(e) = signer_keys_decoder.read_to_string(&mut signer_keys) {
             error!("Unable to decompress authorized signer keys: {}", e.to_string());

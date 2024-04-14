@@ -35,9 +35,6 @@ use tokio::sync::RwLock;
 use x509_parser::der_parser::oid;
 use x509_parser::prelude::*;
 
-use flate2::Compression;
-use flate2::write::GzEncoder;
-
 pub struct AuthorizedSignerKeysCache {
     // authorized_signer_keys is compressed using Gzip
     pub compressed_authorized_signer_keys: Vec<u8>,
@@ -1143,7 +1140,14 @@ impl Rustica for RusticaServer {
             .join("\n");
 
         // Compress the signer_keys
-        let mut signer_keys_encoder = GzEncoder::new(Vec::new(), Compression::default());
+        let mut signer_keys_encoder = match zstd::stream::Encoder::new(Vec::new(), zstd::DEFAULT_COMPRESSION_LEVEL) {
+            Ok(encoder) => encoder,
+            Err(e) => {
+                error!("Failed to initialize zstd encoder: {}", e.to_string());
+                return Err(Status::permission_denied(""));
+            },
+        };
+
         if let Err(e) = signer_keys_encoder.write_all(signer_keys.as_bytes()) {
             error!("Failed to compress signer_keys: {}", e.to_string());
             return Err(Status::permission_denied(""));

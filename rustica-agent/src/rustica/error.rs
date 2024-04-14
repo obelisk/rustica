@@ -19,6 +19,7 @@ pub enum RefreshError {
     BadEncodedData(hex::FromHexError),
     RusticaServerError(ServerError),
     BadAuthorizedSignerKeys,
+    UnknownError,
 }
 
 
@@ -35,6 +36,7 @@ impl fmt::Display for RefreshError {
             RefreshError::BadEncodedData(ref err) => write!(f, "Bad hex encoding: {}", err),
             RefreshError::RusticaServerError(ref err) => write!(f, "Error from server: {}", err.message),
             RefreshError::BadAuthorizedSignerKeys => write!(f, "Bad authorized signer keys data"),
+            RefreshError::UnknownError => write!(f, "Unknown error occured"),
         }
     }
 }
