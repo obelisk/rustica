@@ -7,7 +7,7 @@ mod provisionpiv;
 mod refresh_attested_x509_certificate;
 mod register;
 mod singlemode;
-mod signers;
+mod signerkeys;
 
 use clap::{Arg, ArgMatches, Command};
 
@@ -54,7 +54,7 @@ pub enum RusticaAgentAction {
     ListFidoDevices,
     GitConfig(PublicKey),
     RefreshAttestedX509(refresh_attested_x509_certificate::RefreshAttestedX509Config),
-    GetAuthorizedSigners(signers::GetAuthorizedSignersConfig),
+    GetAuthorizedSignerKeys(signerkeys::GetAuthorizedSignerKeysConfig),
 }
 
 impl From<std::io::Error> for ConfigurationError {
@@ -264,7 +264,7 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             "Refresh an X509 certificate in a Yubikey slot",
         ));
 
-    let signers = new_run_agent_subcommand("signers", "Fetch a list of all signers");
+    let signer_keys = new_run_agent_subcommand("signer-keys", "Fetch a list of all signers and their keys");
 
     let command_configuration = command_configuration
         .subcommand(immediate_mode)
@@ -277,7 +277,7 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         .subcommand(list_fido_devices)
         .subcommand(git_config)
         .subcommand(refresh_x509)
-        .subcommand(signers);
+        .subcommand(signer_keys);
     let mut cc_help = command_configuration.clone();
 
     let matches = command_configuration.get_matches();
@@ -323,8 +323,8 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             .await;
     }
 
-    if let Some(signers_config) = matches.subcommand_matches("signers") {
-        return signers::configure_signers(signers_config).await;
+    if let Some(signer_keys_config) = matches.subcommand_matches("signer-keys") {
+        return signerkeys::configure_signer_keys(signer_keys_config).await;
     }
 
     cc_help.print_help().unwrap();

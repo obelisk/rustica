@@ -6,16 +6,16 @@ use super::{
     RusticaAgentAction,
 };
 
-pub struct GetAuthorizedSignersConfig {
+pub struct GetAuthorizedSignerKeysConfig {
     pub updatable_configuration: UpdatableConfiguration,
 }
 
-pub async fn configure_signers(
+pub async fn configure_signer_keys(
     matches: &ArgMatches,
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let updatable_configuration = parse_config_from_args(&matches)?;
 
-    Ok(RusticaAgentAction::GetAuthorizedSigners(GetAuthorizedSignersConfig {
+    Ok(RusticaAgentAction::GetAuthorizedSignerKeys(GetAuthorizedSignerKeysConfig {
         updatable_configuration,
     }))
 }

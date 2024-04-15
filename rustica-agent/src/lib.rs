@@ -701,7 +701,7 @@ pub async fn register_key(
     Err(RusticaAgentLibraryError::NoServersCouldRegisterKey)
 }
 
-pub async fn get_authorized_signers(
+pub async fn get_authorized_signer_keys(
     servers: &[RusticaServer],
 ) -> Result<String, RusticaAgentLibraryError> {
     for server in servers.iter() {
@@ -709,7 +709,7 @@ pub async fn get_authorized_signers(
             Ok(signer_keys) => return Ok(signer_keys),
             Err(e) => {
                 error!(
-                    "Could not fetch signer list from server: {}. Gave error: {}",
+                    "Could not fetch all signer keys from server: {}. Gave error: {}",
                     server.address,
                     e.to_string(),
                 )

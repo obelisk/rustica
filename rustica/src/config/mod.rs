@@ -11,6 +11,7 @@ use serde::Deserialize;
 
 use std::convert::TryInto;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tokio::sync::RwLock;
 
@@ -25,7 +26,7 @@ pub struct ClientAuthorityConfiguration {
 
 #[derive(Deserialize)]
 pub struct AuthorizedSignerKeysConfiguration {
-    pub cache_validity_length: u64,
+    pub cache_validity_length: Duration,
 }
 
 #[derive(Deserialize)]
@@ -39,7 +40,7 @@ pub struct Configuration {
     pub require_rustica_proof: bool,
     pub require_attestation_chain: bool,
     pub logging: LoggingConfiguration,
-    pub authorized_signers: AuthorizedSignerKeysConfiguration,
+    pub authorized_signer_keys: AuthorizedSignerKeysConfiguration,
 }
 
 pub struct RusticaSettings {
@@ -188,7 +189,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
 
     let authorized_signer_keys_cache = AuthorizedSignerKeysCache {
         compressed_authorized_signer_keys: vec![],
-        expiry_timestamp: 0,
+        expiry_timestamp: Duration::ZERO,
     };
     
     // We're only validating that we can use this configuration so do not start
@@ -207,7 +208,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         require_rustica_proof: config.require_rustica_proof,
         require_attestation_chain: config.require_attestation_chain,
         client_authority: config.client_authority,
-        authorized_signer_keys: config.authorized_signers,
+        authorized_signer_keys: config.authorized_signer_keys,
         authorized_signer_keys_cache: RwLock::new(authorized_signer_keys_cache).into(),
     };
 

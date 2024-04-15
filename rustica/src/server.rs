@@ -38,7 +38,7 @@ use x509_parser::prelude::*;
 pub struct AuthorizedSignerKeysCache {
     // authorized_signer_keys is compressed using Gzip
     pub compressed_authorized_signer_keys: Vec<u8>,
-    pub expiry_timestamp: u64,
+    pub expiry_timestamp: Duration,
 }
 
 pub struct RusticaServer {
@@ -1076,7 +1076,7 @@ impl Rustica for RusticaServer {
 
         // Get current time to check cache expiry
         let current_time = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(time) => time.as_secs(),
+            Ok(time) => time,
             _ => {
                 error!("Unable to get the current time");
                 return Err(Status::permission_denied(""));
@@ -1105,7 +1105,7 @@ impl Rustica for RusticaServer {
 
         // Get current time to check cache expiry for the second time
         let current_time = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(time) => time.as_secs(),
+            Ok(time) => time,
             _ => {
                 error!("Unable to get the current time");
                 return Err(Status::permission_denied(""));
