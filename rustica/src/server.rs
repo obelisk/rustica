@@ -30,10 +30,12 @@ use std::{sync::Arc, time::SystemTime};
 use tonic::transport::Certificate as TonicCertificate;
 use tonic::{Request, Response, Status};
 
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Mutex};
 
 use x509_parser::der_parser::oid;
 use x509_parser::prelude::*;
+
+use lru::LruCache;
 
 pub struct AuthorizedSignerKeysCache {
     // authorized_signer_keys is compressed using Gzip
@@ -51,6 +53,9 @@ pub struct RusticaServer {
     pub require_attestation_chain: bool,
     pub client_authority: ClientAuthorityConfiguration,
     pub authorized_signer_keys: AuthorizedSignerKeysConfiguration,
+    // Identity-based rate limiter using LRU cache is needed for the signer_keys endpoint since the signer_keys
+    // payload might be heavy even when compressed
+    pub authorized_signer_keys_rate_limiter: Arc<Mutex<LruCache<String, Duration>>>,
     pub authorized_signer_keys_cache: Arc<RwLock<AuthorizedSignerKeysCache>>,
 }
 
@@ -345,6 +350,37 @@ fn validate_request(
         cert_info.identities,
         certificate_refresh_settings,
     ))
+}
+
+/// Check that mTLS identity is not rate limited for signer_keys endpoint
+async fn is_rate_limited(
+    srv: &RusticaServer,
+    identities: String,
+    current_time: Duration,
+) -> bool {
+    let rate_limiter = srv.authorized_signer_keys_rate_limiter.clone();
+    let mut rate_limiter = rate_limiter.lock().await;
+
+    // LruCache.push returns the previous entry for mtls_identities or the entry that was
+    // popped due to capacity
+    let removed_entry = match rate_limiter.push(
+        identities.clone(),
+        current_time + srv.authorized_signer_keys.rate_limit_cooldown,
+    ) {
+        Some(v) => v,
+        // If None is returned, then identities is not in the rate_limiter cache
+        None => return false,
+    };
+
+    // If the removed_entry does not belong to identities, then identities is not in the
+    // rate_limiter cache
+    if removed_entry.0 != identities {
+        return false;
+    }
+
+    // If the removed entry belongs to current mtls_identities, check to see if the last
+    // request was too recent
+    current_time < removed_entry.1
 }
 
 #[tonic::async_trait]
@@ -1066,15 +1102,15 @@ impl Rustica for RusticaServer {
             }
         };
 
-        let mtls_identities = cert_info.identities;
+        let mtls_identities = cert_info.identities.join(",");
 
         debug!(
             "[{}] from [{}] requested the list of signer keys",
-            mtls_identities.join(","),
+            mtls_identities,
             remote_addr,
         );
 
-        // Get current time to check cache expiry
+        // Get current time to check rate limiter and cache expiry
         let current_time = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(time) => time,
             _ => {
@@ -1083,34 +1119,34 @@ impl Rustica for RusticaServer {
             },
         };
 
-        // Acquire the read lock to check if the cache expired
-        let cache_ref = self.authorized_signer_keys_cache.clone();
-        let cache = cache_ref.read().await;
+        if is_rate_limited(self, mtls_identities.clone(), current_time).await {
+            info!(
+                "[{}] from [{}] is rate limited for signer_keys call",
+                mtls_identities,
+                remote_addr,
+            );
+            return Err(Status::resource_exhausted(""));
+        }
 
-        // Cache still valid
-        if current_time <= cache.expiry_timestamp {
-            let reply = AuthorizedSignerKeysResponse {
-                compressed_signer_keys: cache.compressed_authorized_signer_keys.clone(),
-            };
-            return Ok(Response::new(reply));
+        // Acquire the read lock to check if the cache expired
+        let cache = self.authorized_signer_keys_cache.clone();
+        {
+            let cache = cache.read().await;
+
+            // Cache still valid
+            if current_time <= cache.expiry_timestamp {
+                let reply = AuthorizedSignerKeysResponse {
+                    compressed_signer_keys: cache.compressed_authorized_signer_keys.clone(),
+                };
+                return Ok(Response::new(reply));
+            }
         }
 
         // Cache expired. We now need to get the write lock
-        // We need to drop the read lock before acquiring the write lock
-        drop(cache);
-        let mut cache = cache_ref.write().await;
+        let mut cache = cache.write().await;
 
         // It's possible the cache got refreshed while we were waiting on the write lock
         // Check again if we need to refresh the cache
-
-        // Get current time to check cache expiry for the second time
-        let current_time = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(time) => time,
-            _ => {
-                error!("Unable to get the current time");
-                return Err(Status::permission_denied(""));
-            },
-        };
 
         // Cache has been refreshed while we waited on the write lock
         if current_time <= cache.expiry_timestamp {
@@ -1139,7 +1175,7 @@ impl Rustica for RusticaServer {
             .collect::<Vec<String>>()
             .join("\n");
 
-        // Compress the signer_keys
+        // Initialize the encoder to compress the signer_keys
         let mut signer_keys_encoder = match zstd::stream::Encoder::new(Vec::new(), zstd::DEFAULT_COMPRESSION_LEVEL) {
             Ok(encoder) => encoder,
             Err(e) => {
@@ -1148,10 +1184,13 @@ impl Rustica for RusticaServer {
             },
         };
 
+        // Write payload bytes to the compression encoder
         if let Err(e) = signer_keys_encoder.write_all(signer_keys.as_bytes()) {
             error!("Failed to compress signer_keys: {}", e.to_string());
             return Err(Status::permission_denied(""));
         };
+
+        // Finalize the compression encoding to get the compressed signer keys payload
         let compressed_signer_keys = match signer_keys_encoder.finish() {
             Ok(data) => data,
             Err(e) => {

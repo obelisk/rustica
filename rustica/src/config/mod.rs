@@ -6,14 +6,16 @@ use crate::signing::{SigningConfiguration, SigningError};
 use clap::{Arg, Command};
 
 use crossbeam_channel::{unbounded, Receiver};
+use lru::LruCache;
 use ring::{hmac, rand};
 use serde::Deserialize;
 
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::time::Duration;
+use std::num::NonZeroUsize;
 
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Mutex};
 
 use sshcerts::{ssh::KeyTypeKind, CertType, PrivateKey};
 
@@ -27,6 +29,8 @@ pub struct ClientAuthorityConfiguration {
 #[derive(Deserialize)]
 pub struct AuthorizedSignerKeysConfiguration {
     pub cache_validity_length: Duration,
+    pub lru_rate_limiter_size: NonZeroUsize,
+    pub rate_limit_cooldown: Duration,
 }
 
 #[derive(Deserialize)]
@@ -187,6 +191,8 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
             )))
         })?;
 
+    let authorized_signer_keys_rate_limiter = LruCache::new(config.authorized_signer_keys.lru_rate_limiter_size);
+
     let authorized_signer_keys_cache = AuthorizedSignerKeysCache {
         compressed_authorized_signer_keys: vec![],
         expiry_timestamp: Duration::ZERO,
@@ -209,6 +215,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         require_attestation_chain: config.require_attestation_chain,
         client_authority: config.client_authority,
         authorized_signer_keys: config.authorized_signer_keys,
+        authorized_signer_keys_rate_limiter: Mutex::new(authorized_signer_keys_rate_limiter).into(),
         authorized_signer_keys_cache: RwLock::new(authorized_signer_keys_cache).into(),
     };
 
