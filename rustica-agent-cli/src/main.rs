@@ -216,7 +216,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             {
                 Ok(signer_keys) => {
-                    println!("List of authorized signer keys:");
                     println!("{}", signer_keys);
                 }
                 Err(e) => return Err(Box::new(e))?,
