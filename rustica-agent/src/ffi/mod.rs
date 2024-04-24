@@ -1,6 +1,7 @@
 mod agent;
 mod enrollment;
 mod signer_keys;
+mod signing;
 mod utils;
 mod yubikey_utils;
 

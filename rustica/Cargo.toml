@@ -41,11 +41,7 @@ serde = { version = "1.0", features = ["derive"] }
 #     "yubikey-lite",
 # ] }
 # For Development
-sshcerts = { git = "https://github.com/obelisk/sshcerts", branch = "moz_auth_2023", default-features = false, features = [
-    "fido-lite",
-    "x509-support",
-    "yubikey-lite",
-] }
+sshcerts = "0.13.1"
 # sshcerts = { path = "../../sshcerts", default-features = false, features = [
 #     "fido-lite",
 #     "x509-support",
