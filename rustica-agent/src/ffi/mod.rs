@@ -16,6 +16,9 @@ pub use enrollment::*;
 /// For fetching all signer SSH keys that were registered
 pub use signer_keys::*;
 
+/// For functions that handle signing arbitrary data using SSH keys
+pub use signing::*;
+
 /// For functions that handle memory management and other utilities
 pub use utils::*;
 
