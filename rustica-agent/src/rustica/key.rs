@@ -1,7 +1,7 @@
 use tokio::runtime::Handle;
 
 use super::error::RefreshError;
-use super::{AuthorizedSignerKeysRequest, RegisterKeyRequest, RegisterU2fKeyRequest, RusticaServer, Signatory};
+use super::{RegisterKeyRequest, RegisterU2fKeyRequest, RusticaServer, Signatory};
 
 pub mod rustica {
     tonic::include_proto!("rustica");
@@ -87,27 +87,6 @@ impl RusticaServer {
     ) -> Result<(), RefreshError> {
         handle.block_on(async {
             self.register_u2f_key_async(signatory, application, key)
-                .await
-        })
-    }
-
-    pub async fn get_authorized_signer_keys_async(
-        &self,
-    ) -> Result<Vec<u8>, RefreshError> {
-        let mut client = super::get_rustica_client(self).await?;
-        let request = tonic::Request::new(AuthorizedSignerKeysRequest{});
-
-        let signer_keys = client.authorized_signer_keys(request).await?;
-        let signer_keys = signer_keys.get_ref();
-        Ok(signer_keys.compressed_signer_keys.clone())
-    }
-
-    pub fn get_authorized_signer_keys(
-        &self,
-        handle: &Handle,
-    ) -> Result<Vec<u8>, RefreshError> {
-        handle.block_on(async {
-            self.get_authorized_signer_keys_async()
                 .await
         })
     }

@@ -705,7 +705,7 @@ pub async fn get_authorized_signer_keys(
     servers: &[RusticaServer],
 ) -> Result<String, RusticaAgentLibraryError> {
     for server in servers.iter() {
-        match server.get_all_signer_keys().await {
+        match server.get_all_signer_keys_async().await {
             Ok(signer_keys) => return Ok(signer_keys),
             Err(e) => {
                 error!(

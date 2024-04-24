@@ -2,7 +2,7 @@ pub mod cert;
 pub mod error;
 pub mod key;
 pub mod x509;
-pub mod signerkeys;
+pub mod signer_keys;
 
 use std::ops::Deref;
 use std::time::Duration;

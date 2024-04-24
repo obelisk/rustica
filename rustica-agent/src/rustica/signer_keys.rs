@@ -6,9 +6,10 @@ use super::AuthorizedSignerKeysRequest;
 use std::io::Read;
 
 use x509_parser::nom::AsBytes;
+use tokio::runtime::Handle;
 
 impl RusticaServer {
-    pub async fn get_all_signer_keys(
+    pub async fn get_all_signer_keys_async(
         &self,
     ) -> Result<String, RefreshError> {
         let request = AuthorizedSignerKeysRequest{};
@@ -34,5 +35,15 @@ impl RusticaServer {
         }
 
         Ok(signer_keys)
+    }
+
+    pub fn get_all_signer_keys(
+        &self,
+        handle: &Handle,
+    ) -> Result<String, RefreshError> {
+        handle.block_on(async {
+            self.get_all_signer_keys_async()
+                .await
+        })
     }
 }

@@ -64,12 +64,13 @@ pub unsafe extern "C" fn ffi_get_authorized_signer_keys(
     };
 
     for server in &updatable_configuration.get_configuration().servers {
-        let signer_keys = match server.get_authorized_signer_keys(&runtime_handle) {
+        let signer_keys = match server.get_all_signer_keys(&runtime_handle) {
             Ok(signer_keys) => {
                 println!(
-                    "Signer keys were successfully fetch from server: {}",
+                    "Signer keys were successfully fetched from server: {}",
                     server.address
                 );
+                println!("{:?}", signer_keys);
                 signer_keys
             }
             Err(e) => {
@@ -78,7 +79,7 @@ pub unsafe extern "C" fn ffi_get_authorized_signer_keys(
             },
         };
 
-        if let Err(e) = out_file.write_all(&signer_keys) {
+        if let Err(e) = out_file.write_all(signer_keys.as_bytes()) {
             error!("Could not write to file {}: {}", out_path, e);
             return GetAuthorizedSignerKeysStatus::AuthorizedSignerKeysFileError as i64;
         }
