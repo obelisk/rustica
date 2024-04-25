@@ -2,7 +2,7 @@ use crate::auth::{
     AuthorizationMechanism, RegisterKeyRequestProperties, SshAuthorizationRequestProperties,
     X509AuthorizationRequestProperties,
 };
-use crate::config::{ClientAuthorityConfiguration, AuthorizedSignerKeysConfiguration};
+use crate::config::{AllowedSignersConfiguration, ClientAuthorityConfiguration};
 use crate::error::RusticaServerError;
 use crate::logging::{
     CertificateIssued, InternalMessage, KeyInfo, KeyRegistrationFailure, Log, Severity,
@@ -11,7 +11,7 @@ use crate::logging::{
 use crate::rustica::{
     rustica_server::Rustica, CertificateRequest, CertificateResponse, Challenge, ChallengeRequest,
     ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
-    RegisterU2fKeyResponse, AuthorizedSignerKeysRequest, AuthorizedSignerKeysResponse,
+    RegisterU2fKeyResponse, AllowedSignersRequest, AllowedSignersResponse,
 };
 use crate::rustica::{AttestedX509CertificateRequest, AttestedX509CertificateResponse};
 use crate::signing::SigningMechanism;
@@ -37,9 +37,9 @@ use x509_parser::prelude::*;
 
 use lru::LruCache;
 
-pub struct AuthorizedSignerKeysCache {
-    // authorized_signer_keys is compressed using Gzip
-    pub compressed_authorized_signer_keys: Vec<u8>,
+pub struct AllowedSignersCache {
+    // allowed_signers is compressed using zstd
+    pub compressed_allowed_signers: Vec<u8>,
     pub expiry_timestamp: Duration,
 }
 
@@ -52,11 +52,11 @@ pub struct RusticaServer {
     pub require_rustica_proof: bool,
     pub require_attestation_chain: bool,
     pub client_authority: ClientAuthorityConfiguration,
-    pub authorized_signer_keys: AuthorizedSignerKeysConfiguration,
-    // Identity-based rate limiter using LRU cache is needed for the signer_keys endpoint since the signer_keys
+    pub allowed_signers: AllowedSignersConfiguration,
+    // Identity-based rate limiter using LRU cache is needed for the allowed_signers endpoint since the allowed_signers
     // payload might be heavy even when compressed
-    pub authorized_signer_keys_rate_limiter: Arc<Mutex<LruCache<String, Duration>>>,
-    pub authorized_signer_keys_cache: Arc<RwLock<AuthorizedSignerKeysCache>>,
+    pub allowed_signers_rate_limiter: Arc<Mutex<LruCache<String, Duration>>>,
+    pub allowed_signers_cache: Arc<RwLock<AllowedSignersCache>>,
 }
 
 struct MtlsCertificateInfo {
@@ -352,20 +352,20 @@ fn validate_request(
     ))
 }
 
-/// Check that mTLS identity is not rate limited for signer_keys endpoint
+/// Check that mTLS identity is not rate limited for allowed_signers endpoint
 async fn is_rate_limited(
     srv: &RusticaServer,
     identities: String,
     current_time: Duration,
 ) -> bool {
-    let rate_limiter = srv.authorized_signer_keys_rate_limiter.clone();
+    let rate_limiter = srv.allowed_signers_rate_limiter.clone();
     let mut rate_limiter = rate_limiter.lock().await;
 
     // LruCache.push returns the previous entry for mtls_identities or the entry that was
     // popped due to capacity
     let removed_entry = match rate_limiter.push(
         identities.clone(),
-        current_time + srv.authorized_signer_keys.rate_limit_cooldown,
+        current_time + srv.allowed_signers.rate_limit_cooldown,
     ) {
         Some(v) => v,
         // If None is returned, then identities is not in the rate_limiter cache
@@ -1074,10 +1074,10 @@ impl Rustica for RusticaServer {
     }
 
     // Handler used to fetch a list of all signers and their pubkeys
-    async fn authorized_signer_keys(
+    async fn allowed_signers(
         &self,
-        request: Request<AuthorizedSignerKeysRequest>,
-    ) -> Result<Response<AuthorizedSignerKeysResponse>, Status> {
+        request: Request<AllowedSignersRequest>,
+    ) -> Result<Response<AllowedSignersResponse>, Status> {
         let remote_addr = request.remote_addr().ok_or(Status::permission_denied(""))?;
 
         let peer = request.peer_certs();
@@ -1121,7 +1121,7 @@ impl Rustica for RusticaServer {
 
         if is_rate_limited(self, mtls_identities.clone(), current_time).await {
             info!(
-                "[{}] from [{}] is rate limited for signer_keys call",
+                "[{}] from [{}] is rate limited for allowed_signers call",
                 mtls_identities,
                 remote_addr,
             );
@@ -1129,14 +1129,14 @@ impl Rustica for RusticaServer {
         }
 
         // Acquire the read lock to check if the cache expired
-        let cache = self.authorized_signer_keys_cache.clone();
+        let cache = self.allowed_signers_cache.clone();
         {
             let cache = cache.read().await;
 
             // Cache still valid
             if current_time <= cache.expiry_timestamp {
-                let reply = AuthorizedSignerKeysResponse {
-                    compressed_signer_keys: cache.compressed_authorized_signer_keys.clone(),
+                let reply = AllowedSignersResponse {
+                    compressed_allowed_signers: cache.compressed_allowed_signers.clone(),
                 };
                 return Ok(Response::new(reply));
             }
@@ -1150,33 +1150,33 @@ impl Rustica for RusticaServer {
 
         // Cache has been refreshed while we waited on the write lock
         if current_time <= cache.expiry_timestamp {
-            let reply = AuthorizedSignerKeysResponse {
-                compressed_signer_keys: cache.compressed_authorized_signer_keys.clone(),
+            let reply = AllowedSignersResponse {
+                compressed_allowed_signers: cache.compressed_allowed_signers.clone(),
             };
             return Ok(Response::new(reply));
         }
 
         // Refresh the cache by fetching a new list of signers from the authorizer
-        let response = match self.authorizer.get_all_signer_keys().await {
+        let response = match self.authorizer.get_allowed_signers().await {
             Ok(response) => response,
             Err(e) => {
-                error!("Failed to call get_all_signer_keys on the authorizer: {}", e.to_string());
+                error!("Failed to call get_allowed_signers on the authorizer: {}", e.to_string());
                 return Err(Status::permission_denied(""));
             },
         };
 
-        // Construct the content of authorized signers file in this format
-        // pubkey1 identity1
-        // pubkey2 identity2
+        // Construct the content of allowed signers file in this format
+        // identity1 pubkey1
+        // identity2 pubkey2
         // ...
-        let signer_keys: String = response.signer_keys
+        let allowed_signers: String = response.allowed_signers
             .into_iter()
-            .map(|signer_key| format!("{} {}", signer_key.pubkey, signer_key.identity))
+            .map(|allowed_signer| format!("{} {}", allowed_signer.identity, allowed_signer.pubkey))
             .collect::<Vec<String>>()
             .join("\n");
 
-        // Initialize the encoder to compress the signer_keys
-        let mut signer_keys_encoder = match zstd::stream::Encoder::new(Vec::new(), zstd::DEFAULT_COMPRESSION_LEVEL) {
+        // Initialize the encoder to compress allowed_signers
+        let mut allowed_signers_encoder = match zstd::stream::Encoder::new(Vec::new(), zstd::DEFAULT_COMPRESSION_LEVEL) {
             Ok(encoder) => encoder,
             Err(e) => {
                 error!("Failed to initialize zstd encoder: {}", e.to_string());
@@ -1185,28 +1185,28 @@ impl Rustica for RusticaServer {
         };
 
         // Write payload bytes to the compression encoder
-        if let Err(e) = signer_keys_encoder.write_all(signer_keys.as_bytes()) {
-            error!("Failed to compress signer_keys: {}", e.to_string());
+        if let Err(e) = allowed_signers_encoder.write_all(allowed_signers.as_bytes()) {
+            error!("Failed to compress allowed_signers: {}", e.to_string());
             return Err(Status::permission_denied(""));
         };
 
         // Finalize the compression encoding to get the compressed signer keys payload
-        let compressed_signer_keys = match signer_keys_encoder.finish() {
+        let compressed_allowed_signers = match allowed_signers_encoder.finish() {
             Ok(data) => data,
             Err(e) => {
-                error!("Failed to complete compressing signer_keys: {}", e.to_string());
+                error!("Failed to complete compressing allowed_signers: {}", e.to_string());
                 return Err(Status::permission_denied(""));
             },
         };
 
         // Update the cache
-        cache.expiry_timestamp = current_time + self.authorized_signer_keys.cache_validity_length;
-        cache.compressed_authorized_signer_keys = compressed_signer_keys;
+        cache.expiry_timestamp = current_time + self.allowed_signers.cache_validity_length;
+        cache.compressed_allowed_signers = compressed_allowed_signers;
 
-        info!("Authorized Signer Keys cache was successfully updated");
+        info!("Allowed Signers cache was successfully updated");
 
-        let reply = AuthorizedSignerKeysResponse {
-            compressed_signer_keys: cache.compressed_authorized_signer_keys.clone(),
+        let reply = AllowedSignersResponse {
+            compressed_allowed_signers: cache.compressed_allowed_signers.clone(),
         }; 
 
         Ok(Response::new(reply))

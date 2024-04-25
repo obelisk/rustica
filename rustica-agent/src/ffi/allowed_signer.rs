@@ -6,26 +6,26 @@ use crate::config::UpdatableConfiguration;
 
 use tokio::runtime::Runtime;
 
-pub enum GetAuthorizedSignerKeysStatus {
+pub enum GetAllowedSignersStatus {
     Success = 0,
     ConfigurationError = 1,
     ParameterError,
     InternalError,
-    AuthorizedSignerKeysFileError,
+    AllowedSignersFileError,
 }
 
 /// Request all authorized signer keys.
 #[no_mangle]
-pub unsafe extern "C" fn ffi_get_authorized_signer_keys(
+pub unsafe extern "C" fn ffi_get_allowed_signers(
     config_path: *const c_char,
     out_path: *const c_char,
-) -> i64 {
+) -> i32 {
     let cf = CStr::from_ptr(config_path);
     let config_path = match cf.to_str() {
         Ok(s) => s,
         Err(e) => {
             error!("Unable to marshall config_path to &str: {e}");
-            return GetAuthorizedSignerKeysStatus::ConfigurationError as i64;
+            return GetAllowedSignersStatus::ConfigurationError as i32;
         },
     };
 
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn ffi_get_authorized_signer_keys(
         Ok(c) => c,
         Err(e) => {
             error!("Configuration was invalid: {e}");
-            return GetAuthorizedSignerKeysStatus::ConfigurationError as i64;
+            return GetAllowedSignersStatus::ConfigurationError as i32;
         },
     };
 
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn ffi_get_authorized_signer_keys(
         Ok(s) => s,
         Err(e) => {
             error!("Unable to marshall out_path to &str: {e}");
-            return GetAuthorizedSignerKeysStatus::ParameterError as i64;
+            return GetAllowedSignersStatus::ParameterError as i32;
         },
     };
 
@@ -50,7 +50,7 @@ pub unsafe extern "C" fn ffi_get_authorized_signer_keys(
         Ok(rt) => rt,
         Err(e) => {
             error!("Unable to initialize tokio runtime: {e}");
-            return GetAuthorizedSignerKeysStatus::InternalError as i64;
+            return GetAllowedSignersStatus::InternalError as i32;
         },
     };
     let runtime_handle = runtime.handle().to_owned();
@@ -58,20 +58,19 @@ pub unsafe extern "C" fn ffi_get_authorized_signer_keys(
     let mut out_file = match File::create(out_path) {
         Ok(f) => f,
         Err(e) => {
-            error!("Could not create authorized_signer_keys file at {}: {}", out_path, e);
-            return GetAuthorizedSignerKeysStatus::AuthorizedSignerKeysFileError as i64;
+            error!("Could not create Allowed Signers file at {}: {}", out_path, e);
+            return GetAllowedSignersStatus::AllowedSignersFileError as i32;
         }
     };
 
     for server in &updatable_configuration.get_configuration().servers {
-        let signer_keys = match server.get_all_signer_keys(&runtime_handle) {
-            Ok(signer_keys) => {
+        let allowed_signers = match server.get_allowed_signers(&runtime_handle) {
+            Ok(data) => {
                 println!(
                     "Signer keys were successfully fetched from server: {}",
                     server.address
                 );
-                println!("{:?}", signer_keys);
-                signer_keys
+                data
             }
             Err(e) => {
                 error!("Signer keys could not be fetched. Server said: {}", e);
@@ -79,11 +78,11 @@ pub unsafe extern "C" fn ffi_get_authorized_signer_keys(
             },
         };
 
-        if let Err(e) = out_file.write_all(signer_keys.as_bytes()) {
+        if let Err(e) = out_file.write_all(allowed_signers.as_bytes()) {
             error!("Could not write to file {}: {}", out_path, e);
-            return GetAuthorizedSignerKeysStatus::AuthorizedSignerKeysFileError as i64;
+            return GetAllowedSignersStatus::AllowedSignersFileError as i32;
         }
     }
 
-    GetAuthorizedSignerKeysStatus::InternalError as i64
+    GetAllowedSignersStatus::InternalError as i32
 }

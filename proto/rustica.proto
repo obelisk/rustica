@@ -85,10 +85,10 @@ message AttestedX509CertificateResponse {
 }
 
 // This call fetches a list of all authorized signers and their signing pubkeys
-message AuthorizedSignerKeysRequest {}
+message AllowedSignersRequest {}
 
-message AuthorizedSignerKeysResponse {
-    bytes compressed_signer_keys = 1;
+message AllowedSignersResponse {
+    bytes compressed_allowed_signers = 1;
 }
 
 service Rustica {
@@ -97,5 +97,5 @@ service Rustica {
     rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
     rpc RegisterU2FKey(RegisterU2FKeyRequest) returns (RegisterU2FKeyResponse);
     rpc AttestedX509Certificate(AttestedX509CertificateRequest) returns (AttestedX509CertificateResponse);
-    rpc AuthorizedSignerKeys(AuthorizedSignerKeysRequest) returns (AuthorizedSignerKeysResponse);
+    rpc AllowedSigners(AllowedSignersRequest) returns (AllowedSignersResponse);
 }

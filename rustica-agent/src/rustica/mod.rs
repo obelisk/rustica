@@ -2,7 +2,7 @@ pub mod cert;
 pub mod error;
 pub mod key;
 pub mod x509;
-pub mod signer_keys;
+pub mod allowed_signer;
 
 use std::ops::Deref;
 use std::time::Duration;
@@ -13,7 +13,7 @@ pub use rustica_proto::rustica_client::RusticaClient;
 pub use rustica_proto::{
     AttestedX509CertificateRequest, AttestedX509CertificateResponse, CertificateRequest,
     CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, RegisterU2fKeyRequest,
-    AuthorizedSignerKeysRequest, AuthorizedSignerKeysResponse,
+    AllowedSignersRequest, AllowedSignersResponse,
 };
 
 use sshcerts::ssh::Certificate as SSHCertificate;

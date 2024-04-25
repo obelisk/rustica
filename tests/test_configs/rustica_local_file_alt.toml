@@ -105,7 +105,7 @@ client_certificate_authority_common_name = "RusticaAccess"
 [authorization."database"]
 path = "examples/example.db"
 
-[authorized_signer_keys]
+[allowed_signers]
 cache_validity_length.secs = 900
 cache_validity_length.nanos = 0
 lru_rate_limiter_size = 16

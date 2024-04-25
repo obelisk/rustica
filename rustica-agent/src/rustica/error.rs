@@ -18,7 +18,7 @@ pub enum RefreshError {
     TransportBadStatus(tonic::Status),
     BadEncodedData(hex::FromHexError),
     RusticaServerError(ServerError),
-    BadAuthorizedSignerKeys,
+    BadAllowedSigners,
     UnknownError,
 }
 
@@ -35,7 +35,7 @@ impl fmt::Display for RefreshError {
             RefreshError::TransportBadStatus(ref err) => write!(f, "Bad status from server: {}", err),
             RefreshError::BadEncodedData(ref err) => write!(f, "Bad hex encoding: {}", err),
             RefreshError::RusticaServerError(ref err) => write!(f, "Error from server: {}", err.message),
-            RefreshError::BadAuthorizedSignerKeys => write!(f, "Bad authorized signer keys data"),
+            RefreshError::BadAllowedSigners => write!(f, "Bad allowed signers data"),
             RefreshError::UnknownError => write!(f, "Unknown error occured"),
         }
     }

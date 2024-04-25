@@ -1,6 +1,6 @@
 use asn1::Utf8String;
 use author::author_client::AuthorClient;
-use author::{AddIdentityDataRequest, AuthorizeRequest, AuthorizedSignerKeysRequest};
+use author::{AddIdentityDataRequest, AuthorizeRequest, AllowedSignersRequest};
 
 use rcgen::CustomExtension;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
@@ -9,7 +9,7 @@ use x509_parser::oid_registry::Oid;
 use super::{
     AuthorizationError, KeyAttestation, RegisterKeyRequestProperties, SshAuthorization,
     SshAuthorizationRequestProperties, X509Authorization, X509AuthorizationRequestProperties,
-    SignerKeys, SignerKey,
+    AllowedSigners, AllowedSigner,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -406,8 +406,8 @@ impl AuthServer {
         });
     }
 
-    pub async fn get_all_signer_keys(&self) -> Result<SignerKeys, AuthorizationError> {
-        let request = tonic::Request::new(AuthorizedSignerKeysRequest {});
+    pub async fn get_allowed_signers(&self) -> Result<AllowedSigners, AuthorizationError> {
+        let request = tonic::Request::new(AllowedSignersRequest {});
 
         let client_identity =
             Identity::from_pem(self.mtls_cert.as_bytes(), &self.mtls_key.as_bytes());
@@ -436,7 +436,7 @@ impl AuthServer {
             .map_err(|_| AuthorizationError::ConnectionFailure)?;
 
         let mut client = AuthorClient::new(channel);
-        let response = client.get_all_signer_keys(request).await;
+        let response = client.get_allowed_signers(request).await;
 
         if let Err(e) = response {
             error!("Authorization server returned error: {}", e);
@@ -450,14 +450,14 @@ impl AuthServer {
         }
 
         // Get the response from the backend service
-        let signer_keys = response.unwrap().into_inner().signer_keys;
-        let signer_keys = signer_keys.into_iter()
-            .map(|signer_key| SignerKey{
-                identity: signer_key.identity,
-                pubkey: signer_key.pubkey,
+        let allowed_signers = response.unwrap().into_inner().allowed_signers;
+        let allowed_signers = allowed_signers.into_iter()
+            .map(|allowed_signer| AllowedSigner{
+                identity: allowed_signer.identity,
+                pubkey: allowed_signer.pubkey,
             })
             .collect();
 
-        Ok(SignerKeys{ signer_keys })
+        Ok(AllowedSigners{ allowed_signers })
     }
 }

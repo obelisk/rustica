@@ -18,8 +18,8 @@ use super::{
     KeyAttestation,
     X509AuthorizationRequestProperties,
     X509Authorization,
-    SignerKeys,
-    SignerKey,
+    AllowedSigners,
+    AllowedSigner,
 };
 
 use sshcerts::ssh::CertType;
@@ -215,7 +215,7 @@ impl LocalDatabase {
         })
     }
 
-    pub fn get_all_signer_keys(&self) -> Result<SignerKeys, AuthorizationError> {
+    pub fn get_allowed_signers(&self) -> Result<AllowedSigners, AuthorizationError> {
         let mut conn = establish_connection(&self.path);
 
         let result = {
@@ -232,14 +232,14 @@ impl LocalDatabase {
         }
 
         // Get the response from the backend service
-        let signer_keys: Vec<(String, String)> = result.unwrap();
-        let signer_keys = signer_keys.into_iter()
-            .map(|signer_key| SignerKey{
-                identity: signer_key.0,
-                pubkey: signer_key.1,
+        let allowed_signers: Vec<(String, String)> = result.unwrap();
+        let allowed_signers = allowed_signers.into_iter()
+            .map(|allowed_signer| AllowedSigner{
+                identity: allowed_signer.0,
+                pubkey: allowed_signer.1,
             })
             .collect();
 
-        Ok(SignerKeys{ signer_keys })
+        Ok(AllowedSigners{ allowed_signers })
     }
 }

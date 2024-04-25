@@ -38,7 +38,7 @@ tonic = { version = "0.9", features = ["tls"] }
 yubikey = { version = "0.7", features = ["untested"] }
 x509-parser = { version = "0.15", features = ["verify"] }
 
-# Dependencies for authorizedSSHSigners feature
+# Dependencies for allowed_signers feature
 zstd = "0.13.1"
 
 [build-dependencies]

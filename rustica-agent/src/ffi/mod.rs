@@ -1,6 +1,6 @@
 mod agent;
 mod enrollment;
-mod signer_keys;
+mod allowed_signer;
 mod signing;
 mod utils;
 mod yubikey_utils;
@@ -14,7 +14,7 @@ pub use agent::*;
 pub use enrollment::*;
 
 /// For fetching all signer SSH keys that were registered
-pub use signer_keys::*;
+pub use allowed_signer::*;
 
 /// For functions that handle signing arbitrary data using SSH keys
 pub use signing::*;
