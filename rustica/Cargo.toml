@@ -44,7 +44,7 @@ serde = { version = "1.0", features = ["derive"] }
 sshcerts = { version = "0.13.1", default-features = false, features = [
     "fido-lite",
     "x509-support",
-    "yubikey-support",
+    "yubikey-lite",
 ] }
 # sshcerts = { path = "../../sshcerts", default-features = false, features = [
 #     "fido-lite",
