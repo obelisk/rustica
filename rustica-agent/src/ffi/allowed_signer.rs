@@ -14,7 +14,7 @@ pub enum GetAllowedSignersStatus {
     AllowedSignersFileError,
 }
 
-/// Request all authorized signer keys.
+/// Request all allowed signers
 #[no_mangle]
 pub unsafe extern "C" fn ffi_get_allowed_signers(
     config_path: *const c_char,
@@ -67,13 +67,13 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
         let allowed_signers = match server.get_allowed_signers(&runtime_handle) {
             Ok(data) => {
                 println!(
-                    "Signer keys were successfully fetched from server: {}",
+                    "Allowed signers were successfully fetched from server: {}",
                     server.address
                 );
                 data
             }
             Err(e) => {
-                error!("Signer keys could not be fetched. Server said: {}", e);
+                error!("Allowed signers could not be fetched. Server said: {}", e);
                 continue;
             },
         };

@@ -1105,7 +1105,7 @@ impl Rustica for RusticaServer {
         let mtls_identities = cert_info.identities.join(",");
 
         debug!(
-            "[{}] from [{}] requested the list of signer keys",
+            "[{}] from [{}] requested the list of allowed signers",
             mtls_identities,
             remote_addr,
         );
@@ -1190,7 +1190,7 @@ impl Rustica for RusticaServer {
             return Err(Status::permission_denied(""));
         };
 
-        // Finalize the compression encoding to get the compressed signer keys payload
+        // Finalize the compression encoding to get the compressed allowed signers payload
         let compressed_allowed_signers = match allowed_signers_encoder.finish() {
             Ok(data) => data,
             Err(e) => {
