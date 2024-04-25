@@ -78,9 +78,12 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
             },
         };
 
-        if let Err(e) = out_file.write_all(allowed_signers.as_bytes()) {
-            error!("Could not write to file {}: {}", out_path, e);
-            return GetAllowedSignersStatus::AllowedSignersFileError as i32;
+        match out_file.write_all(allowed_signers.as_bytes()) {
+            Ok(()) => return GetAllowedSignersStatus::Success as i32,
+            Err(e) => {
+                error!("Could not write to file {}: {}", out_path, e);
+                return GetAllowedSignersStatus::AllowedSignersFileError as i32;
+            },
         }
     }
 
