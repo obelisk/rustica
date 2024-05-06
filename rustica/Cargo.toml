@@ -41,7 +41,7 @@ serde = { version = "1.0", features = ["derive"] }
 #     "yubikey-lite",
 # ] }
 # For Development
-sshcerts = { git = "https://github.com/obelisk/sshcerts", branch = "moz_auth_2023", default-features = false, features = [
+sshcerts = { version = "0.13.1", default-features = false, features = [
     "fido-lite",
     "x509-support",
     "yubikey-lite",
@@ -77,6 +77,10 @@ reqwest = { version = "0.11", default-features = false, features = [
     "rustls-tls",
 ], optional = true }
 serde_json = { version = "1.0", optional = true }
+
+# Dependencies for allowed_signers feature
+zstd = "0.13.1"
+lru = "0.12.3"
 
 [build-dependencies]
 tonic-build = "0.9"

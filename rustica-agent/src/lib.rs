@@ -89,6 +89,7 @@ pub enum RusticaAgentLibraryError {
     CouldNotReadConfigurationFile(String),
     BadConfiguration(String),
     UnknownConfigurationVersion(u64),
+    NoServersReturnedAllowedSigners,
 }
 
 impl std::fmt::Display for RusticaAgentLibraryError {
@@ -119,6 +120,9 @@ impl std::fmt::Display for RusticaAgentLibraryError {
             }
             RusticaAgentLibraryError::UnknownConfigurationVersion(e) => {
                 write!(f, "Cannot use configuration version: {e}")
+            }
+            RusticaAgentLibraryError::NoServersReturnedAllowedSigners => {
+                write!(f, "All servers failed to return allowed signers when requested")
             }
         }
     }
@@ -695,4 +699,22 @@ pub async fn register_key(
         }
     }
     Err(RusticaAgentLibraryError::NoServersCouldRegisterKey)
+}
+
+pub async fn get_allowed_signers(
+    servers: &[RusticaServer],
+) -> Result<String, RusticaAgentLibraryError> {
+    for server in servers.iter() {
+        match server.get_allowed_signers_async().await {
+            Ok(allowed_signers) => return Ok(allowed_signers),
+            Err(e) => {
+                error!(
+                    "Could not fetch allowed signers from server: {}. Gave error: {}",
+                    server.address,
+                    e.to_string(),
+                )
+            }
+        }
+    }
+    Err(RusticaAgentLibraryError::NoServersReturnedAllowedSigners)
 }

@@ -1,5 +1,7 @@
 mod agent;
 mod enrollment;
+mod allowed_signer;
+mod signing;
 mod utils;
 mod yubikey_utils;
 
@@ -10,6 +12,12 @@ pub use agent::*;
 
 /// For generating and enrolling keys that will be used with RusticaAgent
 pub use enrollment::*;
+
+/// For fetching all signer SSH keys that were registered
+pub use allowed_signer::*;
+
+/// For functions that handle signing arbitrary data using SSH keys
+pub use signing::*;
 
 /// For functions that handle memory management and other utilities
 pub use utils::*;
