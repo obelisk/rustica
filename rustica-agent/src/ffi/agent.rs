@@ -406,45 +406,47 @@ pub unsafe extern "C" fn ffi_get_git_config_string_from_private_key(
     git_config.into_raw()
 }
 
-/// Fetch the previous cert if present and valid.
-/// If no such cert is present, return None.
+/// First, fetch the previous cert if present and valid. If cert is still valid, return it.
+///
+/// If cached cert is invalid, and if fetch_new_cert_if_needed is:
+///     - true: fetch a new cert from server. Return error if the fetch fails.
+///     - false: return None.
 #[no_mangle]
-pub unsafe extern "C" fn get_previous_cert(rai: *mut RusticaAgentInstance) -> *const c_char {
+pub unsafe extern "C" fn ffi_get_certificate(rai: *mut RusticaAgentInstance, fetch_new_cert_if_needed: bool) -> *const c_char {
     let rustica_agent_instance = Box::from_raw(rai);
     let handler = rustica_agent_instance.handler.clone();
-    let runtime_handle = rustica_agent_instance.runtime.handle();
-    let certificate = match handler.get_previous_cert(runtime_handle) {
+
+    let runtime = match Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            error!("Unable to initialize tokio runtime: {e}");
+            return std::ptr::null();
+        },
+    };
+
+    let runtime_handle = runtime.handle().to_owned();
+    let certificate = match handler.get_certificate(&runtime_handle, fetch_new_cert_if_needed) {
+        Ok(Some(v)) => Some(v),
+        Ok(None) => {
+            None
+        },
+        Err(e) => {
+            println!("failed to fetch certificate: {}", e);
+            None
+        },
+    };
+
+    // We need to leak here otherwise we will free the RAI
+    // when we're still using it. Would be nice if Box had Box::into_weak or
+    // something similar
+    Box::leak(rustica_agent_instance);
+
+    let certificate = match certificate {
         Some(v) => v,
         None => return std::ptr::null(),
     };
 
-    let certificate = match CString::new(certificate.serialized) {
-        Ok(c) => c,
-        Err(e) => {
-            println!("failed to create a new CSTring from serialized cert: {}", e);
-            return std::ptr::null();
-        },
-    };
-
-    certificate.into_raw()
-}
-
-/// Fetch the previous cert if present and valid.
-/// If no such cert is present, fetch from server.
-#[no_mangle]
-pub unsafe extern "C" fn get_cert(rai: *mut RusticaAgentInstance) -> *const c_char {
-    let rustica_agent_instance = Box::from_raw(rai);
-    let handler = rustica_agent_instance.handler.clone();
-    let runtime_handle = rustica_agent_instance.runtime.handle();
-    let certificate = match handler.get_cert(runtime_handle) {
-        Ok(v) => v,
-        Err(e) => {
-            println!("failed to fetch cert: {}", e);
-            return std::ptr::null();
-        },
-    };
-
-    let certificate = match CString::new(certificate.serialized) {
+    let certificate = match CString::new(certificate.to_string()) {
         Ok(c) => c,
         Err(e) => {
             println!("failed to create a new CSTring from serialized cert: {}", e);
