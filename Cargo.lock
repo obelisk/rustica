@@ -3981,7 +3981,7 @@ dependencies = [
  "ring 0.17.6",
  "serde",
  "serde_json",
- "sshcerts",
+ "sshcerts 0.13.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
  "toml 0.5.11",
  "tonic",
@@ -4005,7 +4005,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha2 0.9.9",
- "sshcerts",
+ "sshcerts 0.13.1 (git+https://github.com/obelisk/sshcerts?branch=add-cert-trait)",
  "tokio",
  "toml 0.7.8",
  "tonic",
@@ -4512,6 +4512,22 @@ name = "sshcerts"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5100838a20a2bb916f56184372c29b3a264f4a4af7d1dd202b9d7a2a6cd6fa6"
+dependencies = [
+ "base64 0.13.1",
+ "der-parser 5.1.2",
+ "minicbor",
+ "rcgen",
+ "ring 0.17.6",
+ "x509",
+ "x509-parser 0.15.1",
+ "yubikey",
+ "zeroize",
+]
+
+[[package]]
+name = "sshcerts"
+version = "0.13.1"
+source = "git+https://github.com/obelisk/sshcerts?branch=add-cert-trait#f195e353dd20e955681cc61e39bc94d3c3bc3c19"
 dependencies = [
  "aes 0.7.5",
  "authenticator",

@@ -1,7 +1,10 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use clap::{Arg, ArgMatches, Command};
 use rustica_agent::{slot_validator, Handler, Signatory};
+
+use notify_rust::Notification;
 
 use super::{
     get_signatory, parse_certificate_config_from_args, parse_config_from_args,
@@ -38,6 +41,17 @@ pub async fn configure_singlemode(
         }
     };
 
+    let notification_f = move || {
+        println!("Trying to send a notification");
+        if let Err(e) = Notification::new()
+            .summary("RusticaAgent")
+            .body("An application is requesting a signature. Please tap your Yubikey.")
+            .show()
+        {
+            error!("Notification system errored: {e}");
+        }
+    };
+
     let handler = Handler {
         updatable_configuration: updatable_configuration.into(),
         cert: None.into(),
@@ -47,10 +61,11 @@ pub async fn configure_singlemode(
         certificate_options,
         identities: HashMap::new().into(),
         piv_identities: HashMap::new(),
-        notification_function: None,
+        notification_function: Some(Box::new(notification_f)),
         certificate_priority: matches.is_present("certificate-priority"),
     };
 
+    let handler = Arc::new(handler);
     Ok(RusticaAgentAction::Run(RunConfig {
         socket_path,
         pubkey,

@@ -26,17 +26,17 @@ impl Agent {
         }
     }
 
-    pub async fn run<T: SshAgentHandler + 'static>(handler: T, socket_path: String) {
+    pub async fn run<T: SshAgentHandler + 'static>(handler: Arc<T>, socket_path: String) {
         return Self::run_with_termination_channel(handler, socket_path, None).await;
     }
 
     pub async fn run_with_termination_channel<T: SshAgentHandler + 'static>(
-        handler: T,
+        handler: Arc<T>,
         socket_path: String,
         term_channel: Option<Receiver<()>>,
     ) {
         let listener = UnixListener::bind(socket_path).unwrap();
-        let handler = Arc::new(handler);
+        let handler = handler.clone();
 
         if let Some(mut term_channel) = term_channel {
             loop {

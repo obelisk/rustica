@@ -21,6 +21,7 @@ use tokio::{
 
 use std::collections::HashMap;
 use std::{convert::TryFrom, slice};
+use std::sync::Arc;
 
 // FFI related imports
 use std::ffi::{CStr, CString};
@@ -29,6 +30,7 @@ use std::os::raw::{c_char, c_int, c_long};
 pub struct RusticaAgentInstance {
     runtime: Runtime,
     shutdown_sender: Sender<()>,
+    handler: Arc<Handler>,
 }
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
@@ -234,10 +236,12 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     };
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
+    let handler = Arc::new(handler);
 
+    let runtime_handler = handler.clone();
     runtime.spawn(async move {
         Agent::run_with_termination_channel(
-            handler,
+            runtime_handler,
             socket_path.to_string(),
             Some(shutdown_receiver),
         )
@@ -248,6 +252,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     let agent_instance = Box::new(RusticaAgentInstance {
         runtime,
         shutdown_sender,
+        handler,
     });
 
     let agent_instance_pointer: *const RusticaAgentInstance = Box::leak(agent_instance);
@@ -350,9 +355,12 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
 
+    let handler = Arc::new(handler);
+
+    let runtime_handler = handler.clone();
     runtime.spawn(async move {
         Agent::run_with_termination_channel(
-            handler,
+            runtime_handler,
             socket_path.to_string(),
             Some(shutdown_receiver),
         )
@@ -363,6 +371,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     let agent_instance = Box::new(RusticaAgentInstance {
         runtime,
         shutdown_sender,
+        handler,
     });
 
     let agent_instance_pointer: *const RusticaAgentInstance = Box::leak(agent_instance);
@@ -395,4 +404,27 @@ pub unsafe extern "C" fn ffi_get_git_config_string_from_private_key(
     };
 
     git_config.into_raw()
+}
+
+    /// Fetch the previous cert if present and valid.
+    /// If no such cert is present, return None.
+#[no_mangle]
+pub unsafe extern "C" fn get_previous_cert(rai: *mut RusticaAgentInstance) -> *const c_char {
+    let rustica_agent_instance = Box::from_raw(rai);
+    let handler = rustica_agent_instance.handler.clone();
+    let runtime_handle = rustica_agent_instance.runtime.handle();
+    let certificate = match handler.get_previous_cert(runtime_handle) {
+        Some(v) => v,
+        None => return std::ptr::null(),
+    };
+
+    let certificate = match CString::new(certificate.serialized) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("failed to create a new CSTring from serialized cert: {}", e);
+            return std::ptr::null();
+        },
+    };
+
+    certificate.into_raw()
 }

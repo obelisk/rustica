@@ -1,4 +1,5 @@
 use std::{collections::HashMap, fs};
+use std::sync::Arc;
 
 use rustica_agent::{
     get_all_piv_keys, Handler, RusticaAgentLibraryError, Signatory, YubikeyPIVKeyDescriptor,
@@ -169,6 +170,7 @@ pub async fn configure_multimode(
         certificate_priority: matches.is_present("certificate-priority"),
     };
 
+    let handler = Arc::new(handler);
     Ok(RusticaAgentAction::Run(RunConfig {
         socket_path,
         pubkey,
