@@ -416,16 +416,8 @@ pub unsafe extern "C" fn ffi_get_certificate(rai: *mut RusticaAgentInstance, fet
     let rustica_agent_instance = Box::from_raw(rai);
     let handler = rustica_agent_instance.handler.clone();
 
-    let runtime = match Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => {
-            error!("Unable to initialize tokio runtime: {e}");
-            return std::ptr::null();
-        },
-    };
-
-    let runtime_handle = runtime.handle().to_owned();
-    let certificate = match handler.get_certificate(&runtime_handle, fetch_new_cert_if_needed) {
+    let runtime_handle = rustica_agent_instance.runtime.handle();
+    let certificate = match handler.get_certificate(runtime_handle, fetch_new_cert_if_needed) {
         Ok(Some(v)) => Some(v),
         Ok(None) => {
             None
