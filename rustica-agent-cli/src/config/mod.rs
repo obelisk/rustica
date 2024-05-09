@@ -19,6 +19,7 @@ use rustica_agent::*;
 use std::convert::TryFrom;
 use std::env;
 use std::process;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum ConfigurationError {
@@ -41,7 +42,7 @@ pub enum ConfigurationError {
 pub struct RunConfig {
     pub socket_path: String,
     pub pubkey: PublicKey,
-    pub handler: Handler,
+    pub handler: Arc<Handler>,
 }
 
 pub enum RusticaAgentAction {

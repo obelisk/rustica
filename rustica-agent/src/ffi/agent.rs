@@ -21,6 +21,7 @@ use tokio::{
 
 use std::collections::HashMap;
 use std::{convert::TryFrom, slice};
+use std::sync::Arc;
 
 // FFI related imports
 use std::ffi::{CStr, CString};
@@ -29,6 +30,7 @@ use std::os::raw::{c_char, c_int, c_long};
 pub struct RusticaAgentInstance {
     runtime: Runtime,
     shutdown_sender: Sender<()>,
+    handler: Arc<Handler>,
 }
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
@@ -234,10 +236,12 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     };
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
+    let handler = Arc::new(handler);
 
+    let runtime_handler = handler.clone();
     runtime.spawn(async move {
         Agent::run_with_termination_channel(
-            handler,
+            runtime_handler,
             socket_path.to_string(),
             Some(shutdown_receiver),
         )
@@ -248,6 +252,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     let agent_instance = Box::new(RusticaAgentInstance {
         runtime,
         shutdown_sender,
+        handler,
     });
 
     let agent_instance_pointer: *const RusticaAgentInstance = Box::leak(agent_instance);
@@ -350,9 +355,12 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
 
+    let handler = Arc::new(handler);
+
+    let runtime_handler = handler.clone();
     runtime.spawn(async move {
         Agent::run_with_termination_channel(
-            handler,
+            runtime_handler,
             socket_path.to_string(),
             Some(shutdown_receiver),
         )
@@ -363,6 +371,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     let agent_instance = Box::new(RusticaAgentInstance {
         runtime,
         shutdown_sender,
+        handler,
     });
 
     let agent_instance_pointer: *const RusticaAgentInstance = Box::leak(agent_instance);
@@ -395,4 +404,47 @@ pub unsafe extern "C" fn ffi_get_git_config_string_from_private_key(
     };
 
     git_config.into_raw()
+}
+
+/// First, fetch the previous cert if present and valid. If cert is still valid, return it.
+///
+/// If cached cert is invalid, and if fetch_new_cert_if_needed is:
+///     - true: fetch a new cert from server. Return error if the fetch fails.
+///     - false: return None.
+#[no_mangle]
+pub unsafe extern "C" fn ffi_get_certificate(rai: *mut RusticaAgentInstance, fetch_new_cert_if_needed: bool) -> *const c_char {
+    let rustica_agent_instance = Box::from_raw(rai);
+    let handler = rustica_agent_instance.handler.clone();
+
+    let runtime_handle = rustica_agent_instance.runtime.handle();
+    let certificate = match handler.get_certificate(runtime_handle, fetch_new_cert_if_needed) {
+        Ok(Some(v)) => Some(v),
+        Ok(None) => {
+            None
+        },
+        Err(e) => {
+            println!("failed to fetch certificate: {}", e);
+            None
+        },
+    };
+
+    // We need to leak here otherwise we will free the RAI
+    // when we're still using it. Would be nice if Box had Box::into_weak or
+    // something similar
+    Box::leak(rustica_agent_instance);
+
+    let certificate = match certificate {
+        Some(v) => v,
+        None => return std::ptr::null(),
+    };
+
+    let certificate = match CString::new(certificate.to_string()) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("failed to create a new CSTring from serialized cert: {}", e);
+            return std::ptr::null();
+        },
+    };
+
+    certificate.into_raw()
 }
