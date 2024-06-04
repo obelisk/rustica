@@ -41,6 +41,8 @@ pub struct CertificateIssued {
     pub fingerprint: String,
     /// The fingerprint of the signing certificate
     pub signed_by: String,
+    /// The serial number of the signing certificate
+    pub serial: u64,
     /// The configured authority name for the signer
     pub authority: String,
     /// Certificate type, either User or Host

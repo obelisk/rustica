@@ -571,6 +571,7 @@ impl Rustica for RusticaServer {
                 fingerprint,
                 signed_by: ca_cert.fingerprint().hash,
                 authority: authority.to_string(),
+                serial: authorization.serial,
                 certificate_type: req_cert_type.to_string(),
                 mtls_identities,
                 principals: authorization.principals,
