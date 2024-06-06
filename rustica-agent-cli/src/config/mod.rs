@@ -7,18 +7,19 @@ mod provisionpiv;
 mod refresh_attested_x509_certificate;
 mod register;
 mod singlemode;
+mod allowed_signers;
 
 use clap::{Arg, ArgMatches, Command};
 
 use rustica_agent::config::UpdatableConfiguration;
-use sshcerts::yubikey::piv::Yubikey;
-use sshcerts::{CertType, PrivateKey, PublicKey};
+use rustica_agent::{CertType, PrivateKey, PublicKey, SSHCertsError, Yubikey};
 
 use rustica_agent::*;
 
 use std::convert::TryFrom;
 use std::env;
 use std::process;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum ConfigurationError {
@@ -41,7 +42,7 @@ pub enum ConfigurationError {
 pub struct RunConfig {
     pub socket_path: String,
     pub pubkey: PublicKey,
-    pub handler: Handler,
+    pub handler: Arc<Handler>,
 }
 
 pub enum RusticaAgentAction {
@@ -54,6 +55,7 @@ pub enum RusticaAgentAction {
     ListFidoDevices,
     GitConfig(PublicKey),
     RefreshAttestedX509(refresh_attested_x509_certificate::RefreshAttestedX509Config),
+    GetAllowedSigners(allowed_signers::GetAllowedSignersConfig),
 }
 
 impl From<std::io::Error> for ConfigurationError {
@@ -62,8 +64,8 @@ impl From<std::io::Error> for ConfigurationError {
     }
 }
 
-impl From<sshcerts::error::Error> for ConfigurationError {
-    fn from(_: sshcerts::error::Error) -> Self {
+impl From<SSHCertsError> for ConfigurationError {
+    fn from(_: SSHCertsError) -> Self {
         ConfigurationError::ParsingError
     }
 }
@@ -263,6 +265,8 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             "Refresh an X509 certificate in a Yubikey slot",
         ));
 
+    let allowed_signers = new_run_agent_subcommand("allowed-signers", "Fetch a list of all signers and their keys");
+
     let command_configuration = command_configuration
         .subcommand(immediate_mode)
         .subcommand(multi_mode)
@@ -273,7 +277,8 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         .subcommand(list_piv_keys)
         .subcommand(list_fido_devices)
         .subcommand(git_config)
-        .subcommand(refresh_x509);
+        .subcommand(refresh_x509)
+        .subcommand(allowed_signers);
     let mut cc_help = command_configuration.clone();
 
     let matches = command_configuration.get_matches();
@@ -314,9 +319,13 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         return gitconfig::configure_git_config(git_config);
     }
 
-    if let Some(x509_config) = matches.subcommand_matches("refresh-x509") {
+    if let Some(x509_config) = matches.subcommand_matches("refresh-attested-x509") {
         return refresh_attested_x509_certificate::configure_refresh_x509_certificate(x509_config)
             .await;
+    }
+
+    if let Some(allowed_signers_config) = matches.subcommand_matches("allowed_signers") {
+        return allowed_signers::configure_allowed_signers(allowed_signers_config).await;
     }
 
     cc_help.print_help().unwrap();

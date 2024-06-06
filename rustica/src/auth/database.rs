@@ -18,6 +18,8 @@ use super::{
     KeyAttestation,
     X509AuthorizationRequestProperties,
     X509Authorization,
+    AllowedSigners,
+    AllowedSigner,
 };
 
 use sshcerts::ssh::CertType;
@@ -115,6 +117,7 @@ impl LocalDatabase {
         let mut conn = establish_connection(&self.path);
         let mut registered_key = models::RegisteredKey {
             fingerprint: req.fingerprint.clone(),
+            pubkey: req.pubkey.clone(),
             user: req.mtls_identities.join(","),
             firmware: None,
             hsm_serial: None,
@@ -181,7 +184,7 @@ impl LocalDatabase {
 
         let authorization: Vec<_> = {
             use schema::x509_authorizations::dsl::*;
-            let results = x509_authorizations.filter(user.eq(mtls_user).and(hsm_serial.eq(att_serial.to_string())))
+            let results = x509_authorizations.filter(user.eq(mtls_user).and(authority.eq(&auth_props.authority).and(hsm_serial.eq(att_serial.to_string()))))
                 .load::<models::X509Authorization>(&mut conn)
                 .expect("Error loading authorized hosts");
             
@@ -210,5 +213,33 @@ impl LocalDatabase {
             valid_before: current_time + (3600 * 12), // 12 hours
             valid_after: current_time,
         })
+    }
+
+    pub fn get_allowed_signers(&self) -> Result<AllowedSigners, AuthorizationError> {
+        let mut conn = establish_connection(&self.path);
+
+        let result = {
+            use schema::registered_keys::dsl::*;
+
+            // Fetch every pubkey and the owner's identity
+            schema::registered_keys::table
+                .select((user, pubkey))
+                .load(&mut conn)
+        };
+
+        if let Err(e) = result {
+            return Err(AuthorizationError::DatabaseError(format!("{}", e)));
+        }
+
+        // Get the response from the backend service
+        let allowed_signers: Vec<(String, String)> = result.unwrap();
+        let allowed_signers = allowed_signers.into_iter()
+            .map(|allowed_signer| AllowedSigner{
+                identity: allowed_signer.0,
+                pubkey: allowed_signer.1,
+            })
+            .collect();
+
+        Ok(AllowedSigners{ allowed_signers })
     }
 }

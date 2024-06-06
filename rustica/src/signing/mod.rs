@@ -104,7 +104,6 @@ pub struct SigningMechanism {
     pub authorities: HashMap<String, Box<dyn Signer + Send + Sync>>,
 }
 
-
 #[derive(Debug)]
 pub enum SigningError {
     /// Represents when there was an issue accessing the key material. This
@@ -121,7 +120,7 @@ pub enum SigningError {
     /// expected data
     #[allow(dead_code)]
     ParsingError,
-    UnknownAuthority,
+    UnknownAuthority(String),
     DuplicatedKey(String, String),
     IdenticalUserAndHostKey(String),
     SignerDoesNotHaveSSHKeys,
@@ -134,7 +133,7 @@ impl std::fmt::Display for SigningError {
             Self::AccessError(e) => write!(f, "Could not access the private key material: {}", e),
             Self::SigningFailure => write!(f, "The signing operation on the provided certificate failed"),
             Self::ParsingError => write!(f, "The signature could not be parsed"),
-            Self::UnknownAuthority => write!(f, "Unknown authority was requested for a signing operation"),
+            Self::UnknownAuthority(authority) => write!(f, "Unknown authority was requested for a signing operation: {authority}"),
             Self::DuplicatedKey(a1, a2) => write!(f, "Authorities {a1} and {a2} share at least one key. This is not allowed as it almost always a misconfiguration leading to access that is not correctly restricted"),
             Self::IdenticalUserAndHostKey(authority) => write!(f, "Authority {authority} has an identical key for both user and host certificates. This is not allowed as it's much safer to use separate keys for both."),
             Self::SignerDoesNotHaveSSHKeys => write!(f, "Signer was not configured with SSH keys so it cannot create an SSH certificate"),
@@ -149,28 +148,39 @@ impl std::fmt::Display for SigningMechanism {
         for signer in self.authorities.iter() {
             output.push_str(&format!("Authority: {}\n", signer.0));
 
-            if let Some(fp) = signer.1.get_signer_public_key(CertType::User).map(|x| x.fingerprint().hash) {
+            if let Some(fp) = signer
+                .1
+                .get_signer_public_key(CertType::User)
+                .map(|x| x.fingerprint().hash)
+            {
                 output.push_str(&format!("\tUser CA Fingerprint (SHA256): {fp}\n"));
             }
 
-            if let Some(fp) = signer.1.get_signer_public_key(CertType::Host).map(|x| x.fingerprint().hash) {
+            if let Some(fp) = signer
+                .1
+                .get_signer_public_key(CertType::Host)
+                .map(|x| x.fingerprint().hash)
+            {
                 output.push_str(&format!("\tHost CA Fingerprint (SHA256): {fp}\n"));
             }
 
-            if let Some(attested_x509_authority) = signer.1.get_attested_x509_certificate_authority() {
+            if let Some(attested_x509_authority) =
+                signer.1.get_attested_x509_certificate_authority()
+            {
                 output.push_str(&format!(
                     "\tAttested X509 Certificate Authority:\n{}\n",
                     attested_x509_authority.serialize_pem().unwrap()
                 ));
             }
 
-            if let Some(client_certificate_authority) = signer.1.get_client_certificate_authority() {
+            if let Some(client_certificate_authority) = signer.1.get_client_certificate_authority()
+            {
                 output.push_str(&format!(
                     "\tClient Certificate Authority:\n{}\n",
                     client_certificate_authority.serialize_pem().unwrap()
                 ));
             }
-        };
+        }
         write!(f, "{}", output)
     }
 }
@@ -186,7 +196,7 @@ impl SigningMechanism {
         if let Some(authority) = self.authorities.get(authority) {
             authority.sign(cert).await
         } else {
-            Err(SigningError::UnknownAuthority)
+            Err(SigningError::UnknownAuthority(authority.to_string()))
         }
     }
 
@@ -200,10 +210,12 @@ impl SigningMechanism {
         let authority = if let Some(authority) = self.authorities.get(authority) {
             authority
         } else {
-            return Err(SigningError::UnknownAuthority)
+            return Err(SigningError::UnknownAuthority(authority.to_string()));
         };
 
-        authority.get_signer_public_key(cert_type).ok_or(SigningError::SignerDoesNotHaveSSHKeys)
+        authority
+            .get_signer_public_key(cert_type)
+            .ok_or(SigningError::SignerDoesNotHaveSSHKeys)
     }
 
     /// Return the X509 certificate authority certificate to sign attested X509 requests
@@ -214,7 +226,7 @@ impl SigningMechanism {
         if let Some(authority) = self.authorities.get(authority) {
             Ok(authority.get_attested_x509_certificate_authority())
         } else {
-            Err(SigningError::UnknownAuthority)
+            Err(SigningError::UnknownAuthority(authority.to_string()))
         }
     }
 
@@ -226,7 +238,7 @@ impl SigningMechanism {
         if let Some(authority) = self.authorities.get(authority) {
             Ok(authority.get_client_certificate_authority())
         } else {
-            Err(SigningError::UnknownAuthority)
+            Err(SigningError::UnknownAuthority(authority.to_string()))
         }
     }
 
@@ -238,7 +250,7 @@ impl SigningMechanism {
 impl SigningConfiguration {
     pub async fn convert_to_signing_mechanism(self) -> Result<SigningMechanism, SigningError> {
         let authorities = self.authority_configurations;
-        // All of the configured signing authorities 
+        // All of the configured signing authorities
         let mut converted_authorities = HashMap::new();
 
         // The public key fingerprints we've seen while setting up.
@@ -253,9 +265,11 @@ impl SigningConfiguration {
             // If this has SSH identities configured, make sure they
             // don't conflict
             let user_hash = signer
-                .get_signer_public_key(CertType::User).map(|x| x.fingerprint().hash);
+                .get_signer_public_key(CertType::User)
+                .map(|x| x.fingerprint().hash);
             let host_hash = signer
-                .get_signer_public_key(CertType::Host).map(|x| x.fingerprint().hash);
+                .get_signer_public_key(CertType::Host)
+                .map(|x| x.fingerprint().hash);
 
             // If the user is using the same key for user and host
             // certificate authorities, error and tell them not to do

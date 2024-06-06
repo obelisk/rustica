@@ -54,6 +54,7 @@ table! {
 table! {
     registered_keys (fingerprint) {
         fingerprint -> Text,
+        pubkey -> Text,
         user -> Text,
         pin_policy -> Nullable<Text>,
         touch_policy -> Nullable<Text>,
@@ -75,6 +76,7 @@ table! {
         user -> Text,
         hsm_serial -> Text,
         require_touch -> Bool,
+        authority -> Text,
     }
 }
 

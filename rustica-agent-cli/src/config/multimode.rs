@@ -1,4 +1,5 @@
 use std::{collections::HashMap, fs};
+use std::sync::Arc;
 
 use rustica_agent::{
     get_all_piv_keys, Handler, RusticaAgentLibraryError, Signatory, YubikeyPIVKeyDescriptor,
@@ -6,7 +7,7 @@ use rustica_agent::{
 };
 
 use clap::{Arg, ArgMatches, Command};
-use sshcerts::{yubikey::piv::Yubikey, PrivateKey, PublicKey};
+use rustica_agent::{PrivateKey, PublicKey, Yubikey};
 
 use crate::config::{
     parse_certificate_config_from_args, parse_config_from_args, parse_socket_path_from_args,
@@ -169,6 +170,7 @@ pub async fn configure_multimode(
         certificate_priority: matches.is_present("certificate-priority"),
     };
 
+    let handler = Arc::new(handler);
     Ok(RusticaAgentAction::Run(RunConfig {
         socket_path,
         pubkey,

@@ -20,15 +20,21 @@ pub use rustica::{
     RefreshError::{ConfigurationError, SigningError},
 };
 
-use sshcerts::ssh::{CertType, Certificate, PrivateKey, PublicKey, SSHCertificateSigner};
-use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey};
-
 use std::collections::HashMap;
 use std::{convert::TryFrom, env};
 
 use std::time::SystemTime;
 
 use tokio::sync::Mutex;
+use tokio::runtime::Handle;
+
+pub use sshcerts::{
+    error::Error as SSHCertsError,
+    fido::{generate::generate_new_ssh_key, list_fido_devices},
+    ssh::{CertType, SSHCertificateSigner},
+    yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey},
+    Certificate, PrivateKey, PublicKey,
+};
 
 #[derive(Debug)]
 pub struct CertificateConfig {
@@ -84,6 +90,7 @@ pub enum RusticaAgentLibraryError {
     CouldNotReadConfigurationFile(String),
     BadConfiguration(String),
     UnknownConfigurationVersion(u64),
+    NoServersReturnedAllowedSigners,
 }
 
 impl std::fmt::Display for RusticaAgentLibraryError {
@@ -115,6 +122,9 @@ impl std::fmt::Display for RusticaAgentLibraryError {
             RusticaAgentLibraryError::UnknownConfigurationVersion(e) => {
                 write!(f, "Cannot use configuration version: {e}")
             }
+            RusticaAgentLibraryError::NoServersReturnedAllowedSigners => {
+                write!(f, "All servers failed to return allowed signers when requested")
+            }
         }
     }
 }
@@ -126,7 +136,7 @@ pub struct Handler {
     /// settings
     pub updatable_configuration: Mutex<UpdatableConfiguration>,
     /// A previously issued certificate
-    pub cert: Mutex<Option<Identity>>,
+    pub cert: Mutex<Option<Certificate>>,
     /// The public key we for the key we are providing a certificate for
     pub pubkey: PublicKey,
     /// The signing method for the private part of our public key. This needs to have
@@ -189,6 +199,92 @@ impl From<Option<Options>> for CertificateConfig {
     }
 }
 
+impl Handler {
+    /// First, fetch the previous cert if present and valid. If cert is still valid, return it.
+    ///
+    /// If cached cert is invalid, and if fetch_new_cert_if_needed is:
+    ///     - true: fetch a new cert from server. Return error if the fetch fails.
+    ///     - false: return None.
+    async fn get_certificate_async(&self, fetch_new_cert_if_needed: bool) -> Result<Option<Certificate>, RusticaAgentLibraryError> {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        if fetch_new_cert_if_needed {
+            let mut stale_at = self.stale_at.lock().await;
+            let mut existing_cert = self.cert.lock().await;
+            let mut configuration = self.updatable_configuration.lock().await;
+
+            // Fetch a new certificate or use the cached one if it's still valid
+            // We add 5 to the timestamp to try and ensure by the time the user
+            // taps their key, the certificate is still valid. This appears to
+            // primarily be an issue with GitHub pull and push tiers.
+            let certificate = match (&*existing_cert, timestamp + 5 < *stale_at) {
+                // In the case we have a certificate and it's not expired.
+                (Some(cert), true) => {
+                    debug!(
+                        "Using cached certificate which expires in {} seconds",
+                        *stale_at - timestamp
+                    );
+                    cert.clone()
+                }
+                // All other cases require us to fetch a certificate from one
+                // of the configured servers
+                _ => {
+                    // Fetch a new certificate from one of the servers
+                    let cert = fetch_new_certificate(
+                        &mut configuration,
+                        &self.signatory,
+                        &self.certificate_options,
+                        &self.notification_function,
+                    )
+                    .await?;
+
+                    // This is ugly doing a mutation in a map
+                    // Look for a better way to do this.
+                    *existing_cert = Some(cert.clone());
+                    *stale_at = cert.valid_before;
+
+                    cert
+                }
+            };
+            Ok(Some(certificate))
+        } else {
+            let stale_at = self.stale_at.lock().await;
+            let existing_cert = self.cert.lock().await;
+
+            // Fetch a new certificate or use the cached one if it's still valid
+            // We add 5 to the timestamp to try and ensure by the time the user
+            // taps their key, the certificate is still valid. This appears to
+            // primarily be an issue with GitHub pull and push tiers.
+            let certificate = match (&*existing_cert, timestamp + 5 < *stale_at) {
+                // In the case we have a certificate and it's not expired.
+                (Some(cert), true) => {
+                    debug!(
+                        "Using cached certificate which expires in {} seconds",
+                        *stale_at - timestamp
+                    );
+                    Some(cert.clone())
+                }
+                // All other cases require us to fetch a certificate from one
+                // of the configured servers
+                _ => None
+            };
+            Ok(certificate)
+        }
+    }
+
+    /// Fetch the previous cert if present and valid.
+    /// If no such cert is present, return None.
+    fn get_certificate(&self, handle: &Handle, fetch_new_cert_if_needed: bool) -> Result<Option<Certificate>, RusticaAgentLibraryError> {
+        handle.block_on(async {
+            self.get_certificate_async(fetch_new_cert_if_needed).await
+        })
+    }
+
+}
+
 #[async_trait]
 impl SshAgentHandler for Handler {
     async fn add_identity(&self, private_key: PrivateKey) -> Result<Response, AgentError> {
@@ -218,50 +314,13 @@ impl SshAgentHandler for Handler {
             key_comment: format!("Yubikey Serial: {} Slot: {:?}", x.1.serial, x.1.slot),
         }));
 
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        let mut stale_at = self.stale_at.lock().await;
-        let mut existing_cert = self.cert.lock().await;
-        let mut configuration = self.updatable_configuration.lock().await;
-
-        // Fetch a new certificate or use the cached one if it's still valid
-        let certificate = match (&*existing_cert, timestamp < *stale_at) {
-            // In the case we have a certificate and it's not expired.
-            (Some(cert), true) => Ok(cert.clone()),
-            // All other cases require us to fetch a certificate from one
-            // of the configured servers
-            _ => {
-                // Send a notification in case the user is going to need to
-                // tap their key to prove ownership before receiving their
-                // certificate
-                if let Some(f) = &self.notification_function {
-                    f()
-                }
-
-                // Fetch a new certificate from one of the servers
-                fetch_new_certificate(
-                    &mut configuration,
-                    &self.signatory,
-                    &self.certificate_options,
-                )
-                .await
-                .map(|cert| {
-                    let ident = Identity {
-                        key_blob: cert.serialized,
-                        key_comment: cert.comment.unwrap_or_default(),
-                    };
-
-                    // This is ugly doing a mutation in a map
-                    // Look for a better way to do this.
-                    *existing_cert = Some(ident.clone());
-                    *stale_at = cert.valid_before;
-
-                    ident
-                })
-            }
+        let certificate = match self.get_certificate_async(true).await {
+            Ok(Some(v)) => Ok(Identity {
+                key_blob: v.serialized,
+                key_comment: v.comment.unwrap_or_default(),
+            }),
+            Ok(None) => Err(RusticaAgentLibraryError::NoServersReturnedCertificate),
+            Err(e) => Err(e),
         };
 
         let key = Identity {
@@ -294,7 +353,10 @@ impl SshAgentHandler for Handler {
         trace!("Sign call");
 
         // Extract the pubkey fingerprint from either the SSH pubkey or the SSH cert
-        let fingerprint = match (Certificate::from_bytes(&pubkey), PublicKey::from_bytes(&pubkey)) {
+        let fingerprint = match (
+            Certificate::from_bytes(&pubkey),
+            PublicKey::from_bytes(&pubkey),
+        ) {
             (Ok(cert), _) => cert.key.fingerprint(),
             (_, Ok(pubkey)) => pubkey.fingerprint(),
             _ => return Err(AgentError::from("Invalid key blob")),
@@ -304,15 +366,13 @@ impl SshAgentHandler for Handler {
         // key is the same process as keys added afterwards, we do this to prevent duplication
         // of the private key based signing code.
         // TODO: @obelisk make this better
-        if let Some(private_key) =
-            self.identities.lock().await.get(&pubkey).map(|x| x.clone())
-        {
+        if let Some(private_key) = self.identities.lock().await.get(&pubkey).map(|x| x.clone()) {
             let signature = match private_key.sign(&data) {
                 None => return Err(AgentError::from("Signing Error")),
                 Some(signature) => signature,
             };
 
-            return Ok(Response::SignResponse { signature })
+            return Ok(Response::SignResponse { signature });
         } else if let Some(descriptor) = self.piv_identities.get(&pubkey) {
             let mut yk = Yubikey::open(descriptor.serial).map_err(|e| {
                 println!("Unable to open Yubikey: {e}");
@@ -320,7 +380,10 @@ impl SshAgentHandler for Handler {
             })?;
 
             if let Some(f) = &self.notification_function {
+                println!("Trying to send a notification");
                 f()
+            } else {
+                println!("No notification function set");
             }
 
             if let Some(pin) = &descriptor.pin {
@@ -361,7 +424,7 @@ impl SshAgentHandler for Handler {
                 Some(signature) => signature,
             };
 
-            return Ok(Response::SignResponse { signature })
+            return Ok(Response::SignResponse { signature });
         } else if let Signatory::Yubikey(signer) = &self.signatory {
             let mut yk = signer.yk.lock().await;
             // Don't sign requests if the requested key does not match the signatory
@@ -393,7 +456,7 @@ impl SshAgentHandler for Handler {
             return Ok(Response::SignResponse { signature });
         } else {
             return Err(AgentError::from("Signing Error: No Valid Keys"));
-        };
+        }
     }
 }
 
@@ -568,9 +631,13 @@ pub async fn fetch_new_certificate(
     configuration: &mut UpdatableConfiguration,
     signatory: &Signatory,
     options: &CertificateConfig,
+    notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
 ) -> Result<Certificate, RusticaAgentLibraryError> {
     for server in configuration.get_servers_mut() {
-        match server.refresh_certificate_async(signatory, options).await {
+        match server
+            .refresh_certificate_async(signatory, options, notification_function)
+            .await
+        {
             Ok((cert, mtls_credentials)) => {
                 let parsed_cert = Certificate::from_string(&cert.cert)
                     .map_err(|e| RusticaAgentLibraryError::ServerReturnedInvalidCertificate(e))?;
@@ -679,4 +746,22 @@ pub async fn register_key(
         }
     }
     Err(RusticaAgentLibraryError::NoServersCouldRegisterKey)
+}
+
+pub async fn get_allowed_signers(
+    servers: &[RusticaServer],
+) -> Result<String, RusticaAgentLibraryError> {
+    for server in servers.iter() {
+        match server.get_allowed_signers_async().await {
+            Ok(allowed_signers) => return Ok(allowed_signers),
+            Err(e) => {
+                error!(
+                    "Could not fetch allowed signers from server: {}. Gave error: {}",
+                    server.address,
+                    e.to_string(),
+                )
+            }
+        }
+    }
+    Err(RusticaAgentLibraryError::NoServersReturnedAllowedSigners)
 }

@@ -1,10 +1,10 @@
 use std::env;
 
 use clap::{Arg, ArgMatches, Command};
+use rustica_agent::Yubikey;
 use rustica_agent::{
     config::UpdatableConfiguration, slot_parser, slot_validator, Signatory, YubikeySigner,
 };
-use sshcerts::yubikey::piv::Yubikey;
 
 use super::{parse_config_from_args, ConfigurationError, RusticaAgentAction};
 

@@ -43,6 +43,7 @@ pub struct FingerprintPermission {
 #[diesel(table_name = registered_keys)]
 pub struct RegisteredKey {
     pub fingerprint: String,
+    pub pubkey: String,
     pub user: String,
     pub pin_policy: Option<String>,
     pub touch_policy: Option<String>,
@@ -63,4 +64,5 @@ pub struct X509Authorization {
     pub user: String,
     pub hsm_serial: String,
     pub require_touch: bool,
+    pub authority: String,
 }

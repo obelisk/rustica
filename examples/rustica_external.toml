@@ -142,3 +142,10 @@ BeD0ySfG+O0e7p7SXR9xo/enbvahRANCAAQCDYaBVv+bcD6gBy8YxY5p7JRNYyTC
 UF5oo8pmUycUdA7DWZcL1IDR/lmEBX6uCFTMMqVR4Mk2CTvpQADxHsjz
 -----END PRIVATE KEY-----
 '''
+
+[allowed_signers]
+cache_validity_length.secs = 900
+cache_validity_length.nanos = 0
+lru_rate_limiter_size = 16
+rate_limit_cooldown.secs = 15
+rate_limit_cooldown.nanos = 0

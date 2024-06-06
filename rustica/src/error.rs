@@ -12,6 +12,10 @@ pub enum RusticaServerError {
     BadCertOptions = 5,
     NotAuthorized = 6,
     BadRequest = 7,
+    PivClientCertTooBig = 8,
+    PivIntermediateCertTooBig = 9,
+    U2fAttestationTooBig = 10,
+    U2fIntermediateCertTooBig = 11,
     Unknown = 9001,
 }
 

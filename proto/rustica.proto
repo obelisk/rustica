@@ -58,6 +58,7 @@ message RegisterU2FKeyRequest {
     bytes intermediate = 5;
     int32 alg = 6;
     Challenge challenge = 7;
+    bool u2f_challenge_hashed = 8;
 }
 
 message RegisterU2FKeyResponse {}
@@ -83,10 +84,18 @@ message AttestedX509CertificateResponse {
     int64 error_code = 3;
 }
 
+// This call fetches a list of all authorized signers and their signing pubkeys
+message AllowedSignersRequest {}
+
+message AllowedSignersResponse {
+    bytes compressed_allowed_signers = 1;
+}
+
 service Rustica {
     rpc Challenge(ChallengeRequest) returns (ChallengeResponse);
     rpc Certificate(CertificateRequest) returns (CertificateResponse);
     rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
     rpc RegisterU2FKey(RegisterU2FKeyRequest) returns (RegisterU2FKeyResponse);
     rpc AttestedX509Certificate(AttestedX509CertificateRequest) returns (AttestedX509CertificateResponse);
+    rpc AllowedSigners(AllowedSignersRequest) returns (AllowedSignersResponse);
 }

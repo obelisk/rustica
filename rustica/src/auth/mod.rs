@@ -31,7 +31,9 @@ impl std::fmt::Display for AuthorizationError {
             AuthorizationError::CertType => write!(f, "Not authorized for this certificate type"),
             AuthorizationError::NotAuthorized => write!(f, "Not authorized"),
             AuthorizationError::AuthorizerError => write!(f, "Authorization error"),
-            AuthorizationError::ConnectionFailure => write!(f, "Could not connect to authorization service"),
+            AuthorizationError::ConnectionFailure => {
+                write!(f, "Could not connect to authorization service")
+            }
             AuthorizationError::DatabaseError(ref m) => write!(f, "Database error: {}", m),
             AuthorizationError::ExternalError(ref m) => write!(f, "{}", m),
         }
@@ -96,9 +98,22 @@ pub struct X509Authorization {
 #[derive(Debug)]
 pub struct RegisterKeyRequestProperties {
     pub fingerprint: String,
+    pub pubkey: String,
     pub mtls_identities: Vec<String>,
     pub requester_ip: String,
     pub attestation: Option<KeyAttestation>,
+}
+
+
+#[derive(Debug)]
+pub struct AllowedSigner {
+    pub identity: String,
+    pub pubkey: String,
+}
+
+#[derive(Debug)]
+pub struct AllowedSigners {
+    pub allowed_signers: Vec<AllowedSigner>,
 }
 
 pub enum AuthorizationMechanism {
@@ -108,35 +123,67 @@ pub enum AuthorizationMechanism {
 }
 
 impl AuthorizationMechanism {
-    pub async fn authorize_ssh_cert(&self, auth_props: &SshAuthorizationRequestProperties) -> Result<SshAuthorization, AuthorizationError> {
+    pub async fn authorize_ssh_cert(
+        &self,
+        auth_props: &SshAuthorizationRequestProperties,
+    ) -> Result<SshAuthorization, AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
             AuthorizationMechanism::Local(local) => local.authorize_ssh_cert(auth_props),
-            AuthorizationMechanism::External(external) => external.authorize_ssh_cert(auth_props).await,
+            AuthorizationMechanism::External(external) => {
+                external.authorize_ssh_cert(auth_props).await
+            }
         }
     }
 
-    pub async fn authorize_attested_x509_cert(&self, auth_props: &X509AuthorizationRequestProperties) -> Result<X509Authorization, AuthorizationError> {
+    pub async fn authorize_attested_x509_cert(
+        &self,
+        auth_props: &X509AuthorizationRequestProperties,
+    ) -> Result<X509Authorization, AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
             AuthorizationMechanism::Local(local) => local.authorize_attested_x509_cert(auth_props),
-            AuthorizationMechanism::External(external) => external.authorize_attested_x509_cert(auth_props).await,
+            AuthorizationMechanism::External(external) => {
+                external.authorize_attested_x509_cert(auth_props).await
+            }
         }
     }
 
-    pub async fn register_key(&self, register_properties: &RegisterKeyRequestProperties) -> Result<(), AuthorizationError> {
+    pub async fn register_key(
+        &self,
+        register_properties: &RegisterKeyRequestProperties,
+    ) -> Result<(), AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
             AuthorizationMechanism::Local(local) => local.register_key(register_properties),
-            AuthorizationMechanism::External(external) => external.register_key(register_properties).await,
+            AuthorizationMechanism::External(external) => {
+                external.register_key(register_properties).await
+            }
+        }
+    }
+
+    pub async fn get_allowed_signers(
+        &self,
+    ) -> Result<AllowedSigners, AuthorizationError> {
+        match &self {
+            #[cfg(feature = "local-db")]
+            AuthorizationMechanism::Local(local) => local.get_allowed_signers(),
+            AuthorizationMechanism::External(external) => {
+                external.get_allowed_signers().await
+            }
         }
     }
 
     pub fn info(&self) -> String {
         match &self {
             #[cfg(feature = "local-db")]
-            AuthorizationMechanism::Local(local) => format!("Configured authorizer: Local DB at {}", &local.path),
-            AuthorizationMechanism::External(external) => format!("Configured authorizer: Remote Service at {}", &external.server),
+            AuthorizationMechanism::Local(local) => {
+                format!("Configured authorizer: Local DB at {}", &local.path)
+            }
+            AuthorizationMechanism::External(external) => format!(
+                "Configured authorizer: Remote Service at {}",
+                &external.server
+            ),
         }
     }
 }

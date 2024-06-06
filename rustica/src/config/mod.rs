@@ -1,16 +1,21 @@
 use crate::auth::AuthorizationConfiguration;
 use crate::logging::{Log, LoggingConfiguration};
-use crate::server::RusticaServer;
+use crate::server::{AllowedSignersCache, RusticaServer};
 use crate::signing::{SigningConfiguration, SigningError};
 
 use clap::{Arg, Command};
 
 use crossbeam_channel::{unbounded, Receiver};
+use lru::LruCache;
 use ring::{hmac, rand};
 use serde::Deserialize;
 
 use std::convert::TryInto;
 use std::net::SocketAddr;
+use std::time::Duration;
+use std::num::NonZeroUsize;
+
+use tokio::sync::{RwLock, Mutex};
 
 use sshcerts::{ssh::KeyTypeKind, CertType, PrivateKey};
 
@@ -19,6 +24,13 @@ pub struct ClientAuthorityConfiguration {
     pub authority: String,
     pub validity_length: u64,
     pub expiration_renewal_period: u64,
+}
+
+#[derive(Deserialize)]
+pub struct AllowedSignersConfiguration {
+    pub cache_validity_length: Duration,
+    pub lru_rate_limiter_size: NonZeroUsize,
+    pub rate_limit_cooldown: Duration,
 }
 
 #[derive(Deserialize)]
@@ -32,6 +44,7 @@ pub struct Configuration {
     pub require_rustica_proof: bool,
     pub require_attestation_chain: bool,
     pub logging: LoggingConfiguration,
+    pub allowed_signers: AllowedSignersConfiguration,
 }
 
 pub struct RusticaSettings {
@@ -177,6 +190,13 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
                 "Could not create a PEM from the requested signing system: {e}"
             )))
         })?;
+
+    let allowed_signers_rate_limiter = LruCache::new(config.allowed_signers.lru_rate_limiter_size);
+
+    let allowed_signers_cache = AllowedSignersCache {
+        compressed_allowed_signers: vec![],
+        expiry_timestamp: Duration::ZERO,
+    };
     
     // We're only validating that we can use this configuration so do not start
     // This happens after we've parsed the config but also confirmed access to
@@ -194,6 +214,9 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         require_rustica_proof: config.require_rustica_proof,
         require_attestation_chain: config.require_attestation_chain,
         client_authority: config.client_authority,
+        allowed_signers: config.allowed_signers,
+        allowed_signers_rate_limiter: Mutex::new(allowed_signers_rate_limiter).into(),
+        allowed_signers_cache: RwLock::new(allowed_signers_cache).into(),
     };
 
     Ok(RusticaSettings {

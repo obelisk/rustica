@@ -114,3 +114,10 @@ timeout = 5
 
 [authorization."database"]
 path = "examples/example.db"
+
+[allowed_signers]
+cache_validity_length.secs = 900
+cache_validity_length.nanos = 0
+lru_rate_limiter_size = 16
+rate_limit_cooldown.secs = 15
+rate_limit_cooldown.nanos = 0

@@ -2,6 +2,7 @@ pub mod cert;
 pub mod error;
 pub mod key;
 pub mod x509;
+pub mod allowed_signer;
 
 use std::ops::Deref;
 use std::time::Duration;
@@ -12,6 +13,7 @@ pub use rustica_proto::rustica_client::RusticaClient;
 pub use rustica_proto::{
     AttestedX509CertificateRequest, AttestedX509CertificateResponse, CertificateRequest,
     CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, RegisterU2fKeyRequest,
+    AllowedSignersRequest, AllowedSignersResponse,
 };
 
 use sshcerts::ssh::Certificate as SSHCertificate;
@@ -58,6 +60,7 @@ pub async fn get_rustica_client(
 pub async fn complete_rustica_challenge(
     server: &RusticaServer,
     signatory: &Signatory,
+    notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
 ) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
     let ssh_pubkey = match signatory {
         Signatory::Yubikey(signer) => {
@@ -110,6 +113,12 @@ pub async fn complete_rustica_challenge(
     if challenge_certificate.key.fingerprint().hash != ssh_pubkey.fingerprint().hash {
         error!("The public key in the challenge doesn't match the client's public key");
         return Err(RefreshError::ServerChallengeNotForClientKey);
+    }
+
+    // We need to sign the challenge so let's notify the user they
+    // will need to interact with their device if (if a device is being used)
+    if let Some(f) = notification_function {
+        f();
     }
 
     let resigned_certificate = match signatory {

@@ -3,14 +3,13 @@ extern crate log;
 
 mod config;
 
-use notify_rust::Notification;
 use yubikey::Certificate;
 
 use crate::config::RusticaAgentAction;
 use rustica_agent::rustica::key::U2FAttestation;
 use rustica_agent::*;
 
-use sshcerts::fido::{generate::generate_new_ssh_key, list_fido_devices};
+use rustica_agent::{generate_new_ssh_key, list_fido_devices};
 use tokio::sync::mpsc::channel;
 
 use std::fs::File;
@@ -140,6 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut config.updatable_configuration,
                 &mut config.signatory,
                 &config.certificate_options,
+                &None,
             )
             .await
             {
@@ -156,26 +156,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         // Normal operation: Starts RusticaAgent as an SSHAgent and waits to answer
         // requests from SSH clients.
-        Ok(RusticaAgentAction::Run(mut config)) => {
+        Ok(RusticaAgentAction::Run(config)) => {
             println!("Starting Rustica Agent");
             println!("Access Fingerprint: {}", config.pubkey.fingerprint().hash);
             println!(
                 "SSH_AUTH_SOCK={}; export SSH_AUTH_SOCK;",
                 config.socket_path
             );
-
-            let notification_f = move || {
-                println!("Trying to send a notification");
-                if let Err(e) = Notification::new()
-                    .summary("RusticaAgent")
-                    .body("An application is requesting a signature. Please tap your Yubikey.")
-                    .show()
-                {
-                    error!("Notification system errored: {e}");
-                }
-            };
-
-            config.handler.notification_function = Some(Box::new(notification_f));
 
             let (_sds, shutdown_receiver) = channel(1);
             Agent::run_with_termination_channel(
@@ -206,6 +193,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 },
                 Err(e) => println!("Error: {:?}", e),
+            }
+        }
+        Ok(RusticaAgentAction::GetAllowedSigners(config)) => {
+            match rustica_agent::get_allowed_signers(
+                &config.updatable_configuration.get_configuration().servers,
+            )
+            .await
+            {
+                Ok(allowed_signers) => {
+                    println!("{}", allowed_signers);
+                }
+                Err(e) => return Err(Box::new(e))?,
             }
         }
         Err(config::ConfigurationError::NoMode) => (),

@@ -23,24 +23,25 @@ require_attestation_chain = true
 # The certificate presented to connecting clients
 server_cert = '''
 -----BEGIN CERTIFICATE-----
-MIIBqjCCAVCgAwIBAgIJAOI2FtcQeixVMAoGCCqGSM49BAMCMBsxGTAXBgNVBAMM
-EEVudGVycHJpc2VSb290Q0EwHhcNMjIwMTIwMDQwMjA2WhcNMjQwNDI0MDQwMjA2
-WjAxMRAwDgYDVQQDDAdydXN0aWNhMRAwDgYDVQQKDAdSdXN0aWNhMQswCQYDVQQG
-EwJDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAINhoFW/5twPqAHLxjFjmns
-lE1jJMJQXmijymZTJxR0DsNZlwvUgNH+WYQFfq4IVMwypVHgyTYJO+lAAPEeyPOj
-ZzBlMDUGA1UdIwQuMCyhH6QdMBsxGTAXBgNVBAMMEEVudGVycHJpc2VSb290Q0GC
-CQCRg096sVtP0zAJBgNVHRMEAjAAMAsGA1UdDwQEAwIE8DAUBgNVHREEDTALggls
-b2NhbGhvc3QwCgYIKoZIzj0EAwIDSAAwRQIhAMfjW/PMrA9/cCg6O835sr22ZrNk
-k/lFOODLqAJPbh3+AiAzeCUyrmxT5VTf6uyFoNT8zMoWSi79rudcdgl+32RqMg==
+MIIBvTCCAWSgAwIBAgIUac6/skXLRQCSfqjAd0REJJxOGvwwCgYIKoZIzj0EAwIw
+GzEZMBcGA1UEAwwQRW50ZXJwcmlzZVJvb3RDQTAeFw0yNDA2MDYwNDA4MThaFw0y
+NjA5MDkwNDA4MThaMDExEDAOBgNVBAMMB3J1c3RpY2ExEDAOBgNVBAoMB1J1c3Rp
+Y2ExCzAJBgNVBAYTAkNBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqzdtAcXS
+9j3ECPWlucXR0yma0vQUU8PIioV3g7LthqtMTLwZJmtqDlhJE6PZUPdtSALeA6Xt
+GxwpOv8sEA2zDaNwMG4wHwYDVR0jBBgwFoAUOhiiXYkz9/H/i5F87/PRfqg/6E4w
+CQYDVR0TBAIwADALBgNVHQ8EBAMCBPAwFAYDVR0RBA0wC4IJbG9jYWxob3N0MB0G
+A1UdDgQWBBReU9iTPgqopxzmL9s3DLM6HKqb9DAKBggqhkjOPQQDAgNHADBEAiAy
+oOcGRjuYhrn89g2PxntRYD5mnBYqgiAmxIy04GpcjgIgQNbAu0KO7vIB3FIicjtJ
+ALZO9s3gY1HbIz18rVHKBNk=
 -----END CERTIFICATE-----
 '''
 
 # The key for the certificate presented to clients
 server_key = '''
 -----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgkTd0C69xWFX9PmVf
-BeD0ySfG+O0e7p7SXR9xo/enbvahRANCAAQCDYaBVv+bcD6gBy8YxY5p7JRNYyTC
-UF5oo8pmUycUdA7DWZcL1IDR/lmEBX6uCFTMMqVR4Mk2CTvpQADxHsjz
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgQbGgAy6FMW/NcVeS
+zQCaBCQgK1QA+Xk/6JdJhgoYqQqhRANCAASrN20BxdL2PcQI9aW5xdHTKZrS9BRT
+w8iKhXeDsu2Gq0xMvBkma2oOWEkTo9lQ921IAt4Dpe0bHCk6/ywQDbMN
 -----END PRIVATE KEY-----
 '''
 
@@ -96,11 +97,18 @@ ECAwQ=
 x509_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDOLp3ZkQZasW1BKZ+fG3ODQgNThvI7pV38DOEFCz6c+gr8whSiV6EHWT04VrddShehZANiAARKbU0hcFy5+9qqHxGx/FBQb2dh6u+pAYh4ASh7skBkPv5DK/46FH6pvyPp6Gfkp8gagcFsr9nAKbwjkVTtBopuhh45KUM5k4VqIqaNox7g+XCrgG29oVqA5WZpW8DFH2c="
 x509_private_key_alg = "p384"
 
-client_certificate_authority_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDOLp3ZkQZasW1BKZ+fG3ODQgNThvI7pV38DOEFCz6c+gr8whSiV6EHWT04VrddShehZANiAARKbU0hcFy5+9qqHxGx/FBQb2dh6u+pAYh4ASh7skBkPv5DK/46FH6pvyPp6Gfkp8gagcFsr9nAKbwjkVTtBopuhh45KUM5k4VqIqaNox7g+XCrgG29oVqA5WZpW8DFH2c="
-client_certificate_authority_private_key_algorithm = "p384"
+client_certificate_authority_private_key = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgFEwFOjsK54VOGLVajOMpV6PXEbOHKS8EXIMxRwmLQ/qhRANCAAQ+F90NcFu0EucoggNcbOGI4KP70/Mdb9hMxbd2NYx0DAeEvFiIjP2CI8QV6JgNW32zBKibV2iMtcwEyjMG7bR8"
+client_certificate_authority_private_key_algorithm = "p256"
 client_certificate_authority_common_name = "RusticaAccess"
 
 [logging."stdout"]
 
 [authorization."database"]
 path = "examples/example.db"
+
+[allowed_signers]
+cache_validity_length.secs = 900
+cache_validity_length.nanos = 0
+lru_rate_limiter_size = 16
+rate_limit_cooldown.secs = 15
+rate_limit_cooldown.nanos = 0
