@@ -18,7 +18,7 @@ impl RusticaLogger for StdoutLogger {
         match &log.log {
             Log::CertificateIssued(ci) => {
                 info!(
-                    "[{}] Certificate issued for: [{}] Authority: [{}] Identified by: [{}] Principals granted: [{}] Extensions: [{:?}] CriticalOptions: [{:?}] Valid After: [{}] Valid Before: [{}]",
+                    "[{}] Certificate issued for: [{}] Authority: [{}] Identified by: [{}] Principals granted: [{}] Extensions: [{:?}] CriticalOptions: [{:?}] Valid After: [{}] Valid Before: [{}] Serial Number: [{}]",
                     ci.certificate_type,
                     ci.fingerprint,
                     ci.authority,
@@ -28,6 +28,7 @@ impl RusticaLogger for StdoutLogger {
                     ci.critical_options,
                     ci.valid_after,
                     ci.valid_before,
+                    ci.serial,
                 )
             }
             Log::KeyRegistered(kr) => info!("Key registered: [{}] Identified by: [{}]", kr.fingerprint, kr.mtls_identities.join(", ")),
