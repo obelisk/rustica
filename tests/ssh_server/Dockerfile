@@ -9,7 +9,7 @@ RUN chmod 600 /etc/ssh/user-ca.pub
 RUN service ssh start
 
 # User Configuration
-RUN useradd -m -d /home/testuser -s /bin/bash -g root -G sudo -u 1000 testuser 
+RUN useradd -m -d /home/testuser -s /bin/bash -g root -G sudo -u 1001 testuser 
 USER 1001
 RUN mkdir /home/testuser/.ssh
 COPY authorized_keys /home/testuser/.ssh/authorized_keys
