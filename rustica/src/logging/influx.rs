@@ -54,6 +54,7 @@ impl RusticaLogger for InfluxLogger {
                     .into_query(&self.dataset)
                     .add_tag("fingerprint", ci.fingerprint.clone())
                     .add_tag("mtls_identities", ci.mtls_identities.join(","))
+                    .add_tag("serial", ci.serial)
                     .add_field("principals", ci.principals.join(","));
 
                 let client = self.client.clone();
