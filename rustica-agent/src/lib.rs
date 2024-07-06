@@ -25,8 +25,8 @@ use std::{convert::TryFrom, env};
 
 use std::time::SystemTime;
 
-use tokio::sync::Mutex;
 use tokio::runtime::Handle;
+use tokio::sync::Mutex;
 
 pub use sshcerts::{
     error::Error as SSHCertsError,
@@ -123,7 +123,10 @@ impl std::fmt::Display for RusticaAgentLibraryError {
                 write!(f, "Cannot use configuration version: {e}")
             }
             RusticaAgentLibraryError::NoServersReturnedAllowedSigners => {
-                write!(f, "All servers failed to return allowed signers when requested")
+                write!(
+                    f,
+                    "All servers failed to return allowed signers when requested"
+                )
             }
         }
     }
@@ -205,7 +208,10 @@ impl Handler {
     /// If cached cert is invalid, and if fetch_new_cert_if_needed is:
     ///     - true: fetch a new cert from server. Return error if the fetch fails.
     ///     - false: return None.
-    async fn get_certificate_async(&self, fetch_new_cert_if_needed: bool) -> Result<Option<Certificate>, RusticaAgentLibraryError> {
+    async fn get_certificate_async(
+        &self,
+        fetch_new_cert_if_needed: bool,
+    ) -> Result<Option<Certificate>, RusticaAgentLibraryError> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -269,7 +275,7 @@ impl Handler {
                 }
                 // All other cases require us to fetch a certificate from one
                 // of the configured servers
-                _ => None
+                _ => None,
             };
             Ok(certificate)
         }
@@ -277,12 +283,13 @@ impl Handler {
 
     /// Fetch the previous cert if present and valid.
     /// If no such cert is present, return None.
-    fn get_certificate(&self, handle: &Handle, fetch_new_cert_if_needed: bool) -> Result<Option<Certificate>, RusticaAgentLibraryError> {
-        handle.block_on(async {
-            self.get_certificate_async(fetch_new_cert_if_needed).await
-        })
+    fn get_certificate(
+        &self,
+        handle: &Handle,
+        fetch_new_cert_if_needed: bool,
+    ) -> Result<Option<Certificate>, RusticaAgentLibraryError> {
+        handle.block_on(async { self.get_certificate_async(fetch_new_cert_if_needed).await })
     }
-
 }
 
 #[async_trait]
@@ -417,6 +424,12 @@ impl SshAgentHandler for Handler {
             // Don't sign requests if the requested key does not match the signatory
             if privkey.pubkey.fingerprint() != fingerprint {
                 return Err(AgentError::from("No such key"));
+            }
+
+            if privkey.key_type.is_sk {
+                if let Some(f) = &self.notification_function {
+                    f()
+                }
             }
 
             let signature = match privkey.sign(&data) {
