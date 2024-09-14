@@ -16,6 +16,7 @@ pub enum RusticaServerError {
     PivIntermediateCertTooBig = 9,
     U2fAttestationTooBig = 10,
     U2fIntermediateCertTooBig = 11,
+    ClientMtlsRefreshError = 12,
     Unknown = 9001,
 }
 

@@ -32,12 +32,24 @@ message CertificateRequest {
     uint64 valid_after = 7;
     uint64 valid_before = 8;
     Challenge challenge = 9;
+    // When reuse_client_mtls_key is true and Rustica server supports client mTLS key reuse:
+    //   - Rustica server will only refresh the mTLS certificate for the same client mTLS key.
+    //     The returned new_client_key will be empty.
+    // When reuse_client_mtls_key is false or if Rustica server does not support mTLS key reuse:
+    //   - Rustica server will generate a new mTLS credentials and issue a new mTLS cert
+    //     for this new credentials. The returned new_client_key will not be empty.
+    optional bool reuse_client_mtls_key = 10;
 }
 
 message CertificateResponse {
     string certificate = 1;
     string error = 2;
     int64 error_code = 3;
+    // If new_client_certificate is empty:
+    //   - Client mTLS credentials and cert should not be updated
+    // If new_client_certificate is not empty:
+    //   - If new_client_key is empty: Replace only mTLS cert.
+    //   - If new_client_key is not empty: Replace both client mTLS cert and key.
     string new_client_certificate = 4;
     string new_client_key = 5;
 }

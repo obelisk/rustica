@@ -139,6 +139,42 @@ fn extract_certificate_information(
     Ok(cert_info)
 }
 
+// Generate new client mTLS credentials from scratch.
+// This is a legacy way to refresh client mTLS cert
+fn generate_new_client_mtls_credentials(
+    server: &RusticaServer,
+    mtls_identities: &Vec<String>,
+    client_certificate_refresh_settings: &CertificateRefreshSettings,
+) -> Result<rcgen::Certificate, RusticaServerError> {
+    let mut params = rcgen::CertificateParams::new(mtls_identities.clone());
+    params.not_before = (UNIX_EPOCH + Duration::from_secs(client_certificate_refresh_settings.not_before)).into();
+    params.not_after = (UNIX_EPOCH + Duration::from_secs(client_certificate_refresh_settings.not_after)).into();
+    params.distinguished_name.push(
+        DnType::CommonName,
+        mtls_identities
+            .get(0)
+            .map(|x| x.to_owned())
+            .unwrap_or_default(),
+    );
+
+    let certificate = match rcgen::Certificate::from_params(params) {
+        Ok(cert) => cert,
+        Err(e) => {
+            rustica_error!(server, format!("Could not generate client mTLS x509 certificate from params: {:?}", e));
+            return Err(RusticaServerError::ClientMtlsRefreshError);
+        },
+    };
+
+    Ok(certificate)
+}
+
+fn refresh_client_mtls_cert(
+    server: &RusticaServer,
+    mtls_identities: &Vec<String>,
+    client_certificate_refresh_settings: &CertificateRefreshSettings,
+) -> Result<rcgen::Certificate, RusticaServerError> {
+}
+
 /// Validates a request passes all the following checks in this order:
 /// - Validate the peer certs are the way we expect
 /// - Validate Time is not expired
@@ -611,21 +647,24 @@ impl Rustica for RusticaServer {
             self.signer
                 .get_client_certificate_authority(&self.client_authority.authority),
         ) {
-            let mut params = rcgen::CertificateParams::new(mtls_identities.clone());
-            params.not_before = (UNIX_EPOCH + Duration::from_secs(settings.not_before)).into();
-            params.not_after = (UNIX_EPOCH + Duration::from_secs(settings.not_after)).into();
-            params.distinguished_name.push(
-                DnType::CommonName,
-                mtls_identities
-                    .get(0)
-                    .map(|x| x.to_owned())
-                    .unwrap_or_default(),
-            );
+            match request.reuse_client_mtls_key {
+                Some(true) => {
+                    let new_certificate = match refresh_client_mtls_cert(self, &mtls_identities, settings) {
+                        Ok(cert) => cert,
+                        Err(e) => return Ok(create_response(e)),
+                    };
+                    reply.new_client_certificate = new_certificate.serialize_pem_with_signer(ca).unwrap();
+                },
+                Some(false) | None => {
+                    let new_certificate = match generate_new_client_mtls_credentials(self, &mtls_identities, settings) {
+                        Ok(cert) => cert,
+                        Err(e) => return Ok(create_response(e)),
+                    };
 
-            let new_certificate = rcgen::Certificate::from_params(params).unwrap();
-
-            reply.new_client_key = new_certificate.serialize_private_key_pem();
-            reply.new_client_certificate = new_certificate.serialize_pem_with_signer(ca).unwrap();
+                    reply.new_client_key = new_certificate.serialize_private_key_pem();
+                    reply.new_client_certificate = new_certificate.serialize_pem_with_signer(ca).unwrap();
+                }
+            }
         };
 
         let _ = self

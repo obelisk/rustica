@@ -32,6 +32,7 @@ impl RusticaServer {
             valid_before: current_timestamp + options.duration,
             valid_after: current_timestamp,
             challenge: Some(challenge),
+            reuse_client_mtls_key: Some(true),
         });
 
         let response = client.certificate(request).await?;
@@ -48,10 +49,17 @@ impl RusticaServer {
         // and return it. It's possible in the future the server will only
         // return the certificate which is why we only check the certificate.
         let mtls_credentials = if !response.new_client_certificate.is_empty() {
-            Some(MtlsCredentials {
-                certificate: response.new_client_certificate,
-                key: response.new_client_key,
-            })
+            if response.new_client_key.is_empty() {
+                Some(MtlsCredentials {
+                    certificate: response.new_client_certificate,
+                    key: self.mtls_key.to_owned(),
+                })
+            } else {
+                Some(MtlsCredentials {
+                    certificate: response.new_client_certificate,
+                    key: response.new_client_key,
+                })
+            }
         } else {
             None
         };
