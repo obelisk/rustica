@@ -5,8 +5,8 @@ use crate::auth::{
 use crate::config::{AllowedSignersConfiguration, ClientAuthorityConfiguration};
 use crate::error::RusticaServerError;
 use crate::logging::{
-    CertificateIssued, InternalMessage, KeyInfo, KeyRegistrationFailure, Log, Severity,
-    X509CertificateIssued,
+    CertificateIssued, InternalMessage, KeyInfo, KeyRegistrationFailure, Log,
+    MtlsCertificateIssued, Severity, X509CertificateIssued, format_bytes_to_openssl_hex,
 };
 use crate::rustica::{
     rustica_server::Rustica, CertificateRequest, CertificateResponse, Challenge, ChallengeRequest,
@@ -67,6 +67,16 @@ struct MtlsCertificateInfo {
 struct CertificateRefreshSettings {
     not_after: u64,
     not_before: u64,
+}
+
+/// Macro for simplifying sending error logs to the Rustica logging system.
+macro_rules! rustica_info {
+    ($self:ident, $message:expr) => {
+        let _ = $self.log_sender.send(Log::InternalMessage(InternalMessage {
+            severity: Severity::Info,
+            message: $message,
+        }));
+    };
 }
 
 /// Macro for simplifying sending error logs to the Rustica logging system.
@@ -606,7 +616,7 @@ impl Rustica for RusticaServer {
             new_client_key: String::new(),
         };
 
-        if let (Some(settings), Ok(Some(ca))) = (
+        let mtls_cert_issued = if let (Some(settings), Ok(Some(ca))) = (
             &mtls_refresh,
             self.signer
                 .get_client_certificate_authority(&self.client_authority.authority),
@@ -626,9 +636,40 @@ impl Rustica for RusticaServer {
 
             reply.new_client_key = new_certificate.serialize_private_key_pem();
             reply.new_client_certificate = new_certificate.serialize_pem_with_signer(ca).unwrap();
+
+            let new_client_certificate_pem = match x509_parser::pem::parse_x509_pem(reply.new_client_certificate.as_bytes()) {
+                Ok((_, pem)) => pem,
+                Err(e) => {
+                    rustica_error!(self, format!("failed to parse newly issued client mTLS certificate PEM: {:?}", e));
+                    return Ok(create_response(RusticaServerError::Unknown));
+                },
+            };
+
+            let parsed_new_client_certificate = {
+                match new_client_certificate_pem.parse_x509() {
+                    Ok(cert) => cert,
+                    Err(e) => {
+                        rustica_error!(self, format!("failed to parse newly issued client mTLS certificate: {:?}", e));
+                        return Ok(create_response(RusticaServerError::Unknown));
+                    },
+                }
+            };
+
+            let mtls_cert_issued = MtlsCertificateIssued {
+                mtls_identities: mtls_identities.clone(),
+                subject_key_identifier: format_bytes_to_openssl_hex( new_certificate.get_key_identifier().as_ref()),
+                signed_by_identifier: format_bytes_to_openssl_hex(ca.get_key_identifier().as_ref()),
+                serial: format_bytes_to_openssl_hex(parsed_new_client_certificate.serial.to_bytes_be().as_ref()),
+                not_before: parsed_new_client_certificate.validity.not_before.timestamp(),
+                not_after: parsed_new_client_certificate.validity.not_after.timestamp(),
+            };
+
+            Some(mtls_cert_issued)
+        } else {
+            None
         };
 
-        let _ = self
+        if let Err(e) =  self
             .log_sender
             .send(Log::CertificateIssued(CertificateIssued {
                 fingerprint,
@@ -642,8 +683,10 @@ impl Rustica for RusticaServer {
                 critical_options,
                 valid_after: authorization.valid_after,
                 valid_before: authorization.valid_before,
-                new_access_certificate_issued: mtls_refresh.is_some(),
-            }));
+                new_access_certificate: mtls_cert_issued,
+            })) {
+            rustica_error!(self, format!("Failed to send CertificateIssued log: {:?}", e));
+        }
 
         Ok(Response::new(reply))
     }

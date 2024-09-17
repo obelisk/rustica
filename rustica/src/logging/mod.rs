@@ -59,8 +59,25 @@ pub struct CertificateIssued {
     pub valid_after: u64,
     /// Validity period ends
     pub valid_before: u64,
-    /// Was a new access certificate returned with this request
-    pub new_access_certificate_issued: bool,
+    /// The new access certificate returned with this request
+    pub new_access_certificate: Option<MtlsCertificateIssued>,
+}
+
+/// Issued when the client mTLS certificate is refreshed
+#[derive(Serialize)]
+pub struct MtlsCertificateIssued {
+    /// The mTLS identities the cert was issued for
+    pub mtls_identities: Vec<String>,
+    /// The identifier of a related key
+    pub subject_key_identifier: String,
+    /// The identifier of the signing public key
+    pub signed_by_identifier: String,
+    /// The serial of the issued certificate
+    pub serial: String,
+    /// Validity period starts
+    pub not_before: i64,
+    /// Validity period ends
+    pub not_after: i64,
 }
 
 /// Issued when a certificate request is granted to a user or host
@@ -287,4 +304,13 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
     }
 
     error!("Logging thread has gone away.");
+}
+
+// Convert bytes into a hex string, same as how openssl prints key identifiers and serial numbers
+// Example: ae:ac:56:b3:71:09:46:fb:ed:bb:59:b8:a4:88:04:37:08:96:3c:37
+pub fn format_bytes_to_openssl_hex(bytes: &[u8]) -> String {
+    bytes.iter()
+         .map(|b| format!("{:02x}", b))
+         .collect::<Vec<String>>()
+         .join(":")
 }
