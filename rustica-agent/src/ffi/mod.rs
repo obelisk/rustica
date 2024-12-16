@@ -26,7 +26,7 @@ pub use utils::*;
 /// For functions that handle YubiKey specific functionality (generally PIV)
 pub use yubikey_utils::*;
 
-/// For functions that parses mTLS configs
+/// For functions that handle mTLS configs
 pub use mtls::*;
 
 use crate::config::UpdatableConfiguration;
