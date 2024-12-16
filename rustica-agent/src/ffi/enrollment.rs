@@ -290,3 +290,33 @@ pub unsafe extern "C" fn generate_and_enroll(
     error!("All servers failed to register key");
     false
 }
+
+#[no_mangle]
+// Provision a new nistp384 key in the given slot
+pub unsafe extern "C" fn provision_piv(
+    yubikey_serial: u32,
+    slot: u8,
+    subject: *const c_char,
+    pin: *const c_char,
+    management_key: *const c_char,
+) -> bool {
+    let alg = AlgorithmId::EccP384;
+    let slot = SlotId::try_from(slot).unwrap();
+
+    println!("Provisioning new PIV key in slot {:?}", slot);
+
+    let pin = CStr::from_ptr(pin);
+    let management_key = CStr::from_ptr(management_key);
+    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
+    let subject = CStr::from_ptr(subject);
+    let policy = TouchPolicy::Always;
+
+    let mut yk = Yubikey::open(yubikey_serial).unwrap();
+
+    if yk.unlock(pin.to_str().unwrap().as_bytes(), &management_key).is_err() {
+        println!("Could not unlock key");
+        return false
+    }
+
+    yk.provision(&slot, subject.to_str().unwrap(), alg, policy, PinPolicy::Never).is_ok()
+}
