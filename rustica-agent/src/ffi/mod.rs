@@ -4,6 +4,7 @@ mod allowed_signer;
 mod signing;
 mod utils;
 mod yubikey_utils;
+mod mtls;
 
 use std::ffi::{c_char, c_long, CStr};
 
@@ -24,6 +25,9 @@ pub use utils::*;
 
 /// For functions that handle YubiKey specific functionality (generally PIV)
 pub use yubikey_utils::*;
+
+/// For functions that parses mTLS configs
+pub use mtls::*;
 
 use crate::config::UpdatableConfiguration;
 
