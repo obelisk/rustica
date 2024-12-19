@@ -260,8 +260,11 @@ impl SignerConfig for Config {
             .operation_timeout(Duration::from_secs(10))
             .build();
         let aws_config = match (self.aws_access_key_id, self.aws_secret_access_key) {
-            (Some(_), None) | (None, Some(_)) => return Err(
-                SigningError::InvalidAwsConfig("aws_access_key_id and aws_secret_access_key must either both defined or both undefined".to_string())
+            (Some(_), None) => return Err(
+                SigningError::InvalidAwsConfig("aws_access_key_id is defined but aws_secret_access_key is not defined".to_string())
+            ),
+            (None, Some(_)) => return Err(
+                SigningError::InvalidAwsConfig("aws_secret_access_key is defined but aws_access_key_id is not defined".to_string())
             ),
             (Some(access_key_id), Some(secret_access_key)) => aws_config::from_env()
                 .region(Region::new(self.aws_region.clone()))
