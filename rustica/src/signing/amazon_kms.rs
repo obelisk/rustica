@@ -263,7 +263,6 @@ impl SignerConfig for Config {
             (Some(_), None) | (None, Some(_)) => return Err(
                 SigningError::InvalidAwsConfig("aws_access_key_id and aws_secret_access_key must either both defined or both undefined".to_string())
             ),
-            // If access key is not defined, use the default config
             (Some(access_key_id), Some(secret_access_key)) => aws_config::from_env()
                 .region(Region::new(self.aws_region.clone()))
                 .credentials_provider(
@@ -271,6 +270,7 @@ impl SignerConfig for Config {
                 )
                 .load()
                 .await,
+            // If access key is not defined, use the default config
             (None, None) => aws_config::from_env()
                 .timeout_config(timeout_config)
                 .region(Region::new(self.aws_region.clone()))
