@@ -125,6 +125,7 @@ pub enum SigningError {
     IdenticalUserAndHostKey(String),
     SignerDoesNotHaveSSHKeys,
     SignerDoesNotAllRequiredSSHKeys,
+    InvalidAwsConfig(String),
 }
 
 impl std::fmt::Display for SigningError {
@@ -137,7 +138,8 @@ impl std::fmt::Display for SigningError {
             Self::DuplicatedKey(a1, a2) => write!(f, "Authorities {a1} and {a2} share at least one key. This is not allowed as it almost always a misconfiguration leading to access that is not correctly restricted"),
             Self::IdenticalUserAndHostKey(authority) => write!(f, "Authority {authority} has an identical key for both user and host certificates. This is not allowed as it's much safer to use separate keys for both."),
             Self::SignerDoesNotHaveSSHKeys => write!(f, "Signer was not configured with SSH keys so it cannot create an SSH certificate"),
-            Self::SignerDoesNotAllRequiredSSHKeys => write!(f, "Signer did not have both user and host keys defined")
+            Self::SignerDoesNotAllRequiredSSHKeys => write!(f, "Signer did not have both user and host keys defined"),
+            Self::InvalidAwsConfig(e) => write!(f, "Invalid AWS config: {e}"),
         }
     }
 }
