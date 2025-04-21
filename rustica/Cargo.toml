@@ -1,6 +1,6 @@
 [package]
 name = "rustica"
-version = "0.12.0"
+version = "0.12.1"
 authors = ["Mitchell Grenier <mitchell@confurious.io>"]
 edition = "2021"
 
@@ -41,7 +41,7 @@ serde = { version = "1.0", features = ["derive"] }
 #     "yubikey-lite",
 # ] }
 # For Development
-sshcerts = { version = "0.13.2", default-features = false, features = [
+sshcerts = { version = "0.14.0", default-features = false, features = [
     "fido-lite",
     "x509-support",
     "yubikey-lite",
