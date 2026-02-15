@@ -104,7 +104,6 @@ pub struct RegisterKeyRequestProperties {
     pub attestation: Option<KeyAttestation>,
 }
 
-
 #[derive(Debug)]
 pub struct AllowedSigner {
     pub identity: String,
@@ -162,15 +161,11 @@ impl AuthorizationMechanism {
         }
     }
 
-    pub async fn get_allowed_signers(
-        &self,
-    ) -> Result<AllowedSigners, AuthorizationError> {
+    pub async fn get_allowed_signers(&self) -> Result<AllowedSigners, AuthorizationError> {
         match &self {
             #[cfg(feature = "local-db")]
             AuthorizationMechanism::Local(local) => local.get_allowed_signers(),
-            AuthorizationMechanism::External(external) => {
-                external.get_allowed_signers().await
-            }
+            AuthorizationMechanism::External(external) => external.get_allowed_signers().await,
         }
     }
 

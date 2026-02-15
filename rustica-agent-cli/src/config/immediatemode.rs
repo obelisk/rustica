@@ -1,5 +1,5 @@
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::{slot_validator, CertificateConfig, Signatory, config::UpdatableConfiguration};
+use rustica_agent::{config::UpdatableConfiguration, slot_validator, CertificateConfig, Signatory};
 
 use super::{
     get_signatory, parse_certificate_config_from_args, parse_config_from_args, ConfigurationError,

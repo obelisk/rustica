@@ -1,8 +1,8 @@
+pub mod allowed_signer;
 pub mod cert;
 pub mod error;
 pub mod key;
 pub mod x509;
-pub mod allowed_signer;
 
 use std::ops::Deref;
 use std::time::Duration;
@@ -11,9 +11,9 @@ pub use error::RefreshError;
 
 pub use rustica_proto::rustica_client::RusticaClient;
 pub use rustica_proto::{
-    AttestedX509CertificateRequest, AttestedX509CertificateResponse, CertificateRequest,
-    CertificateResponse, Challenge, ChallengeRequest, RegisterKeyRequest, RegisterU2fKeyRequest,
-    AllowedSignersRequest, AllowedSignersResponse,
+    AllowedSignersRequest, AllowedSignersResponse, AttestedX509CertificateRequest,
+    AttestedX509CertificateResponse, CertificateRequest, CertificateResponse, Challenge,
+    ChallengeRequest, RegisterKeyRequest, RegisterU2fKeyRequest,
 };
 
 use sshcerts::ssh::Certificate as SSHCertificate;
@@ -136,8 +136,8 @@ pub async fn complete_rustica_challenge(
         Signatory::Direct(privkey) => {
             let privkey = privkey.lock().await;
             challenge_certificate
-            .sign(privkey.deref())
-            .map_err(|_| RefreshError::SigningError)?
+                .sign(privkey.deref())
+                .map_err(|_| RefreshError::SigningError)?
         }
     };
 

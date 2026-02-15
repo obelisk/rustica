@@ -20,8 +20,8 @@ use tokio::{
 };
 
 use std::collections::HashMap;
-use std::{convert::TryFrom, slice};
 use std::sync::Arc;
+use std::{convert::TryFrom, slice};
 
 // FFI related imports
 use std::ffi::{CStr, CString};
@@ -412,20 +412,21 @@ pub unsafe extern "C" fn ffi_get_git_config_string_from_private_key(
 ///     - true: fetch a new cert from server. Return error if the fetch fails.
 ///     - false: return None.
 #[no_mangle]
-pub unsafe extern "C" fn ffi_get_certificate(rai: *mut RusticaAgentInstance, fetch_new_cert_if_needed: bool) -> *const c_char {
+pub unsafe extern "C" fn ffi_get_certificate(
+    rai: *mut RusticaAgentInstance,
+    fetch_new_cert_if_needed: bool,
+) -> *const c_char {
     let rustica_agent_instance = Box::from_raw(rai);
     let handler = rustica_agent_instance.handler.clone();
 
     let runtime_handle = rustica_agent_instance.runtime.handle();
     let certificate = match handler.get_certificate(runtime_handle, fetch_new_cert_if_needed) {
         Ok(Some(v)) => Some(v),
-        Ok(None) => {
-            None
-        },
+        Ok(None) => None,
         Err(e) => {
             println!("failed to fetch certificate: {}", e);
             None
-        },
+        }
     };
 
     // We need to leak here otherwise we will free the RAI
@@ -443,7 +444,7 @@ pub unsafe extern "C" fn ffi_get_certificate(rai: *mut RusticaAgentInstance, fet
         Err(e) => {
             println!("failed to create a new CSTring from serialized cert: {}", e);
             return std::ptr::null();
-        },
+        }
     };
 
     certificate.into_raw()

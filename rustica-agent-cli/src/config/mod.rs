@@ -1,3 +1,4 @@
+mod allowed_signers;
 mod fidosetup;
 mod gitconfig;
 mod immediatemode;
@@ -7,7 +8,6 @@ mod provisionpiv;
 mod refresh_attested_x509_certificate;
 mod register;
 mod singlemode;
-mod allowed_signers;
 
 use clap::{Arg, ArgMatches, Command};
 
@@ -106,7 +106,9 @@ fn get_signatory(
             })),
             None => Err(ConfigurationError::BadSlot),
         },
-        (_, _, _, Some(key_string)) => Ok(Signatory::Direct(PrivateKey::from_string(key_string)?.into())),
+        (_, _, _, Some(key_string)) => Ok(Signatory::Direct(
+            PrivateKey::from_string(key_string)?.into(),
+        )),
         (None, None, None, None) => Err(ConfigurationError::MissingSSHKey),
     }
 }
@@ -265,7 +267,10 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             "Refresh an X509 certificate in a Yubikey slot",
         ));
 
-    let allowed_signers = new_run_agent_subcommand("allowed-signers", "Fetch a list of all signers and their keys");
+    let allowed_signers = new_run_agent_subcommand(
+        "allowed-signers",
+        "Fetch a list of all signers and their keys",
+    );
 
     let command_configuration = command_configuration
         .subcommand(immediate_mode)

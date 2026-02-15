@@ -313,10 +313,20 @@ pub unsafe extern "C" fn provision_piv(
 
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
 
-    if yk.unlock(pin.to_str().unwrap().as_bytes(), &management_key).is_err() {
+    if yk
+        .unlock(pin.to_str().unwrap().as_bytes(), &management_key)
+        .is_err()
+    {
         println!("Could not unlock key");
-        return false
+        return false;
     }
 
-    yk.provision(&slot, subject.to_str().unwrap(), alg, policy, PinPolicy::Never).is_ok()
+    yk.provision(
+        &slot,
+        subject.to_str().unwrap(),
+        alg,
+        policy,
+        PinPolicy::Never,
+    )
+    .is_ok()
 }

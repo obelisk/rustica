@@ -1,10 +1,10 @@
 mod agent;
-mod enrollment;
 mod allowed_signer;
+mod enrollment;
+mod mtls;
 mod signing;
 mod utils;
 mod yubikey_utils;
-mod mtls;
 
 use std::ffi::{c_char, c_long, CStr};
 

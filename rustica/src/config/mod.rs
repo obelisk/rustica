@@ -12,10 +12,10 @@ use serde::Deserialize;
 
 use std::convert::TryInto;
 use std::net::SocketAddr;
-use std::time::Duration;
 use std::num::NonZeroUsize;
+use std::time::Duration;
 
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::{Mutex, RwLock};
 
 use sshcerts::{ssh::KeyTypeKind, CertType, PrivateKey};
 
@@ -183,7 +183,10 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
     let client_ca_cert = signer
         .get_client_certificate_authority(&config.client_authority.authority)
         .map_err(|e| ConfigurationError::SigningMechanismError(e))?
-        .ok_or(ConfigurationError::NoSuchSigningMechanismForClientCa(config.client_authority.authority.clone(), signer.get_authorities()))?
+        .ok_or(ConfigurationError::NoSuchSigningMechanismForClientCa(
+            config.client_authority.authority.clone(),
+            signer.get_authorities(),
+        ))?
         .serialize_pem()
         .map_err(|e| {
             ConfigurationError::SigningMechanismError(SigningError::AccessError(format!(
@@ -197,7 +200,7 @@ pub async fn configure() -> Result<RusticaSettings, ConfigurationError> {
         compressed_allowed_signers: vec![],
         expiry_timestamp: Duration::ZERO,
     };
-    
+
     // We're only validating that we can use this configuration so do not start
     // This happens after we've parsed the config but also confirmed access to
     // keys and created certificates.

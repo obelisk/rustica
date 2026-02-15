@@ -1,11 +1,11 @@
 extern crate byteorder;
 
 mod agent;
-mod protocol;
-mod handler;
 pub mod error;
+mod handler;
+mod protocol;
 
-pub use handler::SshAgentHandler;
 pub use agent::Agent;
-pub use protocol::Response;
+pub use handler::SshAgentHandler;
 pub use protocol::Identity;
+pub use protocol::Response;

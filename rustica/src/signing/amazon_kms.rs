@@ -3,11 +3,7 @@ use std::time::Duration;
 use aws_config::timeout::TimeoutConfig;
 use aws_credential_types::Credentials;
 use aws_sdk_kms::types::SigningAlgorithmSpec;
-use aws_sdk_kms::{
-    config::Region,
-    primitives::Blob,
-    Client,
-};
+use aws_sdk_kms::{config::Region, primitives::Blob, Client};
 
 /// The AmazonKMS signer uses customer managed keys stored in AWS to handle
 /// signing operations. It supports Ecdsa256 and Ecdsa384. Ecdsa521 is not
@@ -260,25 +256,39 @@ impl SignerConfig for Config {
             .operation_timeout(Duration::from_secs(10))
             .build();
         let aws_config = match (self.aws_access_key_id, self.aws_secret_access_key) {
-            (Some(_), None) => return Err(
-                SigningError::InvalidAwsConfig("aws_access_key_id is defined but aws_secret_access_key is not defined".to_string())
-            ),
-            (None, Some(_)) => return Err(
-                SigningError::InvalidAwsConfig("aws_secret_access_key is defined but aws_access_key_id is not defined".to_string())
-            ),
-            (Some(access_key_id), Some(secret_access_key)) => aws_config::from_env()
-                .region(Region::new(self.aws_region.clone()))
-                .credentials_provider(
-                    Credentials::new(access_key_id, secret_access_key, None, None, "AmazonKMSSigner")
-                )
-                .load()
-                .await,
+            (Some(_), None) => {
+                return Err(SigningError::InvalidAwsConfig(
+                    "aws_access_key_id is defined but aws_secret_access_key is not defined"
+                        .to_string(),
+                ))
+            }
+            (None, Some(_)) => {
+                return Err(SigningError::InvalidAwsConfig(
+                    "aws_secret_access_key is defined but aws_access_key_id is not defined"
+                        .to_string(),
+                ))
+            }
+            (Some(access_key_id), Some(secret_access_key)) => {
+                aws_config::from_env()
+                    .region(Region::new(self.aws_region.clone()))
+                    .credentials_provider(Credentials::new(
+                        access_key_id,
+                        secret_access_key,
+                        None,
+                        None,
+                        "AmazonKMSSigner",
+                    ))
+                    .load()
+                    .await
+            }
             // If access key is not defined, use the default config
-            (None, None) => aws_config::from_env()
-                .timeout_config(timeout_config)
-                .region(Region::new(self.aws_region.clone()))
-                .load()
-                .await,
+            (None, None) => {
+                aws_config::from_env()
+                    .timeout_config(timeout_config)
+                    .region(Region::new(self.aws_region.clone()))
+                    .load()
+                    .await
+            }
         };
 
         let client = Client::new(&aws_config);
