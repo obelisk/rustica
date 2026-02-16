@@ -527,10 +527,9 @@ pub async fn provision_new_key(
         return None;
     }
 
-    match yk.provision(
+    match yk.provision_p384(
         &yubikey.slot,
         subj,
-        AlgorithmId::EccP384,
         policy,
         pin_policy,
     ) {

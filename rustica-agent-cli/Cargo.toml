@@ -17,4 +17,4 @@ notify-rust = "4"
 rustica-agent = { path = "../rustica-agent", default-features = false }
 tokio = { version = "1", features = ["full"] }
 toml = "0.7"
-yubikey = "0.7"
+yubikey = "0.8"
