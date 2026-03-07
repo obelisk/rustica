@@ -99,7 +99,10 @@ impl Request {
             },
             MessageRequest::RemoveIdentity => Ok(Request::Unknown),
             MessageRequest::RemoveAllIdentities => Ok(Request::Unknown),
-            MessageRequest::AddIdConstrained => Ok(Request::Unknown),
+            MessageRequest::AddIdConstrained => match sshcerts::PrivateKey::from_bytes(buf) {
+                Ok(private_key) => Ok(Request::AddIdentity { private_key }),
+                Err(_) => Ok(Request::Unknown),
+            },
             MessageRequest::AddSmartcardKey => Ok(Request::Unknown),
             MessageRequest::RemoveSmartcardKey => Ok(Request::Unknown),
             MessageRequest::Lock => Ok(Request::Unknown),
