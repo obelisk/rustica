@@ -112,10 +112,8 @@ impl Request {
                     Err(_) => return Ok(Request::Unknown),
                 };
 
-                let mut constraints_buf = &buf[reader.get_offset()..];
-                println!("Constraints buffer: {:?}", constraints_buf);
-                let constraints = match super::constraints::parse_constraints(&mut constraints_buf)
-                {
+                let constraints_buf = &buf[reader.get_offset()..];
+                let constraints = match super::constraints::parse_constraints(&constraints_buf) {
                     Ok(constraints) => constraints,
                     Err(_) => return Ok(Request::Unknown),
                 };

@@ -308,8 +308,8 @@ impl SshAgentHandler for Handler {
         constraints: Vec<Constraint>,
     ) -> Result<Response, AgentError> {
         trace!("Add Identity Constrained call");
-        for constraint in &constraints {
-            trace!("Unused Constraint: {:?}", constraint);
+        if !constraints.is_empty() {
+            trace!("Key is being added with constraints");
         }
         let public_key = private_key.pubkey.encode();
         self.identities.lock().await.insert(public_key, private_key);
