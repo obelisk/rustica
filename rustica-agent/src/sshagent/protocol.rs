@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, WriteBytesExt};
+use sshcerts::ssh::Reader;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::UnixStream,
@@ -31,11 +32,11 @@ impl MessageRequest {
             17 => MessageRequest::AddIdentity,
             18 => MessageRequest::RemoveIdentity,
             19 => MessageRequest::RemoveAllIdentities,
-            25 => MessageRequest::AddIdConstrained,
             20 => MessageRequest::AddSmartcardKey,
             21 => MessageRequest::RemoveSmartcardKey,
             22 => MessageRequest::Lock,
             23 => MessageRequest::Unlock,
+            25 => MessageRequest::AddIdConstrained,
             26 => MessageRequest::AddSmartcardKeyConstrained,
             27 => MessageRequest::Extension,
             _ => MessageRequest::Unknown,
@@ -76,6 +77,10 @@ pub enum Request {
     AddIdentity {
         private_key: sshcerts::PrivateKey,
     },
+    AddIdentityConstrained {
+        private_key: sshcerts::PrivateKey,
+        constraints: Vec<super::constraints::Constraint>,
+    },
     Unknown,
 }
 
@@ -99,7 +104,26 @@ impl Request {
             },
             MessageRequest::RemoveIdentity => Ok(Request::Unknown),
             MessageRequest::RemoveAllIdentities => Ok(Request::Unknown),
-            MessageRequest::AddIdConstrained => Ok(Request::Unknown),
+            MessageRequest::AddIdConstrained => {
+                let mut reader = Reader::new(buf);
+
+                let private_key = match sshcerts::PrivateKey::read_private_key(&mut reader) {
+                    Ok(private_key) => private_key,
+                    Err(_) => return Ok(Request::Unknown),
+                };
+
+                let mut constraints_buf = &buf[reader.get_offset()..];
+                println!("Constraints buffer: {:?}", constraints_buf);
+                let constraints = match super::constraints::parse_constraints(&mut constraints_buf)
+                {
+                    Ok(constraints) => constraints,
+                    Err(_) => return Ok(Request::Unknown),
+                };
+                Ok(Request::AddIdentityConstrained {
+                    private_key,
+                    constraints,
+                })
+            }
             MessageRequest::AddSmartcardKey => Ok(Request::Unknown),
             MessageRequest::RemoveSmartcardKey => Ok(Request::Unknown),
             MessageRequest::Lock => Ok(Request::Unknown),
