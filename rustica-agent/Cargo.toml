@@ -24,7 +24,7 @@ serde = "1.0.97"
 serde_derive = "1.0"
 sha2 = "0.9.2"
 # For Production
-sshcerts = { version = "0.14.0" }
+sshcerts = { version = "0.14.1" }
 # For Development
 # sshcerts = { path = "../../sshcerts", features = [
 #     "yubikey-support",

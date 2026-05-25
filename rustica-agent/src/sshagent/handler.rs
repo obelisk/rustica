@@ -1,3 +1,5 @@
+use crate::sshagent::constraints::Constraint;
+
 use super::protocol::Request;
 use super::protocol::Response;
 
@@ -9,6 +11,11 @@ use sshcerts::PrivateKey;
 #[async_trait]
 pub trait SshAgentHandler: Send + Sync {
     async fn add_identity(&self, key: PrivateKey) -> HandleResult<Response>;
+    async fn add_identity_constrained(
+        &self,
+        key: PrivateKey,
+        constraints: Vec<Constraint>,
+    ) -> HandleResult<Response>;
     async fn identities(&self) -> HandleResult<Response>;
     async fn sign_request(
         &self,
@@ -29,6 +36,13 @@ pub trait SshAgentHandler: Send + Sync {
                     .await
             }
             Request::AddIdentity { private_key } => self.add_identity(private_key).await,
+            Request::AddIdentityConstrained {
+                private_key,
+                constraints,
+            } => {
+                self.add_identity_constrained(private_key, constraints)
+                    .await
+            }
             Request::Unknown => Ok(Response::Failure),
         }
     }
