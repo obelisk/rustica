@@ -73,7 +73,10 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
         let mut out_file = match File::create(out_path) {
             Ok(f) => f,
             Err(e) => {
-                error!("Could not create Allowed Signers file at {}: {}", out_path, e);
+                error!(
+                    "Could not create Allowed Signers file at {}: {}",
+                    out_path, e
+                );
                 return GetAllowedSignersStatus::AllowedSignersFileError as i32;
             }
         };
