@@ -20,12 +20,20 @@ pub async fn configure_refresh_x509_certificate(
 ) -> Result<RusticaAgentAction, ConfigurationError> {
     let updatable_configuration = parse_config_from_args(&matches)?;
 
-    let slot = matches.value_of("slot").map(|x| x.to_string()).unwrap();
-    let slot = slot_parser(&slot).unwrap();
+    let slot = matches
+        .value_of("slot")
+        .map(|x| x.to_string())
+        .ok_or(ConfigurationError::BadSlot)?;
+    let slot = slot_parser(&slot).ok_or(ConfigurationError::BadSlot)?;
+
+    let mut yk = Yubikey::new()
+        .map_err(|e| ConfigurationError::YubikeyError(format!("Could not open Yubikey: {}", e)))?;
+    let requires_touch = rustica_agent::key_requires_touch(&mut yk, &slot);
 
     let signatory = Signatory::Yubikey(YubikeySigner {
-        yk: Yubikey::new().unwrap().into(),
+        yk: yk.into(),
         slot,
+        requires_touch,
     });
 
     let pin_env = matches.value_of("pin-env").unwrap().to_string();

@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &config.pin,
                 &config.subject,
                 &config.management_key,
-                config.require_touch,
+                config.touch_policy,
                 config.pin_policy,
             )
             .await

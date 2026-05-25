@@ -94,6 +94,7 @@ fn get_signatory(
             let sig = Signatory::Yubikey(YubikeySigner {
                 yk: Yubikey::open(des.serial).unwrap().into(),
                 slot: des.slot,
+                requires_touch: des.requires_touch,
             });
             return Ok((des.public_key.clone(), sig));
         }

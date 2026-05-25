@@ -1,7 +1,7 @@
 use std::env;
 
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::{slot_validator, Signatory, YubikeySigner};
+use rustica_agent::{slot_validator, Signatory, TouchPolicy, YubikeySigner};
 use yubikey::PinPolicy;
 
 use super::{get_signatory, ConfigurationError, RusticaAgentAction};
@@ -10,7 +10,7 @@ pub struct ProvisionPIVConfig {
     pub yubikey: YubikeySigner,
     pub pin: String,
     pub management_key: Vec<u8>,
-    pub require_touch: bool,
+    pub touch_policy: TouchPolicy,
     pub pin_policy: PinPolicy,
     pub subject: String,
 }
@@ -36,7 +36,20 @@ pub fn configure_provision_piv(
         Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile),
     };
 
-    let require_touch = matches.is_present("require-touch");
+    let touch_policy = if matches.is_present("require-touch") {
+        match matches.value_of("require-touch") {
+            Some("cached") => TouchPolicy::Cached,
+            None => TouchPolicy::Always, // Flag present without value
+            Some(other) => {
+                return Err(ConfigurationError::YubikeyError(format!(
+                    "Invalid value '{}' for --require-touch (clap should have caught this)",
+                    other
+                )))
+            }
+        }
+    } else {
+        TouchPolicy::Never // Flag absent
+    };
     let subject = matches.value_of("subject").unwrap().to_string();
     let management_key = match hex::decode(matches.value_of("management-key").unwrap()) {
         Ok(mgm) => mgm,
@@ -59,7 +72,7 @@ pub fn configure_provision_piv(
         pin,
         management_key,
         subject,
-        require_touch,
+        touch_policy,
         pin_policy,
     };
 
@@ -95,9 +108,12 @@ pub fn add_configuration(cmd: Command) -> Command {
     )
     .arg(
         Arg::new("require-touch")
-            .help("Require the key to always be tapped. If this is not selected, a tap will be required if not tapped in the last 15 seconds.")
+            .help("Touch policy for the key. No flag = no touch required. Flag without value = always require touch. --require-touch=cached = touch cached for 15 seconds.")
             .long("require-touch")
             .short('r')
+            .takes_value(true)
+            .min_values(0)
+            .possible_values(["cached"])
     )
     .arg(
         Arg::new("pin-policy")

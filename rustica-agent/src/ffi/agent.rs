@@ -1,7 +1,7 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::UpdatableConfiguration, CertificateConfig, Handler, PrivateKey, Signatory,
-    YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::UpdatableConfiguration, key_requires_touch, CertificateConfig, Handler, PrivateKey,
+    Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -193,6 +193,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         };
 
         let subject = yk.fetch_subject(&slot).unwrap_or_default();
+        let requires_touch = key_requires_touch(&mut yk, &slot);
 
         piv_identities.insert(
             pubkey.encode().to_vec(),
@@ -202,6 +203,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
                 slot,
                 pin,
                 subject,
+                requires_touch,
             },
         );
     }
@@ -328,6 +330,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         Ok(cert) => cert,
         Err(_) => return std::ptr::null(),
     };
+    let requires_touch = key_requires_touch(&mut yk, &slot);
 
     let handler = Handler {
         updatable_configuration: Mutex::new(updatable_configuration),
@@ -338,6 +341,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         signatory: Signatory::Yubikey(YubikeySigner {
             yk: Mutex::new(Yubikey::open(yubikey_serial).unwrap()),
             slot: SlotId::try_from(slot).unwrap(),
+            requires_touch,
         }),
         identities: Mutex::new(HashMap::new()),
         piv_identities: HashMap::new(),
