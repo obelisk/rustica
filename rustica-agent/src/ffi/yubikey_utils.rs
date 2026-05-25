@@ -304,9 +304,12 @@ pub unsafe extern "C" fn ffi_refresh_x509_certificate(
         return false;
     }
 
+    let requires_touch = crate::key_requires_touch(&mut yk, &slot);
+
     let mut signatory = Signatory::Yubikey(YubikeySigner {
         yk: yk.into(),
         slot,
+        requires_touch,
     });
 
     let runtime = match Runtime::new() {

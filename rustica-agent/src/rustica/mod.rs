@@ -117,8 +117,15 @@ pub async fn complete_rustica_challenge(
 
     // We need to sign the challenge so let's notify the user they
     // will need to interact with their device if (if a device is being used)
-    if let Some(f) = notification_function {
-        f();
+    let should_notify = match signatory {
+        Signatory::Yubikey(signer) => signer.requires_touch,
+        Signatory::Direct(privkey) => privkey.lock().await.key_type.is_sk,
+    };
+
+    if should_notify {
+        if let Some(f) = notification_function {
+            f();
+        }
     }
 
     let resigned_certificate = match signatory {

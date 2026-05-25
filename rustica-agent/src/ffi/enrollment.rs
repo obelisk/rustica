@@ -254,9 +254,17 @@ pub unsafe extern "C" fn generate_and_enroll(
             Err(_) => return false,
         };
 
+    // Detect touch policy for the newly provisioned key
+    let mut yk_ref = match Yubikey::open(yubikey_serial) {
+        Ok(y) => y,
+        Err(_) => return false,
+    };
+    let requires_touch = crate::key_requires_touch(&mut yk_ref, &slot);
+
     let mut signatory = Signatory::Yubikey(YubikeySigner {
         yk: yk.into(),
         slot,
+        requires_touch,
     });
 
     let runtime = match Runtime::new() {
@@ -290,6 +298,7 @@ pub unsafe extern "C" fn generate_and_enroll(
 pub unsafe extern "C" fn provision_piv(
     yubikey_serial: u32,
     slot: u8,
+    touch_policy: u8,
     subject: *const c_char,
     pin: *const c_char,
     management_key: *const c_char,
@@ -302,7 +311,12 @@ pub unsafe extern "C" fn provision_piv(
     let management_key = CStr::from_ptr(management_key);
     let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
     let subject = CStr::from_ptr(subject);
-    let policy = TouchPolicy::Always;
+
+    let policy = match touch_policy {
+        0 => TouchPolicy::Never,
+        1 => TouchPolicy::Cached,
+        _ => TouchPolicy::Always,
+    };
 
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
 
