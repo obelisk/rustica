@@ -1,6 +1,7 @@
 extern crate byteorder;
 
 mod agent;
+pub mod constraints;
 pub mod error;
 mod handler;
 mod protocol;

@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use rustica::key::U2FAttestation;
 
 use config::{Options, UpdatableConfiguration};
+use sshagent::constraints::Constraint;
 
 pub use config::Config;
 use serde_derive::{Deserialize, Serialize};
@@ -296,6 +297,20 @@ impl Handler {
 impl SshAgentHandler for Handler {
     async fn add_identity(&self, private_key: PrivateKey) -> Result<Response, AgentError> {
         trace!("Add Identity call");
+        let public_key = private_key.pubkey.encode();
+        self.identities.lock().await.insert(public_key, private_key);
+        Ok(Response::Success)
+    }
+
+    async fn add_identity_constrained(
+        &self,
+        private_key: PrivateKey,
+        constraints: Vec<Constraint>,
+    ) -> Result<Response, AgentError> {
+        trace!("Add Identity Constrained call");
+        if !constraints.is_empty() {
+            trace!("Key is being added with constraints");
+        }
         let public_key = private_key.pubkey.encode();
         self.identities.lock().await.insert(public_key, private_key);
         Ok(Response::Success)

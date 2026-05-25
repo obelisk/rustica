@@ -55,17 +55,6 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
     };
     let runtime_handle = runtime.handle().to_owned();
 
-    let mut out_file = match File::create(out_path) {
-        Ok(f) => f,
-        Err(e) => {
-            error!(
-                "Could not create Allowed Signers file at {}: {}",
-                out_path, e
-            );
-            return GetAllowedSignersStatus::AllowedSignersFileError as i32;
-        }
-    };
-
     for server in &updatable_configuration.get_configuration().servers {
         let allowed_signers = match server.get_allowed_signers(&runtime_handle) {
             Ok(data) => {
@@ -78,6 +67,14 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
             Err(e) => {
                 error!("Allowed signers could not be fetched. Server said: {}", e);
                 continue;
+            }
+        };
+
+        let mut out_file = match File::create(out_path) {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Could not create Allowed Signers file at {}: {}", out_path, e);
+                return GetAllowedSignersStatus::AllowedSignersFileError as i32;
             }
         };
 
