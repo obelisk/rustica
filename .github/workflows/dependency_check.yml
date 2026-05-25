@@ -1,0 +1,22 @@
+name: Dependency Minimum Age Check
+
+on:
+  pull_request:
+    paths:
+      - "Cargo.lock"
+      - ".github/workflows/dependency_check.yml"
+
+jobs:
+  dependency-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@772c4490b37ea1c65caf6a53089a38ea1510cf4a # v1.93.0
+
+      - name: Run dependency age check
+        run: cargo run --package=rustica-tools --example=dependency-check -- Cargo.lock --min-age-days 14 --include-missing
