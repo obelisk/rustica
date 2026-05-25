@@ -1,5 +1,5 @@
-use std::{collections::HashMap, fs};
 use std::sync::Arc;
+use std::{collections::HashMap, fs};
 
 use rustica_agent::{
     get_all_piv_keys, Handler, RusticaAgentLibraryError, Signatory, YubikeyPIVKeyDescriptor,

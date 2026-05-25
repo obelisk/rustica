@@ -81,7 +81,10 @@ fn rcgen_certificate_from_private_key(
 #[async_trait]
 impl Signer for FileSigner {
     async fn sign(&self, cert: Certificate) -> Result<Certificate, SigningError> {
-        let keys = self.ssh_keys.as_ref().ok_or(SigningError::SignerDoesNotHaveSSHKeys)?;
+        let keys = self
+            .ssh_keys
+            .as_ref()
+            .ok_or(SigningError::SignerDoesNotHaveSSHKeys)?;
         let final_cert = match cert.cert_type {
             CertType::User => cert.sign(&keys.user),
             CertType::Host => cert.sign(&keys.host),
@@ -112,12 +115,8 @@ impl Signer for FileSigner {
 impl SignerConfig for Config {
     async fn into_signer(self) -> Result<Box<dyn Signer + Send + Sync>, SigningError> {
         let x509_certificate = match (&self.x509_private_key, &self.x509_private_key_algorithm) {
-            (Some(pk), Some(pka)) => Some(rcgen_certificate_from_private_key(
-                "Rustica",
-                pk,
-                pka
-            )?),
-            _ => None
+            (Some(pk), Some(pka)) => Some(rcgen_certificate_from_private_key("Rustica", pk, pka)?),
+            _ => None,
         };
 
         let client_certificate_authority = match (
@@ -132,7 +131,7 @@ impl SignerConfig for Config {
         };
 
         let ssh_keys = match (self.user_key, self.host_key) {
-            (Some(user), Some(host)) => Some(SshKeys{user, host}),
+            (Some(user), Some(host)) => Some(SshKeys { user, host }),
             (None, None) => None,
             _ => return Err(SigningError::SignerDoesNotAllRequiredSSHKeys),
         };

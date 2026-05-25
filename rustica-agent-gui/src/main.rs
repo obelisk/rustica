@@ -2,17 +2,14 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
-use eframe::egui::{self, Grid, Sense, TextEdit, Button /*Sense*/};
+use eframe::egui::{self, Button /*Sense*/, Grid, Sense, TextEdit};
 
 use egui::ComboBox;
 
 use home::home_dir;
-use rustica_agent::{YubikeyPIVKeyDescriptor, get_all_piv_keys};
-use rustica_agent::{Yubikey};
-use tokio::{
-    runtime::Runtime,
-    sync::mpsc::Sender,
-};
+use rustica_agent::Yubikey;
+use rustica_agent::{get_all_piv_keys, YubikeyPIVKeyDescriptor};
+use tokio::{runtime::Runtime, sync::mpsc::Sender};
 
 #[derive(Debug)]
 enum RusticaAgentGuiError {
@@ -108,10 +105,19 @@ fn load_environments() -> Result<RusticaAgentGui, RusticaAgentGuiError> {
     //     None
     // };
 
-    let piv_keys = get_all_piv_keys().unwrap_or_default().into_iter().map(|x| (x.0, YubikeyPIVKeyDescriptorWithUse {
-        descriptor: x.1,
-        in_use: false,
-    })).collect();
+    let piv_keys = get_all_piv_keys()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|x| {
+            (
+                x.0,
+                YubikeyPIVKeyDescriptorWithUse {
+                    descriptor: x.1,
+                    in_use: false,
+                },
+            )
+        })
+        .collect();
 
     Ok(RusticaAgentGui {
         agent_dir: home_dir.join(".rusticaagent"),
@@ -156,16 +162,16 @@ impl eframe::App for RusticaAgentGui {
             ui.horizontal(|ui| {
                 if let Some(selected_environment) = self.selected_environment {
                     ComboBox::from_label("Choose an environment")
-                    .selected_text(format!("{}", &self.environments[selected_environment].to_string_lossy().to_string()))
-                    .show_ui(ui, |ui| {
-                        
-                        for i in 0..self.environments.len() {
-                            let value = ui.selectable_value(&mut &self.environments[i], &self.environments[selected_environment], &self.environments[i].to_string_lossy().to_string());
-                            if value.clicked() {
-                                self.selected_environment = Some(i);
+                        .selected_text(format!("{}", &self.environments[selected_environment].to_string_lossy().to_string()))
+                        .show_ui(ui, |ui| {
+
+                            for i in 0..self.environments.len() {
+                                let value = ui.selectable_value(&mut &self.environments[i], &self.environments[selected_environment], &self.environments[i].to_string_lossy().to_string());
+                                if value.clicked() {
+                                    self.selected_environment = Some(i);
+                                }
                             }
-                        }
-                    });
+                        });
                 } else {
                     ui.label("There are no environments, please add one");
                 };
@@ -175,12 +181,12 @@ impl eframe::App for RusticaAgentGui {
                         ui.label("Environment Name");
                         ui.text_edit_singleline(&mut self.new_env_name);
                     }
-    
+
                     {
                         ui.label("Environment Data");
                         ui.text_edit_singleline(&mut self.new_env_content);
                     }
-                    
+
                     if ui.button("Import").clicked() {
                         match base64::decode(&self.new_env_content) {
                             Ok(cfg) => {
@@ -233,7 +239,7 @@ impl eframe::App for RusticaAgentGui {
                             ui.label("Unlock Pin");
                             ui.add(TextEdit::singleline(&mut self.unlock_pin).password(true));
                         });
-                        
+
                         Grid::new("additional_keys_list")
                             .num_columns(5)
                             .spacing([40.0, 4.0])
@@ -281,75 +287,75 @@ impl eframe::App for RusticaAgentGui {
                 if key_path.exists() && key_path.is_file() {
                     ui.horizontal(|ui| {
                         if ui.button("Stop").clicked() {
-                        if let Some(sds) = &self.shutdown_rustica {
-                            let sds = sds.to_owned();
-                            self.runtime.block_on(async move {
-                                sds.send(()).await.unwrap();
-                            })
+                            if let Some(sds) = &self.shutdown_rustica {
+                                let sds = sds.to_owned();
+                                self.runtime.block_on(async move {
+                                    sds.send(()).await.unwrap();
+                                })
+                            }
                         }
-                    }
                         if ui.button("Start").clicked() {
-                        // match self.selected_fido_device.as_ref() {
-                        //     Some(fido_device) => { 
-                        //         let updatable_configuration = UpdatableConfiguration::new(&self.environments[*selected_env]);
-                        //         match updatable_configuration {
-                        //             Ok(updatable_configuration) => {
-                        //                 let mut private_key = PrivateKey::from_path(key_path).unwrap();
+                            // match self.selected_fido_device.as_ref() {
+                            //     Some(fido_device) => { 
+                            //         let updatable_configuration = UpdatableConfiguration::new(&self.environments[*selected_env]);
+                            //         match updatable_configuration {
+                            //             Ok(updatable_configuration) => {
+                            //                 let mut private_key = PrivateKey::from_path(key_path).unwrap();
 
-                        //                 private_key.set_device_path(&self.fido_devices[*fido_device].path);
+                            //                 private_key.set_device_path(&self.fido_devices[*fido_device].path);
 
-                        //                let pubkey = private_key.pubkey.clone();
-                        //                let signatory = Signatory::Direct(private_key.into());
+                            //                let pubkey = private_key.pubkey.clone();
+                            //                let signatory = Signatory::Direct(private_key.into());
 
-                        //                 let certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
+                            //                 let certificate_options = CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
 
-                        //                 let handler = rustica_agent::Handler {
-                        //                     updatable_configuration: updatable_configuration.into(),
-                        //                     cert: None.into(),
-                        //                     pubkey,
-                        //                     signatory,
-                        //                     stale_at: 0.into(),
-                        //                     certificate_options,
-                        //                     identities:HashMap::new().into(),
-                        //                     piv_identities: self.piv_keys.iter().filter_map(|x| if x.1.in_use {Some((x.0.clone(), x.1.descriptor.clone()))} else {None}).collect(),
-                        //                     notification_function: None,
-                        //                     certificate_priority: self.certificate_priority,
-                                            
-                        //                 };
+                            //                 let handler = rustica_agent::Handler {
+                            //                     updatable_configuration: updatable_configuration.into(),
+                            //                     cert: None.into(),
+                            //                     pubkey,
+                            //                     signatory,
+                            //                     stale_at: 0.into(),
+                            //                     certificate_options,
+                            //                     identities:HashMap::new().into(),
+                            //                     piv_identities: self.piv_keys.iter().filter_map(|x| if x.1.in_use {Some((x.0.clone(), x.1.descriptor.clone()))} else {None}).collect(),
+                            //                     notification_function: None,
+                            //                     certificate_priority: self.certificate_priority,
 
-                        //                 let socket_path =
-                        //                     self.agent_dir.clone().join("rustica-agent.sock");
+                            //                 };
 
-                        //                 if socket_path.exists() {
-                        //                     if let Err(e) = std::fs::remove_file(&socket_path) {
-                        //                         println!("Couldn't remove old socket file, Rustica might fail to start: {e}");
-                        //                     }
-                        //                 }
+                            //                 let socket_path =
+                            //                     self.agent_dir.clone().join("rustica-agent.sock");
 
-                        //                 let socket_path = socket_path.to_string_lossy().to_string();
+                            //                 if socket_path.exists() {
+                            //                     if let Err(e) = std::fs::remove_file(&socket_path) {
+                            //                         println!("Couldn't remove old socket file, Rustica might fail to start: {e}");
+                            //                     }
+                            //                 }
 
-                        //                 let (sds, sdr) = channel::<()>(1);
-                        //                 self.runtime.spawn(async move {
-                        //                     Agent::run_with_termination_channel(
-                        //                         handler,
-                        //                         socket_path,
-                        //                         Some(sdr),
-                        //                     )
-                        //                     .await;
-                        //                 });
+                            //                 let socket_path = socket_path.to_string_lossy().to_string();
 
-                        //                 self.shutdown_rustica = Some(sds);
-                        //             }
-                        //             Err(e) => {
-                        //                 println!("Could not parse config file: {e}")
-                        //             }
-                        //         };
-                        //     }
-                        //     _ => {
-                        //         self.status = format!("You must have both an environment and FIDO device selected");
-                        //     }
-                        // }
-                    }
+                            //                 let (sds, sdr) = channel::<()>(1);
+                            //                 self.runtime.spawn(async move {
+                            //                     Agent::run_with_termination_channel(
+                            //                         handler,
+                            //                         socket_path,
+                            //                         Some(sdr),
+                            //                     )
+                            //                     .await;
+                            //                 });
+
+                            //                 self.shutdown_rustica = Some(sds);
+                            //             }
+                            //             Err(e) => {
+                            //                 println!("Could not parse config file: {e}")
+                            //             }
+                            //         };
+                            //     }
+                            //     _ => {
+                            //         self.status = format!("You must have both an environment and FIDO device selected");
+                            //     }
+                            // }
+                        }
                     });
                 } else {
                     ui.label("There is no key, you'll need to generate and enroll one");

@@ -29,7 +29,6 @@ pub struct SplunkLogger {
     url: String,
 }
 
-
 /// Splunk needs it in the format of the whole log within the event key
 /// This uses a lifetime because it only contains a reference to a gauntlet
 /// log allowing us to skip a clone into this struct.
@@ -38,7 +37,7 @@ struct SplunkLogWrapper<'a> {
     /// Splunk requires this specific structure when sending logs so we have
     /// to wrap again unfortunately to get the entire log in the event field
     /// of the JSON.
-    event: &'a WrappedLog
+    event: &'a WrappedLog,
 }
 
 impl SplunkLogger {
@@ -50,7 +49,8 @@ impl SplunkLogger {
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(config.timeout.into()))
-            .build().unwrap();
+            .build()
+            .unwrap();
 
         Self {
             runtime: handle,
@@ -68,14 +68,16 @@ impl RusticaLogger for SplunkLogger {
     /// does mean we cannot return a proper LoggingError to the caller since
     /// we cannot wait for it to complete.
     fn send_log(&self, log: &WrappedLog) -> Result<(), LoggingError> {
-        let splunk_log = SplunkLogWrapper {event: log};
+        let splunk_log = SplunkLogWrapper { event: log };
 
         let data = match serde_json::to_string(&splunk_log) {
             Ok(json) => json,
-            Err(e) => return Err(LoggingError::SerializationError(e.to_string()))
+            Err(e) => return Err(LoggingError::SerializationError(e.to_string())),
         };
 
-        let res = self.client.post(&self.url)
+        let res = self
+            .client
+            .post(&self.url)
             .header("Authorization", format!("Splunk {}", &self.token))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("Content-Length", data.len())

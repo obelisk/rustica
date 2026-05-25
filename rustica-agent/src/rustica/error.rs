@@ -1,5 +1,5 @@
-use std::fmt;
 use std::error;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct ServerError {
@@ -22,19 +22,29 @@ pub enum RefreshError {
     UnknownError,
 }
 
-
 impl fmt::Display for RefreshError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            RefreshError::ConfigurationError(ref err) => write!(f, "Configuration is invalid: {}", err),
+            RefreshError::ConfigurationError(ref err) => {
+                write!(f, "Configuration is invalid: {}", err)
+            }
             RefreshError::TransportError => write!(f, "Transport Error. Generally a TLS issue"),
-            RefreshError::ServerChallengeNotForClientKey => write!(f, "Server challenge is not for your key"),
+            RefreshError::ServerChallengeNotForClientKey => {
+                write!(f, "Server challenge is not for your key")
+            }
             RefreshError::SigningError => write!(f, "Signing or verification failed"),
-            RefreshError::UnsupportedMode => write!(f, "Attempted to use a curve or cipher not supported by rustica-agent"),
+            RefreshError::UnsupportedMode => write!(
+                f,
+                "Attempted to use a curve or cipher not supported by rustica-agent"
+            ),
             RefreshError::InvalidUri => write!(f, "Provided address of remote service was invalid"),
-            RefreshError::TransportBadStatus(ref err) => write!(f, "Bad status from server: {}", err),
+            RefreshError::TransportBadStatus(ref err) => {
+                write!(f, "Bad status from server: {}", err)
+            }
             RefreshError::BadEncodedData(ref err) => write!(f, "Bad hex encoding: {}", err),
-            RefreshError::RusticaServerError(ref err) => write!(f, "Error from server: {}", err.message),
+            RefreshError::RusticaServerError(ref err) => {
+                write!(f, "Error from server: {}", err.message)
+            }
             RefreshError::BadAllowedSigners => write!(f, "Bad allowed signers data"),
             RefreshError::UnknownError => write!(f, "Unknown error occured"),
         }
@@ -79,4 +89,3 @@ impl From<ring::error::KeyRejected> for RefreshError {
         RefreshError::SigningError
     }
 }
-

@@ -26,7 +26,7 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
         Err(e) => {
             error!("Unable to marshall config_path to &str: {e}");
             return GetAllowedSignersStatus::ConfigurationError as i32;
-        },
+        }
     };
 
     let updatable_configuration = match UpdatableConfiguration::new(config_path) {
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
         Err(e) => {
             error!("Configuration was invalid: {e}");
             return GetAllowedSignersStatus::ConfigurationError as i32;
-        },
+        }
     };
 
     let out_path = CStr::from_ptr(out_path);
@@ -43,7 +43,7 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
         Err(e) => {
             error!("Unable to marshall out_path to &str: {e}");
             return GetAllowedSignersStatus::ParameterError as i32;
-        },
+        }
     };
 
     let runtime = match Runtime::new() {
@@ -51,7 +51,7 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
         Err(e) => {
             error!("Unable to initialize tokio runtime: {e}");
             return GetAllowedSignersStatus::InternalError as i32;
-        },
+        }
     };
     let runtime_handle = runtime.handle().to_owned();
 
@@ -67,13 +67,16 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
             Err(e) => {
                 error!("Allowed signers could not be fetched. Server said: {}", e);
                 continue;
-            },
+            }
         };
 
         let mut out_file = match File::create(out_path) {
             Ok(f) => f,
             Err(e) => {
-                error!("Could not create Allowed Signers file at {}: {}", out_path, e);
+                error!(
+                    "Could not create Allowed Signers file at {}: {}",
+                    out_path, e
+                );
                 return GetAllowedSignersStatus::AllowedSignersFileError as i32;
             }
         };
@@ -83,7 +86,7 @@ pub unsafe extern "C" fn ffi_get_allowed_signers(
             Err(e) => {
                 error!("Could not write to file {}: {}", out_path, e);
                 return GetAllowedSignersStatus::AllowedSignersFileError as i32;
-            },
+            }
         }
     }
 

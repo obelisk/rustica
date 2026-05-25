@@ -4,7 +4,7 @@ use std::fmt;
 #[derive(Debug)]
 pub struct Key {
     pub fingerprint: String,
-    pub attestation: Option<KeyAttestation>
+    pub attestation: Option<KeyAttestation>,
 }
 
 #[derive(Debug)]

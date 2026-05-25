@@ -1,0 +1,25 @@
+name: Lint Checks
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v3
+
+    - uses: actions/checkout@v6
+
+    - name: Install libpcsc
+      run: sudo apt install -y libpcsclite-dev libusb-1.0-0-dev libudev-dev
+
+    - name: Run cargo fmt check
+      run: cargo fmt --check

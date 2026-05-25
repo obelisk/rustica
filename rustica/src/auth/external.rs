@@ -1,15 +1,15 @@
 use asn1::Utf8String;
 use author::author_client::AuthorClient;
-use author::{AddIdentityDataRequest, AuthorizeRequest, AllowedSignersRequest};
+use author::{AddIdentityDataRequest, AllowedSignersRequest, AuthorizeRequest};
 
 use rcgen::CustomExtension;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use x509_parser::oid_registry::Oid;
 
 use super::{
-    AuthorizationError, KeyAttestation, RegisterKeyRequestProperties, SshAuthorization,
-    SshAuthorizationRequestProperties, X509Authorization, X509AuthorizationRequestProperties,
-    AllowedSigners, AllowedSigner,
+    AllowedSigner, AllowedSigners, AuthorizationError, KeyAttestation,
+    RegisterKeyRequestProperties, SshAuthorization, SshAuthorizationRequestProperties,
+    X509Authorization, X509AuthorizationRequestProperties,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -451,13 +451,14 @@ impl AuthServer {
 
         // Get the response from the backend service
         let allowed_signers = response.unwrap().into_inner().allowed_signers;
-        let allowed_signers = allowed_signers.into_iter()
-            .map(|allowed_signer| AllowedSigner{
+        let allowed_signers = allowed_signers
+            .into_iter()
+            .map(|allowed_signer| AllowedSigner {
                 identity: allowed_signer.identity,
                 pubkey: allowed_signer.pubkey,
             })
             .collect();
 
-        Ok(AllowedSigners{ allowed_signers })
+        Ok(AllowedSigners { allowed_signers })
     }
 }

@@ -1,9 +1,8 @@
-use std::{io};
+use std::io;
 
 pub type ParsingError<T> = Result<T, Error>;
 pub type WrittingError<T> = Result<T, Error>;
 pub type HandleResult<T> = Result<T, Error>;
-
 
 #[derive(Debug)]
 pub struct Error {
@@ -18,16 +17,14 @@ impl Error {
     }
 }
 
-
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
         Error::new(format!("IOError: {}", err))
     }
 }
 
-
 impl<'a> From<&'a str> for Error {
-	fn from(err: &'a str) -> Error {
-	    Error::new(err)
+    fn from(err: &'a str) -> Error {
+        Error::new(err)
     }
 }

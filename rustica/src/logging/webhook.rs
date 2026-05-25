@@ -26,7 +26,6 @@ pub struct WebhookLogger {
     config: Config,
 }
 
-
 impl WebhookLogger {
     /// Implement the new function for the Splunk logger. This converts
     /// the configuration struct into a type that can handle sending
@@ -35,7 +34,8 @@ impl WebhookLogger {
         // I don't think this can fail with our settings so we do an unwrap
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout.into()))
-            .build().unwrap();
+            .build()
+            .unwrap();
 
         Self {
             runtime: handle,
@@ -53,14 +53,16 @@ impl RusticaLogger for WebhookLogger {
     fn send_log(&self, log: &WrappedLog) -> Result<(), LoggingError> {
         let data = match serde_json::to_string(&log) {
             Ok(json) => json,
-            Err(e) => return Err(LoggingError::SerializationError(e.to_string()))
+            Err(e) => return Err(LoggingError::SerializationError(e.to_string())),
         };
 
-        let res = self.client.post(&self.config.url)
+        let res = self
+            .client
+            .post(&self.config.url)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("Content-Length", data.len())
             .body(data);
-        
+
         let res = if let Some(auth) = &self.config.auth_header {
             res.header("Authorization", auth)
         } else {

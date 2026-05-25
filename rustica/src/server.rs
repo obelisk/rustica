@@ -9,9 +9,9 @@ use crate::logging::{
     X509CertificateIssued,
 };
 use crate::rustica::{
-    rustica_server::Rustica, CertificateRequest, CertificateResponse, Challenge, ChallengeRequest,
-    ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
-    RegisterU2fKeyResponse, AllowedSignersRequest, AllowedSignersResponse,
+    rustica_server::Rustica, AllowedSignersRequest, AllowedSignersResponse, CertificateRequest,
+    CertificateResponse, Challenge, ChallengeRequest, ChallengeResponse, RegisterKeyRequest,
+    RegisterKeyResponse, RegisterU2fKeyRequest, RegisterU2fKeyResponse,
 };
 use crate::rustica::{AttestedX509CertificateRequest, AttestedX509CertificateResponse};
 use crate::signing::SigningMechanism;
@@ -30,7 +30,7 @@ use std::{sync::Arc, time::SystemTime};
 use tonic::transport::Certificate as TonicCertificate;
 use tonic::{Request, Response, Status};
 
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::{Mutex, RwLock};
 
 use x509_parser::der_parser::oid;
 use x509_parser::prelude::*;
@@ -353,11 +353,7 @@ fn validate_request(
 }
 
 /// Check that mTLS identity is not rate limited for allowed_signers endpoint
-async fn is_rate_limited(
-    srv: &RusticaServer,
-    identities: String,
-    current_time: Duration,
-) -> bool {
+async fn is_rate_limited(srv: &RusticaServer, identities: String, current_time: Duration) -> bool {
     let rate_limiter = srv.allowed_signers_rate_limiter.clone();
     let mut rate_limiter = rate_limiter.lock().await;
 
@@ -1107,8 +1103,7 @@ impl Rustica for RusticaServer {
 
         debug!(
             "[{}] from [{}] requested the list of allowed signers",
-            mtls_identities,
-            remote_addr,
+            mtls_identities, remote_addr,
         );
 
         // Get current time to check rate limiter and cache expiry
@@ -1117,14 +1112,13 @@ impl Rustica for RusticaServer {
             _ => {
                 error!("Unable to get the current time");
                 return Err(Status::permission_denied(""));
-            },
+            }
         };
 
         if is_rate_limited(self, mtls_identities.clone(), current_time).await {
             info!(
                 "[{}] from [{}] is rate limited for allowed_signers call",
-                mtls_identities,
-                remote_addr,
+                mtls_identities, remote_addr,
             );
             return Err(Status::resource_exhausted(""));
         }
@@ -1161,29 +1155,34 @@ impl Rustica for RusticaServer {
         let response = match self.authorizer.get_allowed_signers().await {
             Ok(response) => response,
             Err(e) => {
-                error!("Failed to call get_allowed_signers on the authorizer: {}", e.to_string());
+                error!(
+                    "Failed to call get_allowed_signers on the authorizer: {}",
+                    e.to_string()
+                );
                 return Err(Status::permission_denied(""));
-            },
+            }
         };
 
         // Construct the content of allowed signers file in this format
         // identity1 pubkey1
         // identity2 pubkey2
         // ...
-        let allowed_signers: String = response.allowed_signers
+        let allowed_signers: String = response
+            .allowed_signers
             .into_iter()
             .map(|allowed_signer| format!("{} {}", allowed_signer.identity, allowed_signer.pubkey))
             .collect::<Vec<String>>()
             .join("\n");
 
         // Initialize the encoder to compress allowed_signers
-        let mut allowed_signers_encoder = match zstd::stream::Encoder::new(Vec::new(), zstd::DEFAULT_COMPRESSION_LEVEL) {
-            Ok(encoder) => encoder,
-            Err(e) => {
-                error!("Failed to initialize zstd encoder: {}", e.to_string());
-                return Err(Status::permission_denied(""));
-            },
-        };
+        let mut allowed_signers_encoder =
+            match zstd::stream::Encoder::new(Vec::new(), zstd::DEFAULT_COMPRESSION_LEVEL) {
+                Ok(encoder) => encoder,
+                Err(e) => {
+                    error!("Failed to initialize zstd encoder: {}", e.to_string());
+                    return Err(Status::permission_denied(""));
+                }
+            };
 
         // Write payload bytes to the compression encoder
         if let Err(e) = allowed_signers_encoder.write_all(allowed_signers.as_bytes()) {
@@ -1195,9 +1194,12 @@ impl Rustica for RusticaServer {
         let compressed_allowed_signers = match allowed_signers_encoder.finish() {
             Ok(data) => data,
             Err(e) => {
-                error!("Failed to complete compressing allowed_signers: {}", e.to_string());
+                error!(
+                    "Failed to complete compressing allowed_signers: {}",
+                    e.to_string()
+                );
                 return Err(Status::permission_denied(""));
-            },
+            }
         };
 
         // Update the cache
@@ -1208,7 +1210,7 @@ impl Rustica for RusticaServer {
 
         let reply = AllowedSignersResponse {
             compressed_allowed_signers: cache.compressed_allowed_signers.clone(),
-        }; 
+        };
 
         Ok(Response::new(reply))
     }

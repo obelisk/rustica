@@ -1,25 +1,19 @@
-pub mod schema;
 pub mod models;
+pub mod schema;
 
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 
 use serde::Deserialize;
 
+use crate::key::TouchPolicy;
 use std::collections::HashMap;
 use std::time::SystemTime;
-use crate::key::TouchPolicy;
 
 use super::{
-    SshAuthorization,
-    AuthorizationError,
-    SshAuthorizationRequestProperties,
-    RegisterKeyRequestProperties,
-    KeyAttestation,
-    X509AuthorizationRequestProperties,
-    X509Authorization,
-    AllowedSigners,
-    AllowedSigner,
+    AllowedSigner, AllowedSigners, AuthorizationError, KeyAttestation,
+    RegisterKeyRequestProperties, SshAuthorization, SshAuthorizationRequestProperties,
+    X509Authorization, X509AuthorizationRequestProperties,
 };
 
 use sshcerts::ssh::CertType;
@@ -30,12 +24,14 @@ pub struct LocalDatabase {
 }
 
 fn establish_connection(path: &str) -> SqliteConnection {
-        SqliteConnection::establish(path)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", path))
+    SqliteConnection::establish(path).unwrap_or_else(|_| panic!("Error connecting to {}", path))
 }
 
 impl LocalDatabase {
-    pub fn authorize_ssh_cert(&self, req: &SshAuthorizationRequestProperties) -> Result<SshAuthorization, AuthorizationError> {
+    pub fn authorize_ssh_cert(
+        &self,
+        req: &SshAuthorizationRequestProperties,
+    ) -> Result<SshAuthorization, AuthorizationError> {
         let fp = &req.fingerprint;
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(ts) => ts.as_secs(),
@@ -47,49 +43,56 @@ impl LocalDatabase {
         let mut conn = establish_connection(&self.path);
         let principals = {
             use schema::fingerprint_principal_authorizations::dsl::*;
-            let results = fingerprint_principal_authorizations.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
+            let results = fingerprint_principal_authorizations
+                .filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintPrincipalAuthorization>(&mut conn)
                 .expect("Error loading authorized hosts");
-            
+
             results.into_iter().map(|x| x.principal).collect()
         };
 
         let hosts = {
             use schema::fingerprint_host_authorizations::dsl::*;
 
-            let results = fingerprint_host_authorizations.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
+            let results = fingerprint_host_authorizations
+                .filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintHostAuthorization>(&mut conn)
                 .expect("Error loading authorized hosts");
-            
+
             Some(results.into_iter().map(|x| x.hostname).collect())
         };
 
         let extensions: HashMap<String, String> = {
             use schema::fingerprint_extensions::dsl::*;
 
-            let results = fingerprint_extensions.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
+            let results = fingerprint_extensions
+                .filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintExtension>(&mut conn)
                 .expect("Error loading fingerprint extensions");
-            
-            results.into_iter().map(|x| (x.extension_name, x.extension_value.unwrap_or(String::new()))).collect()
+
+            results
+                .into_iter()
+                .map(|x| (x.extension_name, x.extension_value.unwrap_or(String::new())))
+                .collect()
         };
 
         {
             use schema::fingerprint_permissions::dsl::*;
-            let results = fingerprint_permissions.filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
+            let results = fingerprint_permissions
+                .filter(fingerprint.eq(fp).and(authority.eq(&req.authority)))
                 .load::<models::FingerprintPermission>(&mut conn)
                 .expect("Error loading authorized hosts");
-            
+
             if !results.is_empty() {
                 match req.cert_type {
                     CertType::User => {
                         if !results[0].can_create_user_certs {
-                            return Err(AuthorizationError::CertType)
+                            return Err(AuthorizationError::CertType);
                         }
-                    },
+                    }
                     CertType::Host => {
                         if !results[0].can_create_host_certs {
-                            return Err(AuthorizationError::CertType)
+                            return Err(AuthorizationError::CertType);
                         }
                     }
                 };
@@ -97,9 +100,17 @@ impl LocalDatabase {
                 Ok(SshAuthorization {
                     serial: 0x000000000000000,
                     // When principal is unrestricted, we just pass their requested principals through
-                    principals: if results[0].principal_unrestricted {req.principals.clone()} else {principals},
+                    principals: if results[0].principal_unrestricted {
+                        req.principals.clone()
+                    } else {
+                        principals
+                    },
                     // When host is unrestricted we return None
-                    hosts: if results[0].host_unrestricted {None} else {hosts},
+                    hosts: if results[0].host_unrestricted {
+                        None
+                    } else {
+                        hosts
+                    },
                     extensions,
                     force_command: None,
                     force_source_ip: false,
@@ -112,8 +123,11 @@ impl LocalDatabase {
             }
         }
     }
-    
-    pub fn register_key(&self, req: &RegisterKeyRequestProperties) -> Result<(), AuthorizationError> {
+
+    pub fn register_key(
+        &self,
+        req: &RegisterKeyRequestProperties,
+    ) -> Result<(), AuthorizationError> {
         let mut conn = establish_connection(&self.path);
         let mut registered_key = models::RegisteredKey {
             fingerprint: req.fingerprint.clone(),
@@ -139,20 +153,24 @@ impl LocalDatabase {
                 registered_key.hsm_serial = Some(attestation.serial.to_string());
                 registered_key.touch_policy = Some(attestation.touch_policy.to_string());
                 registered_key.pin_policy = Some(attestation.pin_policy.to_string());
-                registered_key.attestation_certificate = Some(hex::encode(&attestation.certificate));
-                registered_key.attestation_intermediate = Some(hex::encode(&attestation.intermediate));
-            },
+                registered_key.attestation_certificate =
+                    Some(hex::encode(&attestation.certificate));
+                registered_key.attestation_intermediate =
+                    Some(hex::encode(&attestation.intermediate));
+            }
             Some(KeyAttestation::U2f(attestation)) => {
                 registered_key.firmware = Some(attestation.firmware.clone());
-                registered_key.attestation_intermediate = Some(hex::encode(&attestation.intermediate));
+                registered_key.attestation_intermediate =
+                    Some(hex::encode(&attestation.intermediate));
                 registered_key.auth_data = Some(hex::encode(&attestation.auth_data));
-                registered_key.auth_data_signature = Some(hex::encode(&attestation.auth_data_signature));
+                registered_key.auth_data_signature =
+                    Some(hex::encode(&attestation.auth_data_signature));
                 registered_key.aaguid = Some(hex::encode(&attestation.aaguid));
                 registered_key.challenge = Some(hex::encode(&attestation.challenge));
                 registered_key.alg = Some(attestation.alg);
                 registered_key.application = Some(hex::encode(&attestation.application));
             }
-            _ => {},
+            _ => {}
         };
 
         let result = {
@@ -177,30 +195,45 @@ impl LocalDatabase {
         let (att_serial, touch_policy) = match &auth_props.key.attestation {
             None => return Err(AuthorizationError::AuthorizerError),
             Some(KeyAttestation::U2f(_)) => return Err(AuthorizationError::AuthorizerError),
-            Some(KeyAttestation::Piv(att)) => (att.serial, &att.touch_policy)
+            Some(KeyAttestation::Piv(att)) => (att.serial, &att.touch_policy),
         };
 
-        let mtls_user = auth_props.mtls_identities.get(0).ok_or(AuthorizationError::AuthorizerError)?;
+        let mtls_user = auth_props
+            .mtls_identities
+            .get(0)
+            .ok_or(AuthorizationError::AuthorizerError)?;
 
         let authorization: Vec<_> = {
             use schema::x509_authorizations::dsl::*;
-            let results = x509_authorizations.filter(user.eq(mtls_user).and(authority.eq(&auth_props.authority).and(hsm_serial.eq(att_serial.to_string()))))
+            let results = x509_authorizations
+                .filter(
+                    user.eq(mtls_user).and(
+                        authority
+                            .eq(&auth_props.authority)
+                            .and(hsm_serial.eq(att_serial.to_string())),
+                    ),
+                )
                 .load::<models::X509Authorization>(&mut conn)
                 .expect("Error loading authorized hosts");
-            
+
             results.into_iter().collect()
         };
 
-        let authorization = authorization.get(0).ok_or(AuthorizationError::NotAuthorized)?;
+        let authorization = authorization
+            .get(0)
+            .ok_or(AuthorizationError::NotAuthorized)?;
 
         // If we require touch but the touch policy is never then we will not
         // allow the fetching of a certificate. The other options Always or
         // cached both require some form of presence.
         if authorization.require_touch && *touch_policy == TouchPolicy::Never {
-            return Err(AuthorizationError::NotAuthorized)
+            return Err(AuthorizationError::NotAuthorized);
         }
 
-        let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        let current_time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
         // Success, build the response
         return Ok(X509Authorization {
@@ -212,7 +245,7 @@ impl LocalDatabase {
             serial: 0xFEFEFEFEFE,
             valid_before: current_time + (3600 * 12), // 12 hours
             valid_after: current_time,
-        })
+        });
     }
 
     pub fn get_allowed_signers(&self) -> Result<AllowedSigners, AuthorizationError> {
@@ -233,13 +266,14 @@ impl LocalDatabase {
 
         // Get the response from the backend service
         let allowed_signers: Vec<(String, String)> = result.unwrap();
-        let allowed_signers = allowed_signers.into_iter()
-            .map(|allowed_signer| AllowedSigner{
+        let allowed_signers = allowed_signers
+            .into_iter()
+            .map(|allowed_signer| AllowedSigner {
                 identity: allowed_signer.0,
                 pubkey: allowed_signer.1,
             })
             .collect();
 
-        Ok(AllowedSigners{ allowed_signers })
+        Ok(AllowedSigners { allowed_signers })
     }
 }
