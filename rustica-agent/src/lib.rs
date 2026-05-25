@@ -542,13 +542,7 @@ pub async fn provision_new_key(
         return None;
     }
 
-    match yk.provision(
-        &yubikey.slot,
-        subj,
-        AlgorithmId::EccP384,
-        policy,
-        pin_policy,
-    ) {
+    match yk.provision_p384(&yubikey.slot, subj, policy, pin_policy) {
         Ok(_) => {
             let certificate = yk.fetch_attestation(&yubikey.slot);
             let intermediate = yk.fetch_certificate(&SlotId::Attestation);

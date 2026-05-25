@@ -8,7 +8,7 @@ use crate::{PIVAttestation, Signatory, YubikeySigner};
 use sshcerts::error::Error as SSHCertsError;
 use sshcerts::fido::generate::generate_new_ssh_key;
 use sshcerts::fido::Error as FidoError;
-use sshcerts::yubikey::piv::{AlgorithmId, PinPolicy, SlotId, TouchPolicy, Yubikey};
+use sshcerts::yubikey::piv::{PinPolicy, SlotId, TouchPolicy, Yubikey};
 use std::fs::File;
 use tokio::runtime::Runtime;
 
@@ -213,7 +213,6 @@ pub unsafe extern "C" fn generate_and_enroll(
     let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
     let subject = CStr::from_ptr(subject);
 
-    let alg = AlgorithmId::EccP384;
     let slot = SlotId::try_from(slot).unwrap();
 
     let touch_policy = match touch_policy {
@@ -238,27 +237,22 @@ pub unsafe extern "C" fn generate_and_enroll(
         return false;
     }
 
-    let key_config = match yk.provision(
-        &slot,
-        subject.to_str().unwrap(),
-        alg,
-        touch_policy,
-        pin_policy,
-    ) {
-        Ok(_) => {
-            let certificate = yk.fetch_attestation(&slot);
-            let intermediate = yk.fetch_certificate(&SlotId::Attestation);
+    let key_config =
+        match yk.provision_p384(&slot, subject.to_str().unwrap(), touch_policy, pin_policy) {
+            Ok(_) => {
+                let certificate = yk.fetch_attestation(&slot);
+                let intermediate = yk.fetch_certificate(&SlotId::Attestation);
 
-            match (certificate, intermediate) {
-                (Ok(certificate), Ok(intermediate)) => PIVAttestation {
-                    certificate,
-                    intermediate,
-                },
-                _ => return false,
+                match (certificate, intermediate) {
+                    (Ok(certificate), Ok(intermediate)) => PIVAttestation {
+                        certificate,
+                        intermediate,
+                    },
+                    _ => return false,
+                }
             }
-        }
-        Err(_) => return false,
-    };
+            Err(_) => return false,
+        };
 
     let mut signatory = Signatory::Yubikey(YubikeySigner {
         yk: yk.into(),
@@ -300,7 +294,6 @@ pub unsafe extern "C" fn provision_piv(
     pin: *const c_char,
     management_key: *const c_char,
 ) -> bool {
-    let alg = AlgorithmId::EccP384;
     let slot = SlotId::try_from(slot).unwrap();
 
     println!("Provisioning new PIV key in slot {:?}", slot);
@@ -321,12 +314,6 @@ pub unsafe extern "C" fn provision_piv(
         return false;
     }
 
-    yk.provision(
-        &slot,
-        subject.to_str().unwrap(),
-        alg,
-        policy,
-        PinPolicy::Never,
-    )
-    .is_ok()
+    yk.provision_p384(&slot, subject.to_str().unwrap(), policy, PinPolicy::Never)
+        .is_ok()
 }

@@ -25,7 +25,7 @@ yubikey-support = ["sshcerts/yubikey-support"]
 
 [dependencies]
 async-trait = "0.1.56"
-base64 = "0.12.1"
+base64 = "0.13.0"
 clap = "3.0.5"
 crossbeam-channel = "0.5"
 env_logger = "0.8.2"
@@ -34,23 +34,11 @@ log = "0.4.13"
 prost = "0.11"
 ring = "0.17"
 serde = { version = "1.0", features = ["derive"] }
-# For Production
-# sshcerts = { version = "0.12", default-features = false, features = [
-#     "fido-lite",
-#     "x509-support",
-#     "yubikey-lite",
-# ] }
-# For Development
-sshcerts = { version = "0.14.1", default-features = false, features = [
+sshcerts = { version = "0.15.0", default-features = false, features = [
     "fido-lite",
     "x509-support",
     "yubikey-lite",
 ] }
-# sshcerts = { path = "../../sshcerts", default-features = false, features = [
-#     "fido-lite",
-#     "x509-support",
-#     "yubikey-lite",
-# ] }
 tokio = { version = "1", features = ["full"] }
 toml = "0.5"
 tonic = { version = "0.9", features = ["tls"] }
