@@ -12,7 +12,14 @@ use tokio::time::{sleep, Duration};
 const USER_AGENT: &str = "cargo-lock-age-check/1.0";
 
 // All these packages if they are too new or not found
-const EXEMPTIONS: &[&str] = &["rustica", "rustica-agent", "rustica-agent-cli", "rustica-agent-gui", "rustica-tools", "sshcerts"];
+const EXEMPTIONS: &[&str] = &[
+    "rustica",
+    "rustica-agent",
+    "rustica-agent-cli",
+    "rustica-agent-gui",
+    "rustica-tools",
+    "sshcerts",
+];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
