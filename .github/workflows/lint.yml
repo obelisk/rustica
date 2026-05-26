@@ -23,3 +23,7 @@ jobs:
 
     - name: Run cargo fmt check
       run: cargo fmt --check
+
+    - uses: timweri/cargo-oxidate@v1
+      with:
+        min-age-days: 14
