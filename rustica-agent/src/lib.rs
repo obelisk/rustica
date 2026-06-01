@@ -547,6 +547,35 @@ pub fn key_requires_touch(yk: &mut Yubikey, slot: &SlotId) -> bool {
     }
 }
 
+fn piv_key_descriptor_from_yubikey(
+    yk: &mut Yubikey,
+    serial: u32,
+    slot: SlotId,
+    pin: Option<String>,
+) -> Option<YubikeyPIVKeyDescriptor> {
+    let public_key = yk.ssh_cert_fetch_pubkey(&slot).ok()?;
+    let subject = yk.fetch_subject(&slot).unwrap_or_default();
+    let requires_touch = key_requires_touch(yk, &slot);
+
+    Some(YubikeyPIVKeyDescriptor {
+        serial,
+        slot,
+        public_key,
+        pin,
+        subject,
+        requires_touch,
+    })
+}
+
+pub fn get_piv_key_descriptor(
+    serial: u32,
+    slot: SlotId,
+    pin: Option<String>,
+) -> Option<YubikeyPIVKeyDescriptor> {
+    let mut yk = Yubikey::open(serial).ok()?;
+    piv_key_descriptor_from_yubikey(&mut yk, serial, slot, pin)
+}
+
 /// Provisions a new keypair on the Yubikey with the given settings.
 pub async fn provision_new_key(
     yubikey: YubikeySigner,
@@ -640,18 +669,10 @@ pub fn get_all_piv_keys(
             Ok(yk) => {
                 for slot in 0x82..0x96_u8 {
                     let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
-                    if let Ok(pubkey) = yk.ssh_cert_fetch_pubkey(&slot) {
-                        let subject = yk.fetch_subject(&slot).unwrap_or_default();
-                        let requires_touch = key_requires_touch(yk, &slot);
-                        let descriptor = YubikeyPIVKeyDescriptor {
-                            serial,
-                            slot,
-                            public_key: pubkey.clone(),
-                            pin: pin.clone(),
-                            subject,
-                            requires_touch,
-                        };
-                        all_keys.insert(pubkey.encode().to_vec(), descriptor);
+                    if let Some(descriptor) =
+                        piv_key_descriptor_from_yubikey(yk, serial, slot, pin.clone())
+                    {
+                        all_keys.insert(descriptor.public_key.encode().to_vec(), descriptor);
                     }
                 }
             }
