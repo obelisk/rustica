@@ -87,14 +87,12 @@ fn get_signatory(
     match (cmd_slot, config_slot, file, &config_key) {
         (Some(slot), _, _, _) => match slot_parser(slot) {
             Some(s) => {
-                let mut yk = Yubikey::new().map_err(|e| {
+                let yk = Yubikey::new().map_err(|e| {
                     ConfigurationError::YubikeyError(format!("Could not open Yubikey: {}", e))
                 })?;
-                let requires_touch = rustica_agent::key_requires_touch(&mut yk, &s);
                 Ok(Signatory::Yubikey(YubikeySigner {
                     yk: yk.into(),
                     slot: s,
-                    requires_touch,
                 }))
             }
             None => Err(ConfigurationError::BadSlot),
@@ -108,14 +106,12 @@ fn get_signatory(
         },
         (_, Some(slot), _, _) => match slot_parser(slot) {
             Some(s) => {
-                let mut yk = Yubikey::new().map_err(|e| {
+                let yk = Yubikey::new().map_err(|e| {
                     ConfigurationError::YubikeyError(format!("Could not open Yubikey: {}", e))
                 })?;
-                let requires_touch = rustica_agent::key_requires_touch(&mut yk, &s);
                 Ok(Signatory::Yubikey(YubikeySigner {
                     yk: yk.into(),
                     slot: s,
-                    requires_touch,
                 }))
             }
             None => Err(ConfigurationError::BadSlot),

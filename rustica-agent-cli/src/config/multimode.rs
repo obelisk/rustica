@@ -61,7 +61,6 @@ fn get_piv_signatory(selector: &str) -> Result<(PublicKey, Signatory), Error> {
     let signatory = Signatory::Yubikey(YubikeySigner {
         yk: yk.into(),
         slot: descriptor.slot,
-        requires_touch: descriptor.requires_touch,
     });
 
     Ok((public_key, signatory))
@@ -139,7 +138,6 @@ fn get_signatory(
             let sig = Signatory::Yubikey(YubikeySigner {
                 yk: Yubikey::open(des.serial).unwrap().into(),
                 slot: des.slot,
-                requires_touch: des.requires_touch,
             });
             return Ok((des.public_key.clone(), sig));
         }

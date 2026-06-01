@@ -254,17 +254,9 @@ pub unsafe extern "C" fn generate_and_enroll(
             Err(_) => return false,
         };
 
-    // Detect touch policy for the newly provisioned key
-    let mut yk_ref = match Yubikey::open(yubikey_serial) {
-        Ok(y) => y,
-        Err(_) => return false,
-    };
-    let requires_touch = crate::key_requires_touch(&mut yk_ref, &slot);
-
     let mut signatory = Signatory::Yubikey(YubikeySigner {
         yk: yk.into(),
         slot,
-        requires_touch,
     });
 
     let runtime = match Runtime::new() {

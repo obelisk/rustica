@@ -1,7 +1,7 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::UpdatableConfiguration, get_piv_key_descriptor, key_requires_touch, CertificateConfig,
-    Handler, PrivateKey, Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::UpdatableConfiguration, get_piv_key_descriptor, CertificateConfig, Handler, PrivateKey,
+    Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -367,7 +367,6 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         Ok(cert) => cert,
         Err(_) => return std::ptr::null(),
     };
-    let requires_touch = key_requires_touch(&mut yk, &slot);
     let piv_identities = match build_piv_identities_from_ffi(
         piv_serials,
         piv_slots,
@@ -388,7 +387,6 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         signatory: Signatory::Yubikey(YubikeySigner {
             yk: Mutex::new(Yubikey::open(yubikey_serial).unwrap()),
             slot,
-            requires_touch,
         }),
         identities: Mutex::new(HashMap::new()),
         piv_identities,

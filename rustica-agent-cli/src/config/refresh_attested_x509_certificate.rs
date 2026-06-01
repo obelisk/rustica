@@ -26,14 +26,12 @@ pub async fn configure_refresh_x509_certificate(
         .ok_or(ConfigurationError::BadSlot)?;
     let slot = slot_parser(&slot).ok_or(ConfigurationError::BadSlot)?;
 
-    let mut yk = Yubikey::new()
+    let yk = Yubikey::new()
         .map_err(|e| ConfigurationError::YubikeyError(format!("Could not open Yubikey: {}", e)))?;
-    let requires_touch = rustica_agent::key_requires_touch(&mut yk, &slot);
 
     let signatory = Signatory::Yubikey(YubikeySigner {
         yk: yk.into(),
         slot,
-        requires_touch,
     });
 
     let pin_env = matches.value_of("pin-env").unwrap().to_string();

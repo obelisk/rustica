@@ -33,10 +33,7 @@ pub use sshcerts::{
     error::Error as SSHCertsError,
     fido::{generate::generate_new_ssh_key, list_fido_devices},
     ssh::{CertType, SSHCertificateSigner},
-    yubikey::{
-        piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey},
-        verification::verify_certificate_chain,
-    },
+    yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey},
     Certificate, PrivateKey, PublicKey,
 };
 
@@ -61,7 +58,6 @@ pub struct RusticaServer {
 pub struct YubikeySigner {
     pub slot: SlotId,
     pub yk: Mutex<Yubikey>,
-    pub requires_touch: bool,
 }
 
 #[derive(Debug)]
@@ -78,7 +74,6 @@ pub struct YubikeyPIVKeyDescriptor {
     pub public_key: PublicKey,
     pub pin: Option<String>,
     pub subject: String,
-    pub requires_touch: bool,
 }
 
 pub struct MtlsCredentials {
@@ -406,7 +401,11 @@ impl SshAgentHandler for Handler {
                 AgentError::from("Unable to open Yubikey")
             })?;
 
-            if descriptor.requires_touch {
+            if yk
+                .touch_requirement(&descriptor.slot)
+                .map(|requirement| requirement.is_required())
+                .unwrap_or(false)
+            {
                 if let Some(f) = &self.notification_function {
                     println!("Trying to send a notification");
                     f()
@@ -450,7 +449,7 @@ impl SshAgentHandler for Handler {
                 return Err(AgentError::from("No such key"));
             }
 
-            if privkey.key_type.is_sk {
+            if privkey.touch_requirement().is_required() {
                 if let Some(f) = &self.notification_function {
                     f()
                 }
@@ -481,7 +480,11 @@ impl SshAgentHandler for Handler {
             // won't have to tap here is if they are using cached keys and this is right after
             // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be
             // spurious.
-            if signer.requires_touch {
+            if yk
+                .touch_requirement(&signer.slot)
+                .map(|requirement| requirement.is_required())
+                .unwrap_or(false)
+            {
                 if let Some(f) = &self.notification_function {
                     f()
                 }
@@ -528,25 +531,6 @@ pub fn slot_validator(slot: &str) -> Result<(), String> {
     }
 }
 
-/// Determine whether a key in the given slot requires touch by reading its attestation.
-/// Returns true if touch is required, or if the policy cannot be determined (conservative default).
-pub fn key_requires_touch(yk: &mut Yubikey, slot: &SlotId) -> bool {
-    let attestation = match yk.fetch_attestation(slot) {
-        Ok(a) => a,
-        Err(_) => return true, // Cannot read attestation, assume touch required
-    };
-
-    let intermediate = match yk.fetch_certificate(&SlotId::Attestation) {
-        Ok(i) => i,
-        Err(_) => return true, // Cannot read intermediate, assume touch required
-    };
-
-    match verify_certificate_chain(&attestation, &intermediate, None) {
-        Ok(validated) => validated.touch_policy != 1, // 1 = Never per PIV spec
-        Err(_) => true,                               // Verification failed, assume touch required
-    }
-}
-
 fn piv_key_descriptor_from_yubikey(
     yk: &mut Yubikey,
     serial: u32,
@@ -555,7 +539,6 @@ fn piv_key_descriptor_from_yubikey(
 ) -> Option<YubikeyPIVKeyDescriptor> {
     let public_key = yk.ssh_cert_fetch_pubkey(&slot).ok()?;
     let subject = yk.fetch_subject(&slot).unwrap_or_default();
-    let requires_touch = key_requires_touch(yk, &slot);
 
     Some(YubikeyPIVKeyDescriptor {
         serial,
@@ -563,7 +546,6 @@ fn piv_key_descriptor_from_yubikey(
         public_key,
         pin,
         subject,
-        requires_touch,
     })
 }
 
