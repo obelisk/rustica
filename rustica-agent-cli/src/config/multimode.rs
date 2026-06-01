@@ -1,9 +1,9 @@
 use std::sync::Arc;
-use std::{collections::HashMap, env, fs};
+use std::{collections::HashMap, fs};
 
 use rustica_agent::{
-    get_all_piv_keys, get_piv_key_descriptor, slot_parser, Handler, RusticaAgentLibraryError,
-    Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
+    get_all_piv_keys, Handler, RusticaAgentLibraryError, Signatory, YubikeyPIVKeyDescriptor,
+    YubikeySigner,
 };
 
 use clap::{Arg, ArgMatches, Command};
@@ -18,52 +18,12 @@ use super::{ConfigurationError, RusticaAgentAction};
 
 #[derive(Debug)]
 pub enum Error {
+    NoCertificateKey,
+    NoKeyDir,
     BadKeyDir(String),
-    BadPivSelector(String),
     CertificateIsUnknownKey(String),
     UnknownPublicKey(String),
     RusticaAgentError(RusticaAgentLibraryError),
-}
-
-fn pin_for_yubikey(serial: u32) -> Option<String> {
-    env::var(format!("YK_PIN_{serial}"))
-        .ok()
-        .or_else(|| env::var("YK_PIN").ok())
-}
-
-fn parse_piv_selector(selector: &str) -> Result<(u32, rustica_agent::SlotId), Error> {
-    let (serial, slot) = selector
-        .split_once(':')
-        .ok_or_else(|| Error::BadPivSelector(selector.to_string()))?;
-    let serial = serial
-        .parse::<u32>()
-        .map_err(|_| Error::BadPivSelector(selector.to_string()))?;
-    let slot = slot_parser(slot).ok_or_else(|| Error::BadPivSelector(selector.to_string()))?;
-
-    Ok((serial, slot))
-}
-
-fn get_piv_descriptor(selector: &str) -> Result<YubikeyPIVKeyDescriptor, Error> {
-    let (serial, slot) = parse_piv_selector(selector)?;
-    get_piv_key_descriptor(serial, slot, pin_for_yubikey(serial)).ok_or(Error::RusticaAgentError(
-        RusticaAgentLibraryError::CouldNotOpenYubikey(serial),
-    ))
-}
-
-fn get_piv_signatory(selector: &str) -> Result<(PublicKey, Signatory), Error> {
-    let descriptor = get_piv_descriptor(selector)?;
-    let yk = Yubikey::open(descriptor.serial).map_err(|_| {
-        Error::RusticaAgentError(RusticaAgentLibraryError::CouldNotOpenYubikey(
-            descriptor.serial,
-        ))
-    })?;
-    let public_key = descriptor.public_key.clone();
-    let signatory = Signatory::Yubikey(YubikeySigner {
-        yk: yk.into(),
-        slot: descriptor.slot,
-    });
-
-    Ok((public_key, signatory))
 }
 
 fn get_keys_from_dir(directory: &str) -> Result<(Vec<PublicKey>, Vec<PrivateKey>), Error> {
@@ -108,10 +68,6 @@ fn get_keys_from_dir(directory: &str) -> Result<(Vec<PublicKey>, Vec<PrivateKey>
 fn validate_public_keys(
     public_keys: &[PublicKey],
 ) -> Result<HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>, Error> {
-    if public_keys.is_empty() {
-        return Ok(HashMap::new());
-    }
-
     let mut all_keys = get_all_piv_keys().map_err(|x| Error::RusticaAgentError(x))?;
 
     let mut key_map = HashMap::new();
@@ -165,36 +121,27 @@ pub async fn configure_multimode(
     let certificate_options = parse_certificate_config_from_args(&matches, &config)?;
     let socket_path = parse_socket_path_from_args(matches, &config);
 
-    let certificate_fingerprint = matches.value_of("cert-for");
-    let certificate_piv = matches.value_of("cert-piv");
+    let certificate_fingerprint = matches
+        .value_of("cert-for")
+        .ok_or(ConfigurationError::MultiModeError(Error::NoCertificateKey))?;
 
-    let key_dir = matches.value_of("key-dir");
-    let (public_keys, mut private_keys) = match key_dir {
-        Some(key_dir) => {
-            get_keys_from_dir(key_dir).map_err(|x| ConfigurationError::MultiModeError(x))?
-        }
-        None => (Vec::new(), Vec::new()),
-    };
+    let key_dir = matches
+        .value_of("key-dir")
+        .ok_or(Error::NoKeyDir)
+        .map_err(|x| ConfigurationError::MultiModeError(x))?;
+    // Multimode examples:
+    //   FIDO cert + PIV extras: --dir keys/ --certfor <fido-key-fingerprint>
+    //   PIV cert + PIV extras:  --dir keys/ --certfor <piv-cert-key-fingerprint>
+    //   PIV cert + FIDO extras: --dir keys/ --certfor <piv-cert-key-fingerprint>
+    // Put private key files/FIDO handles and PIV .pub selector files in the same
+    // directory; --certfor chooses the cert key and the rest stay available to SSH.
+    let (public_keys, mut private_keys) =
+        get_keys_from_dir(key_dir).map_err(|x| ConfigurationError::MultiModeError(x))?;
     let mut key_map =
         validate_public_keys(&public_keys).map_err(|x| ConfigurationError::MultiModeError(x))?;
-    if let Some(selectors) = matches.values_of("piv") {
-        for selector in selectors {
-            let descriptor =
-                get_piv_descriptor(selector).map_err(|x| ConfigurationError::MultiModeError(x))?;
-            key_map.insert(descriptor.public_key.encode().to_vec(), descriptor);
-        }
-    }
 
-    let (pubkey, signatory) = match (certificate_fingerprint, certificate_piv) {
-        (Some(certificate_fingerprint), None) => {
-            get_signatory(certificate_fingerprint, &key_map, &private_keys)
-                .map_err(|x| ConfigurationError::MultiModeError(x))?
-        }
-        (None, Some(certificate_piv)) => {
-            get_piv_signatory(certificate_piv).map_err(|x| ConfigurationError::MultiModeError(x))?
-        }
-        _ => unreachable!(),
-    };
+    let (pubkey, signatory) = get_signatory(certificate_fingerprint, &key_map, &private_keys)
+        .map_err(|x| ConfigurationError::MultiModeError(x))?;
 
     // Set the path on all private keys. This will only be used if the type is
     // EcdsaSK or Ed25519SK
@@ -209,7 +156,7 @@ pub async fn configure_multimode(
         .map(|x| (x.pubkey.encode().to_vec(), x))
         .collect();
 
-    println!("Loaded {} keys", key_map.len() + private_keys.len());
+    println!("Loaded {} keys", public_keys.len() + private_keys.len());
 
     // Remove the certificate key from the public or private key maps since
     // we will add that later as the raw portion of the certificate
@@ -250,34 +197,14 @@ pub fn add_configuration(cmd: Command) -> Command {
             Arg::new("key-dir")
                 .help("The directory which contains all keys you'd like to serve as hardware keys")
                 .long("dir")
-                .required(false)
+                .required(true)
                 .takes_value(true),
         )
         .arg(
             Arg::new("cert-for")
                 .help("The fingerprint of the key to request certificates for")
                 .long("certfor")
-                .required(false)
-                .required_unless_present("cert-piv")
-                .conflicts_with("cert-piv")
-                .requires("key-dir")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("cert-piv")
-                .help("The PIV key to request certificates for, formatted as <serial>:<slot>")
-                .long("cert-piv")
-                .required(false)
-                .required_unless_present("cert-for")
-                .conflicts_with("cert-for")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("piv")
-                .help("Additional PIV key to serve, formatted as <serial>:<slot>")
-                .long("piv")
-                .required(false)
-                .multiple_occurrences(true)
+                .required(true)
                 .takes_value(true),
         )
         .arg(
