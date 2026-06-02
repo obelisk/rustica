@@ -29,10 +29,7 @@ pub async fn configure_refresh_x509_certificate(
     let yk = Yubikey::new()
         .map_err(|e| ConfigurationError::YubikeyError(format!("Could not open Yubikey: {}", e)))?;
 
-    let signatory = Signatory::Yubikey(YubikeySigner {
-        yk: yk.into(),
-        slot,
-    });
+    let signatory = Signatory::Yubikey(YubikeySigner::new(yk, slot));
 
     let pin_env = matches.value_of("pin-env").unwrap().to_string();
     let pin = match env::var(pin_env) {

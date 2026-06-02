@@ -304,10 +304,7 @@ pub unsafe extern "C" fn ffi_refresh_x509_certificate(
         return false;
     }
 
-    let mut signatory = Signatory::Yubikey(YubikeySigner {
-        yk: yk.into(),
-        slot,
-    });
+    let mut signatory = Signatory::Yubikey(YubikeySigner::new(yk, slot));
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,

@@ -58,6 +58,21 @@ pub struct RusticaServer {
 pub struct YubikeySigner {
     pub slot: SlotId,
     pub yk: Mutex<Yubikey>,
+    pub touch_required: bool,
+}
+
+impl YubikeySigner {
+    pub fn new(mut yk: Yubikey, slot: SlotId) -> Self {
+        let touch_required = yk
+            .touch_requirement(&slot)
+            .map(|r| r.is_required())
+            .unwrap_or(false);
+        Self {
+            yk: yk.into(),
+            slot,
+            touch_required,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -74,6 +89,7 @@ pub struct YubikeyPIVKeyDescriptor {
     pub public_key: PublicKey,
     pub pin: Option<String>,
     pub subject: String,
+    pub touch_required: bool,
 }
 
 pub struct MtlsCredentials {
@@ -401,11 +417,7 @@ impl SshAgentHandler for Handler {
                 AgentError::from("Unable to open Yubikey")
             })?;
 
-            if yk
-                .touch_requirement(&descriptor.slot)
-                .map(|requirement| requirement.is_required())
-                .unwrap_or(false)
-            {
+            if descriptor.touch_required {
                 if let Some(f) = &self.notification_function {
                     println!("Trying to send a notification");
                     f()
@@ -480,11 +492,7 @@ impl SshAgentHandler for Handler {
             // won't have to tap here is if they are using cached keys and this is right after
             // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be
             // spurious.
-            if yk
-                .touch_requirement(&signer.slot)
-                .map(|requirement| requirement.is_required())
-                .unwrap_or(false)
-            {
+            if signer.touch_required {
                 if let Some(f) = &self.notification_function {
                     f()
                 }
@@ -539,6 +547,10 @@ fn piv_key_descriptor_from_yubikey(
 ) -> Option<YubikeyPIVKeyDescriptor> {
     let public_key = yk.ssh_cert_fetch_pubkey(&slot).ok()?;
     let subject = yk.fetch_subject(&slot).unwrap_or_default();
+    let touch_required = yk
+        .touch_requirement(&slot)
+        .map(|r| r.is_required())
+        .unwrap_or(false);
 
     Some(YubikeyPIVKeyDescriptor {
         serial,
@@ -546,6 +558,7 @@ fn piv_key_descriptor_from_yubikey(
         public_key,
         pin,
         subject,
+        touch_required,
     })
 }
 
