@@ -130,11 +130,11 @@ pub async fn configure_multimode(
         .ok_or(Error::NoKeyDir)
         .map_err(|x| ConfigurationError::MultiModeError(x))?;
     // Multimode examples:
-    //   FIDO cert + PIV extras: --dir keys/ --certfor <fido-key-fingerprint>
-    //   PIV cert + PIV extras:  --dir keys/ --certfor <piv-cert-key-fingerprint>
-    //   PIV cert + FIDO extras: --dir keys/ --certfor <piv-cert-key-fingerprint>
+    //   FIDO cert + PIV extras: --dir keys/ --cert-for <fido-key-fingerprint>
+    //   PIV cert + PIV extras:  --dir keys/ --cert-for <piv-cert-key-fingerprint>
+    //   PIV cert + FIDO extras: --dir keys/ --cert-for <piv-cert-key-fingerprint>
     // Put private key files/FIDO handles and PIV .pub selector files in the same
-    // directory; --certfor chooses the cert key and the rest stay available to SSH.
+    // directory; --cert-for chooses the cert key and the rest stay available to SSH.
     let (public_keys, mut private_keys) =
         get_keys_from_dir(key_dir).map_err(|x| ConfigurationError::MultiModeError(x))?;
     let mut key_map =

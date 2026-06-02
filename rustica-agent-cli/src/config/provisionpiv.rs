@@ -39,6 +39,8 @@ pub fn configure_provision_piv(
     let touch_policy = if matches.is_present("require-touch") {
         match matches.value_of("require-touch") {
             Some("cached") => TouchPolicy::Cached,
+            Some("never") => TouchPolicy::Never,
+            Some("always") => TouchPolicy::Always,
             None => TouchPolicy::Always, // Flag present without value
             Some(other) => {
                 return Err(ConfigurationError::YubikeyError(format!(
@@ -48,7 +50,7 @@ pub fn configure_provision_piv(
             }
         }
     } else {
-        TouchPolicy::Never // Flag absent
+        TouchPolicy::Cached // Flag absent: tap required, cached for 15 seconds
     };
     let subject = matches.value_of("subject").unwrap().to_string();
     let management_key = match hex::decode(matches.value_of("management-key").unwrap()) {
@@ -108,12 +110,12 @@ pub fn add_configuration(cmd: Command) -> Command {
     )
     .arg(
         Arg::new("require-touch")
-            .help("Touch policy for the key. No flag = no touch required. Flag without value = always require touch. --require-touch=cached = touch cached for 15 seconds.")
+            .help("Touch policy for the key. No flag = touch cached for 15 seconds (default). -r/--require-touch (no value) = always require touch. --require-touch=cached = touch cached for 15 seconds. --require-touch=always = always require touch. --require-touch=never = no touch required.")
             .long("require-touch")
             .short('r')
             .takes_value(true)
             .min_values(0)
-            .possible_values(["cached"])
+            .possible_values(["cached", "always", "never"])
     )
     .arg(
         Arg::new("pin-policy")
