@@ -70,7 +70,9 @@ fn rcgen_certificate_from_yubikey(
     serial: u32,
     slot: SlotId,
 ) -> Result<X509Certificate, SigningError> {
-    let yk_x509_signer = CSRSigner::new(serial, slot);
+    let yk_x509_signer = CSRSigner::new(serial, slot).map_err(|_| {
+        SigningError::AccessError("Could not create CSR signer from Yubikey".to_owned())
+    })?;
 
     let mut ca_params = CertificateParams::new(vec![]);
     ca_params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
