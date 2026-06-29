@@ -384,10 +384,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         stale_at: Mutex::new(0),
         pubkey,
         certificate_options,
-        signatory: Signatory::Yubikey(YubikeySigner::new(
-            Yubikey::open(yubikey_serial).unwrap(),
-            slot,
-        )),
+        signatory: Signatory::Yubikey(YubikeySigner::new(yk, slot)),
         identities: Mutex::new(HashMap::new()),
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
