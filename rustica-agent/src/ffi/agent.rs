@@ -1,7 +1,7 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::UpdatableConfiguration, get_piv_key_descriptor, CertificateConfig, Handler, PrivateKey,
-    Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::UpdatableConfiguration, piv_key_descriptor_from_yubikey, CertificateConfig, Handler,
+    PrivateKey, Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -57,7 +57,9 @@ unsafe fn build_piv_identities_from_ffi(
     let key_slots = slice::from_raw_parts(piv_slots, piv_key_count);
     let key_pins = slice::from_raw_parts(piv_pins, piv_key_count);
 
-    let mut piv_identities = HashMap::new();
+    // Group the requested identities by serial so that each physical Yubikey is
+    // opened once, even when several slots on the same device are requested.
+    let mut keys_by_serial: HashMap<u32, Vec<(SlotId, Option<String>)>> = HashMap::new();
     for ((serial, slot), pin) in key_serials
         .iter()
         .zip(key_slots.iter())
@@ -71,13 +73,21 @@ unsafe fn build_piv_identities_from_ffi(
             None
         };
 
-        let descriptor = get_piv_key_descriptor(serial, slot, pin)?;
-        let encoded = descriptor.public_key.encode().to_vec();
-        if skip_key == Some(encoded.as_slice()) {
-            continue;
-        }
+        keys_by_serial.entry(serial).or_default().push((slot, pin));
+    }
 
-        piv_identities.insert(encoded, descriptor);
+    let mut piv_identities = HashMap::new();
+    for (serial, slots) in keys_by_serial {
+        let mut yk = Yubikey::open(serial).ok()?;
+        for (slot, pin) in slots {
+            let descriptor = piv_key_descriptor_from_yubikey(&mut yk, serial, slot, pin)?;
+            let encoded = descriptor.public_key.encode().to_vec();
+            if skip_key == Some(encoded.as_slice()) {
+                continue;
+            }
+
+            piv_identities.insert(encoded, descriptor);
+        }
     }
 
     Some(piv_identities)
