@@ -136,8 +136,10 @@ pub async fn complete_rustica_challenge(
             // would clear a pin-once verification.
             if signer.pin_required {
                 match &signer.pin {
-                    Some(pin) => crate::verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)
-                        .map_err(|_| RefreshError::SigningError)?,
+                    Some(pin) => {
+                        crate::verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)
+                            .map_err(|_| RefreshError::SigningError)?
+                    }
                     None => return Err(RefreshError::SigningError),
                 }
             }
