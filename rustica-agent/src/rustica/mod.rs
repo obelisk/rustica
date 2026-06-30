@@ -130,10 +130,18 @@ pub async fn complete_rustica_challenge(
 
     let resigned_certificate = match signatory {
         Signatory::Yubikey(signer) => {
-            let signature = signer
-                .yk
-                .lock()
-                .await
+            let mut yk = signer.yk.lock().await;
+            // Verify the PIN for PIN-protected keys. This must be the last step
+            // before signing: the reconnect() above resets the PIV session and
+            // would clear a pin-once verification.
+            if signer.pin_required {
+                match &signer.pin {
+                    Some(pin) => crate::verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)
+                        .map_err(|_| RefreshError::SigningError)?,
+                    None => return Err(RefreshError::SigningError),
+                }
+            }
+            let signature = yk
                 .ssh_cert_signer(&challenge_certificate.tbs_certificate(), &signer.slot)
                 .map_err(|_| RefreshError::SigningError)?;
             challenge_certificate

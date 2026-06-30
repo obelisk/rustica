@@ -58,7 +58,16 @@ pub struct RusticaServer {
 pub struct YubikeySigner {
     pub slot: SlotId,
     pub yk: Mutex<Yubikey>,
+    /// Device serial, used for the PIN env lookup and diagnostics.
+    pub serial: Option<u32>,
     pub touch_required: bool,
+    /// Whether the slot's PIN policy requires the PIN to be verified before
+    /// signing. Derived from slot metadata, exactly like `touch_required`.
+    pub pin_required: bool,
+    /// PIN used when `pin_required`. Resolved from the environment
+    /// (`YK_PIN_<serial>`/`YK_PIN`), the same way secondary PIV identities are
+    /// (see `get_all_piv_keys`).
+    pub pin: Option<String>,
 }
 
 impl YubikeySigner {
@@ -67,10 +76,16 @@ impl YubikeySigner {
             .touch_requirement(&slot)
             .map(|r| r.is_required())
             .unwrap_or(false);
+        let pin_required = pin_required_for_slot(&mut yk, &slot);
+        let serial = yk.serial().ok().map(|s| s.into());
+        let pin = serial.and_then(yubikey_pin_from_env);
         Self {
             yk: yk.into(),
             slot,
+            serial,
             touch_required,
+            pin_required,
+            pin,
         }
     }
 }
@@ -90,6 +105,9 @@ pub struct YubikeyPIVKeyDescriptor {
     pub pin: Option<String>,
     pub subject: String,
     pub touch_required: bool,
+    /// Whether the slot's PIN policy requires the PIN before signing. Derived
+    /// from slot metadata, exactly like `touch_required`.
+    pub pin_required: bool,
 }
 
 pub struct MtlsCredentials {
@@ -428,22 +446,13 @@ impl SshAgentHandler for Handler {
                 println!("Skipping notification for no-touch key");
             }
 
-            if let Some(pin) = &descriptor.pin {
-                if let Err(e) = yk.unlock(
-                    pin.as_bytes(),
-                    &hex::decode("010203040506070801020304050607080102030405060708").unwrap(),
-                ) {
-                    println!("Unlock Error: {e}");
-                    let tries_remaining =
-                        yk.yk.get_pin_retries().map(|x| x as i32).map_err(|e| {
-                            println!(
-                                "Could not fetch pin retries [{e}] for Yubikey: {}",
-                                descriptor.serial
-                            );
-                            AgentError::from("Could not fetch pin retries")
-                        })?;
-                    println!("Could not unlock Yubikey: {tries_remaining} tries remaining");
-                    return Err(AgentError::from("Yubikey unlocking error"));
+            if descriptor.pin_required {
+                match &descriptor.pin {
+                    Some(pin) => verify_yk_pin(&mut yk, descriptor.serial, pin)?,
+                    None => {
+                        println!("Key requires a PIN but none was provided (set YK_PIN)");
+                        return Err(AgentError::from("Yubikey PIN required but not provided"));
+                    }
                 }
             }
 
@@ -498,6 +507,16 @@ impl SshAgentHandler for Handler {
                 }
             }
 
+            if signer.pin_required {
+                match &signer.pin {
+                    Some(pin) => verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)?,
+                    None => {
+                        println!("Key requires a PIN but none was provided (set YK_PIN)");
+                        return Err(AgentError::from("Yubikey PIN required but not provided"));
+                    }
+                }
+            }
+
             let signature = yk.ssh_cert_signer(&data, &signer.slot).map_err(|e| {
                 println!("Signing Error: {e}");
                 AgentError::from("Yubikey signing error")
@@ -508,6 +527,39 @@ impl SshAgentHandler for Handler {
             return Err(AgentError::from("Signing Error: No Valid Keys"));
         }
     }
+}
+
+/// Whether a slot's PIN policy requires the PIN before a private-key operation.
+/// Derived from slot metadata, mirroring how touch requirement is resolved. We
+/// only treat `Once`/`Always` as requiring a PIN; `Never`, the device default,
+/// and missing metadata are treated as "no PIN", so we never verify (and never
+/// risk the retry counter) for keys that don't need it.
+pub(crate) fn pin_required_for_slot(yk: &mut Yubikey, slot: &SlotId) -> bool {
+    match yubikey::piv::metadata(&mut yk.yk, *slot) {
+        Ok(metadata) => matches!(
+            metadata.policy,
+            Some((PinPolicy::Once | PinPolicy::Always, _))
+        ),
+        Err(_) => false,
+    }
+}
+
+/// Verify the PIN on a Yubikey so a PIN-protected key (e.g. a no-touch PIV
+/// provisioned with `PinPolicy::Once`) can sign. This is PIN verification only:
+/// signing never needs the management key, so we don't authenticate with it.
+/// On failure we surface the number of remaining PIN attempts and return without
+/// retrying, so we never burn through the retry counter and block the card.
+pub(crate) fn verify_yk_pin(yk: &mut Yubikey, serial: u32, pin: &str) -> Result<(), AgentError> {
+    if let Err(e) = yk.yk.verify_pin(pin.as_bytes()) {
+        println!("PIN verification error for Yubikey {serial}: {e}");
+        let tries_remaining = yk.yk.get_pin_retries().map(|x| x as i32).map_err(|e| {
+            println!("Could not fetch pin retries [{e}] for Yubikey: {serial}");
+            AgentError::from("Could not fetch pin retries")
+        })?;
+        println!("Could not verify PIN for Yubikey {serial}: {tries_remaining} tries remaining");
+        return Err(AgentError::from("Yubikey PIN verification error"));
+    }
+    Ok(())
 }
 
 /// Takes in a human readable slot descriptor and parses it into the Yubikey
@@ -551,6 +603,7 @@ fn piv_key_descriptor_from_yubikey(
         .touch_requirement(&slot)
         .map(|r| r.is_required())
         .unwrap_or(false);
+    let pin_required = pin_required_for_slot(yk, &slot);
 
     Some(YubikeyPIVKeyDescriptor {
         serial,
@@ -559,6 +612,7 @@ fn piv_key_descriptor_from_yubikey(
         pin,
         subject,
         touch_required,
+        pin_required,
     })
 }
 
@@ -636,30 +690,25 @@ pub fn list_yubikey_serials() -> Result<Vec<i64>, RusticaAgentLibraryError> {
     Ok(serials)
 }
 
+/// Resolve the PIN for a Yubikey from the environment. A per-serial
+/// `YK_PIN_<serial>` variable takes precedence over the global `YK_PIN`.
+/// Returns `None` if neither is set.
+pub(crate) fn yubikey_pin_from_env(serial: u32) -> Option<String> {
+    env::var(format!("YK_PIN_{serial}"))
+        .ok()
+        .or_else(|| env::var("YK_PIN").ok())
+}
+
 /// List all PIV keys on all connected Yubikeys
 pub fn get_all_piv_keys(
 ) -> Result<HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>, RusticaAgentLibraryError> {
     let mut all_keys = HashMap::new();
     let serials = list_yubikey_serials()?;
 
-    let global_pin = match env::var("YK_PIN") {
-        Ok(val) => Some(val),
-        Err(_e) => None,
-    };
-
     for serial in serials {
-        let pin = match env::var(format!("YK_PIN_{serial}")) {
-            Ok(val) => Some(val),
-            Err(_e) => None,
-        };
-
-        let pin = match (pin, &global_pin) {
-            (Some(pin), _) => Some(pin),
-            (None, Some(pin)) => Some(pin.clone()),
-            (None, None) => None,
-        };
-
         let serial = serial as u32;
+        let pin = yubikey_pin_from_env(serial);
+
         match &mut Yubikey::open(serial) {
             Ok(yk) => {
                 for slot in 0x82..0x96_u8 {
