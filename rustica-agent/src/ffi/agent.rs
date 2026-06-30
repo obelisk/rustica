@@ -65,7 +65,7 @@ unsafe fn build_piv_identities_from_ffi(
         .zip(key_slots.iter())
         .zip(key_pins.iter())
     {
-        let serial = *serial as u32;
+        let serial = u32::try_from(*serial).ok()?;
         let slot = SlotId::try_from(*slot).ok()?;
         let pin = if *pin != 0 {
             Some(pin.to_string())
