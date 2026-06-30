@@ -78,7 +78,9 @@ impl YubikeySigner {
             .unwrap_or(false);
         let pin_required = pin_required_for_slot(&mut yk, &slot);
         let serial = yk.serial().ok().map(|s| s.into());
-        let pin = serial.and_then(yubikey_pin_from_env);
+        let pin = serial
+            .and_then(yubikey_pin_from_env)
+            .or_else(|| env::var("YK_PIN").ok());
         Self {
             yk: yk.into(),
             slot,
