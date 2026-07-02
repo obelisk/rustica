@@ -196,6 +196,16 @@ pub struct Handler {
     /// Should we list the certificate or key first when we're asked to list
     /// identities
     pub certificate_priority: bool,
+    /// When true, only the Rustica-issued certificate is advertised for the
+    /// primary key (the bare public key is suppressed). Used for no-touch PIV
+    /// primary mode where we don't want a standalone key entry. If no server
+    /// certificate is available we still fall back to advertising the bare key.
+    pub list_primary_certificate_only: bool,
+    /// An optional FIDO (sk-*) key exposed as a direct signing key with no
+    /// Rustica certificate. Listed last in the identity list so ordering reads
+    /// [piv-primary (per certificate_priority), fido]. Signed directly via
+    /// PrivateKey::sign, exactly like the Signatory::Direct branch.
+    pub fido_identity: Option<PrivateKey>,
 }
 
 impl std::fmt::Debug for Handler {
@@ -386,15 +396,50 @@ impl SshAgentHandler for Handler {
             key_comment: String::new(),
         };
 
-        // The last identities are our key and certificate in the requested order
+        // The FIDO direct key (if any), built once so it can participate in the
+        // certificate_priority ordering below.
+        let fido = self.fido_identity.as_ref().map(|fido| Identity {
+            key_blob: fido.pubkey.encode().to_vec(),
+            key_comment: fido.comment.clone(),
+        });
+
+        // The last identities are our primary key/certificate (and optional FIDO
+        // direct key) in the requested order. certificate_priority == true lists the
+        // certificate first.
         match (certificate, self.certificate_priority) {
-            (Err(_), _) => identities.push(Identity {
-                key_blob: self.pubkey.encode().to_vec(),
-                key_comment: "No server returned valid certificate. Only your key is available"
-                    .to_string(),
-            }),
-            (Ok(cert), false) => identities.extend(vec![key, cert]),
-            (Ok(cert), true) => identities.extend(vec![cert, key]),
+            (Err(_), _) => {
+                identities.push(Identity {
+                    key_blob: self.pubkey.encode().to_vec(),
+                    key_comment: "No server returned valid certificate. Only your key is available"
+                        .to_string(),
+                });
+                // No certificate, so nothing to reorder against; FIDO is listed last.
+                if let Some(fido) = fido {
+                    identities.push(fido);
+                }
+            }
+            // No-touch PIV primary mode: advertise only the certificate, never the bare
+            // key. The PIV cert and the FIDO direct key are the primary pair, so they
+            // flip together with certificate_priority: cert-first when prioritized.
+            (Ok(cert), priority) if self.list_primary_certificate_only => {
+                match (fido, priority) {
+                    (Some(fido), true) => identities.extend(vec![cert, fido]),
+                    (Some(fido), false) => identities.extend(vec![fido, cert]),
+                    (None, _) => identities.push(cert),
+                }
+            }
+            (Ok(cert), false) => {
+                identities.extend(vec![key, cert]);
+                if let Some(fido) = fido {
+                    identities.push(fido);
+                }
+            }
+            (Ok(cert), true) => {
+                identities.extend(vec![cert, key]);
+                if let Some(fido) = fido {
+                    identities.push(fido);
+                }
+            }
         };
 
         // Finally return all identities
@@ -462,6 +507,29 @@ impl SshAgentHandler for Handler {
                 println!("Signing Error: {e}");
                 AgentError::from("Yubikey signing error")
             })?;
+
+            return Ok(Response::SignResponse { signature });
+        } else if self
+            .fido_identity
+            .as_ref()
+            .is_some_and(|fido| fido.pubkey.fingerprint() == fingerprint)
+        {
+            // The FIDO key is a direct signing key with no certificate. It's
+            // signed exactly like a Signatory::Direct key. A fingerprint
+            // mismatch is handled by the guard above so a non-matching request
+            // still falls through to the primary signatory branches.
+            let fido = self.fido_identity.as_ref().unwrap();
+
+            if fido.touch_requirement().is_required() {
+                if let Some(f) = &self.notification_function {
+                    f()
+                }
+            }
+
+            let signature = match fido.sign(&data) {
+                None => return Err(AgentError::from("Signing Error")),
+                Some(signature) => signature,
+            };
 
             return Ok(Response::SignResponse { signature });
         } else if let Signatory::Direct(privkey) = &self.signatory {

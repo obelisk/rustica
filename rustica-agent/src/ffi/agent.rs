@@ -247,6 +247,8 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
+        list_primary_certificate_only: false,
+        fido_identity: None,
     };
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
@@ -305,6 +307,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         slot,
         config_path,
         socket_path,
+        std::ptr::null(),
         notification_fn,
         authority,
         certificate_priority,
@@ -312,21 +315,28 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         std::ptr::null(),
         std::ptr::null(),
         0,
+        false,
+        std::ptr::null(),
     )
 }
 
 /// Start a new Rustica instance backed by a Yubikey PIV primary key and optional
 /// additional Yubikey PIV identities. Does not return unless Rustica exits.
 /// # Safety
-/// `config_path` and `socket_path` must be null terminated C strings.
+/// `config_path` and `socket_path` must be null terminated C strings. `pin`, if
+/// non-null, must be a null terminated C string holding the primary YubiKey's PIN.
 /// If `piv_key_count` is greater than zero, `piv_serials`, `piv_slots`, and
 /// `piv_pins` must point to arrays with at least `piv_key_count` entries.
+/// `fido_private_key`, if non-null, must be a null terminated C string holding a
+/// FIDO (sk-*) private key in OpenSSH PEM form; it is exposed as a direct signing
+/// key (no certificate) alongside the PIV primary.
 #[no_mangle]
 pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     yubikey_serial: u32,
     slot: u8,
     config_path: *const c_char,
     socket_path: *const c_char,
+    pin: *const c_char,
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
     certificate_priority: bool,
@@ -334,6 +344,8 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     piv_slots: *const u8,
     piv_pins: *const c_long,
     piv_key_count: c_int,
+    list_primary_certificate_only: bool,
+    fido_private_key: *const c_char,
 ) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();
     println!("Starting a new Rustica instance!");
@@ -371,6 +383,17 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
     certificate_options.authority = authority;
 
+    // The primary key's PIN is optionally supplied over FFI. When absent,
+    // `YubikeySigner::new` falls back to the `YK_PIN_<serial>`/`YK_PIN` env vars.
+    let primary_pin = if pin.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(pin).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(_) => return std::ptr::null(),
+        }
+    };
+
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
     let slot = SlotId::try_from(slot).unwrap();
     let pubkey = match yk.ssh_cert_fetch_pubkey(&slot) {
@@ -388,25 +411,49 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         None => return std::ptr::null(),
     };
 
+    let mut signer = YubikeySigner::new(yk, slot);
+    if primary_pin.is_some() {
+        signer.pin = primary_pin;
+    }
+
+    // Optionally expose a FIDO key as a direct signing key (no certificate)
+    // alongside the PIV primary. Parsed the same way as the direct-agent path.
+    let fido_identity = if fido_private_key.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(fido_private_key).to_str() {
+            Ok(s) => match PrivateKey::from_string(s) {
+                Ok(p) => Some(p),
+                Err(_) => return std::ptr::null(),
+            },
+            Err(_) => return std::ptr::null(),
+        }
+    };
+
     let handler = Handler {
         updatable_configuration: Mutex::new(updatable_configuration),
         cert: None.into(),
         stale_at: Mutex::new(0),
         pubkey,
         certificate_options,
-        signatory: Signatory::Yubikey(YubikeySigner::new(yk, slot)),
+        signatory: Signatory::Yubikey(signer),
         identities: Mutex::new(HashMap::new()),
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
+        list_primary_certificate_only,
+        fido_identity,
     };
 
     println!("Slot: {:?}", SlotId::try_from(slot));
 
     let sp = CStr::from_ptr(socket_path);
+    // Own the path before spawning: the raw `socket_path` pointer is only valid
+    // for the duration of this FFI call, so the borrowed &str would dangle by the
+    // time the spawned task reads it on a worker thread (interior-null garbage).
     let socket_path = match sp.to_str() {
         Err(_) => return std::ptr::null(),
-        Ok(s) => s,
+        Ok(s) => s.to_owned(),
     };
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
@@ -417,7 +464,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     runtime.spawn(async move {
         Agent::run_with_termination_channel(
             runtime_handler,
-            socket_path.to_string(),
+            socket_path,
             Some(shutdown_receiver),
         )
         .await;
