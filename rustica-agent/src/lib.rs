@@ -661,15 +661,6 @@ fn piv_key_descriptor_from_yubikey(
     })
 }
 
-pub fn get_piv_key_descriptor(
-    serial: u32,
-    slot: SlotId,
-    pin: Option<String>,
-) -> Option<YubikeyPIVKeyDescriptor> {
-    let mut yk = Yubikey::open(serial).ok()?;
-    piv_key_descriptor_from_yubikey(&mut yk, serial, slot, pin)
-}
-
 /// Provisions a new keypair on the Yubikey with the given settings.
 pub async fn provision_new_key(
     yubikey: YubikeySigner,
