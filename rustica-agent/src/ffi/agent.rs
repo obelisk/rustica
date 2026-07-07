@@ -325,8 +325,17 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     )
 }
 
-/// Start a new Rustica instance backed by a Yubikey PIV primary key and optional
-/// additional Yubikey PIV identities. Does not return unless Rustica exits.
+/// Start a new Rustica instance whose primary identity lives on a Yubikey PIV
+/// slot (`yubikey_serial`/`slot`). Does not return unless Rustica exits.
+///
+/// - By default the agent advertises both the bare primary key and its
+///   certificate; set `list_primary_certificate_only` to advertise only the
+///   certificate (e.g. for no-touch PIV keys where the bare key isn't usable).
+/// - Pass `piv_key_count > 0` to also load additional PIV identities from
+///   other slots/Yubikeys (`piv_serials`/`piv_slots`/`piv_pins`); any entry
+///   matching the primary key is skipped automatically.
+/// - Pass a non-null `fido_private_key` to additionally advertise a FIDO
+///   identity alongside the primary key.
 /// # Safety
 /// `config_path` and `socket_path` must be null terminated C strings. `pin` and
 /// `fido_private_key`, if non-null, must also be null terminated C strings. If
