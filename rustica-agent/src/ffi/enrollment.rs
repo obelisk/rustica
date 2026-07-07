@@ -254,10 +254,98 @@ pub unsafe extern "C" fn generate_and_enroll(
             Err(_) => return false,
         };
 
-    let mut signatory = Signatory::Yubikey(YubikeySigner {
-        yk: yk.into(),
-        slot,
-    });
+    let mut signatory = Signatory::Yubikey(YubikeySigner::new(yk, slot));
+
+    let runtime = match Runtime::new() {
+        Ok(rt) => rt,
+        _ => return false,
+    };
+
+    let runtime_handle = runtime.handle().to_owned();
+
+    for server in &updatable_configuration.get_configuration().servers {
+        match server.register_key(&mut signatory, &key_config, &runtime_handle) {
+            Ok(_) => {
+                println!(
+                    "Key was successfully registered with server: {}",
+                    server.address
+                );
+                return true;
+            }
+            Err(e) => {
+                error!("Key could not be registered. Server said: {}", e);
+            }
+        };
+    }
+
+    error!("All servers failed to register key");
+    false
+}
+
+/// Enroll an already-provisioned key in the given slot with the Rustica server.
+/// Exports the existing key's attestation and registers it; no touch_policy/
+/// pin_policy argument is needed since the server reads those from the
+/// attestation.
+///
+/// # Safety
+/// config_path, pin, and management_key must all be valid, null terminated C
+/// strings or this function's behaviour is undefined and will result in a crash.
+#[no_mangle]
+pub unsafe extern "C" fn enroll_existing_piv(
+    yubikey_serial: u32,
+    slot: u8,
+    config_path: *const c_char,
+    pin: *const c_char,
+    management_key: *const c_char,
+) -> bool {
+    println!("Enrolling an existing key!");
+    let cf = CStr::from_ptr(config_path);
+    let config_path = match cf.to_str() {
+        Err(_) => return false,
+        Ok(s) => s,
+    };
+
+    let updatable_configuration = match UpdatableConfiguration::new(config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Configuration was invalid: {e}");
+            return false;
+        }
+    };
+
+    let pin = CStr::from_ptr(pin);
+    let management_key = CStr::from_ptr(management_key);
+    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
+
+    let slot = SlotId::try_from(slot).unwrap();
+
+    let mut yk = Yubikey::open(yubikey_serial).unwrap();
+
+    if yk
+        .unlock(pin.to_str().unwrap().as_bytes(), &management_key)
+        .is_err()
+    {
+        println!("Could not unlock key");
+        return false;
+    }
+
+    // Export the attestation of the key already living in the slot — no
+    // provisioning happens here, so the existing keypair is left untouched.
+    let certificate = yk.fetch_attestation(&slot);
+    let intermediate = yk.fetch_certificate(&SlotId::Attestation);
+
+    let key_config = match (certificate, intermediate) {
+        (Ok(certificate), Ok(intermediate)) => PIVAttestation {
+            certificate,
+            intermediate,
+        },
+        _ => {
+            error!("Could not export attestation for slot {slot:?}. Is it provisioned and attestable (not imported)?");
+            return false;
+        }
+    };
+
+    let mut signatory = Signatory::Yubikey(YubikeySigner::new(yk, slot));
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
@@ -290,6 +378,7 @@ pub unsafe extern "C" fn generate_and_enroll(
 pub unsafe extern "C" fn provision_piv(
     yubikey_serial: u32,
     slot: u8,
+    touch_policy: u8,
     subject: *const c_char,
     pin: *const c_char,
     management_key: *const c_char,
@@ -302,7 +391,12 @@ pub unsafe extern "C" fn provision_piv(
     let management_key = CStr::from_ptr(management_key);
     let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
     let subject = CStr::from_ptr(subject);
-    let policy = TouchPolicy::Always;
+
+    let policy = match touch_policy {
+        0 => TouchPolicy::Never,
+        1 => TouchPolicy::Cached,
+        _ => TouchPolicy::Always,
+    };
 
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
 

@@ -86,10 +86,10 @@ fn get_signatory(
     // If none of these, error.
     match (cmd_slot, config_slot, file, &config_key) {
         (Some(slot), _, _, _) => match slot_parser(slot) {
-            Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
-                yk: Yubikey::new().unwrap().into(),
-                slot: s,
-            })),
+            Some(s) => Ok(Signatory::Yubikey(YubikeySigner::new(
+                Yubikey::new().unwrap(),
+                s,
+            ))),
             None => Err(ConfigurationError::BadSlot),
         },
         (_, _, Some(file), _) => match PrivateKey::from_path(file) {
@@ -100,10 +100,10 @@ fn get_signatory(
             ))),
         },
         (_, Some(slot), _, _) => match slot_parser(slot) {
-            Some(s) => Ok(Signatory::Yubikey(YubikeySigner {
-                yk: Yubikey::new().unwrap().into(),
-                slot: s,
-            })),
+            Some(s) => Ok(Signatory::Yubikey(YubikeySigner::new(
+                Yubikey::new().unwrap(),
+                s,
+            ))),
             None => Err(ConfigurationError::BadSlot),
         },
         (_, _, _, Some(key_string)) => Ok(Signatory::Direct(

@@ -58,6 +58,35 @@ pub struct RusticaServer {
 pub struct YubikeySigner {
     pub slot: SlotId,
     pub yk: Mutex<Yubikey>,
+    /// Device serial, used for the PIN env lookup and diagnostics.
+    pub serial: Option<u32>,
+    pub touch_required: bool,
+    /// PIN required by the slot's PIN policy (from metadata, like touch_required).
+    pub pin_required: bool,
+    /// PIN resolved from YK_PIN_<serial>/YK_PIN.
+    pub pin: Option<String>,
+}
+
+impl YubikeySigner {
+    pub fn new(mut yk: Yubikey, slot: SlotId) -> Self {
+        let touch_required = yk
+            .touch_requirement(&slot)
+            .map(|r| r.is_required())
+            .unwrap_or(false);
+        let pin_required = pin_required_for_slot(&mut yk, &slot);
+        let serial = yk.serial().ok().map(|s| s.into());
+        let pin = serial
+            .and_then(yubikey_pin_from_env)
+            .or_else(|| env::var("YK_PIN").ok());
+        Self {
+            yk: yk.into(),
+            slot,
+            serial,
+            touch_required,
+            pin_required,
+            pin,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -74,6 +103,9 @@ pub struct YubikeyPIVKeyDescriptor {
     pub public_key: PublicKey,
     pub pin: Option<String>,
     pub subject: String,
+    pub touch_required: bool,
+    /// PIN required by the slot's PIN policy (from metadata, like touch_required).
+    pub pin_required: bool,
 }
 
 pub struct MtlsCredentials {
@@ -160,6 +192,12 @@ pub struct Handler {
     /// Should we list the certificate or key first when we're asked to list
     /// identities
     pub certificate_priority: bool,
+    /// When true, suppress the bare primary key and only advertise its
+    /// certificate (falls back to the bare key if no certificate is available).
+    pub list_primary_certificate_only: bool,
+    /// An optional FIDO (sk-*) key exposed as a direct signing key with no
+    /// Rustica certificate.
+    pub fido_identity: Option<PrivateKey>,
 }
 
 impl std::fmt::Debug for Handler {
@@ -350,15 +388,42 @@ impl SshAgentHandler for Handler {
             key_comment: String::new(),
         };
 
-        // The last identities are our key and certificate in the requested order
+        let fido = self.fido_identity.as_ref().map(|fido| Identity {
+            key_blob: fido.pubkey.encode().to_vec(),
+            key_comment: fido.comment.clone(),
+        });
+
+        // The last identities are our primary key/certificate (and optional FIDO
+        // direct key), ordered by certificate_priority.
         match (certificate, self.certificate_priority) {
-            (Err(_), _) => identities.push(Identity {
-                key_blob: self.pubkey.encode().to_vec(),
-                key_comment: "No server returned valid certificate. Only your key is available"
-                    .to_string(),
-            }),
-            (Ok(cert), false) => identities.extend(vec![key, cert]),
-            (Ok(cert), true) => identities.extend(vec![cert, key]),
+            (Err(_), _) => {
+                identities.push(Identity {
+                    key_blob: self.pubkey.encode().to_vec(),
+                    key_comment: "No server returned valid certificate. Only your key is available"
+                        .to_string(),
+                });
+                if let Some(fido) = fido {
+                    identities.push(fido);
+                }
+            }
+            // No-touch PIV primary mode: advertise only the certificate, never the bare key.
+            (Ok(cert), priority) if self.list_primary_certificate_only => match (fido, priority) {
+                (Some(fido), true) => identities.extend(vec![cert, fido]),
+                (Some(fido), false) => identities.extend(vec![fido, cert]),
+                (None, _) => identities.push(cert),
+            },
+            (Ok(cert), false) => {
+                identities.extend(vec![key, cert]);
+                if let Some(fido) = fido {
+                    identities.push(fido);
+                }
+            }
+            (Ok(cert), true) => {
+                identities.extend(vec![cert, key]);
+                if let Some(fido) = fido {
+                    identities.push(fido);
+                }
+            }
         };
 
         // Finally return all identities
@@ -401,29 +466,24 @@ impl SshAgentHandler for Handler {
                 AgentError::from("Unable to open Yubikey")
             })?;
 
-            if let Some(f) = &self.notification_function {
-                println!("Trying to send a notification");
-                f()
+            if descriptor.touch_required {
+                if let Some(f) = &self.notification_function {
+                    println!("Trying to send a notification");
+                    f()
+                } else {
+                    println!("No notification function set");
+                }
             } else {
-                println!("No notification function set");
+                println!("Skipping notification for no-touch key");
             }
 
-            if let Some(pin) = &descriptor.pin {
-                if let Err(e) = yk.unlock(
-                    pin.as_bytes(),
-                    &hex::decode("010203040506070801020304050607080102030405060708").unwrap(),
-                ) {
-                    println!("Unlock Error: {e}");
-                    let tries_remaining =
-                        yk.yk.get_pin_retries().map(|x| x as i32).map_err(|e| {
-                            println!(
-                                "Could not fetch pin retries [{e}] for Yubikey: {}",
-                                descriptor.serial
-                            );
-                            AgentError::from("Could not fetch pin retries")
-                        })?;
-                    println!("Could not unlock Yubikey: {tries_remaining} tries remaining");
-                    return Err(AgentError::from("Yubikey unlocking error"));
+            if descriptor.pin_required {
+                match &descriptor.pin {
+                    Some(pin) => verify_yk_pin(&mut yk, descriptor.serial, pin)?,
+                    None => {
+                        println!("Key requires a PIN but none was provided (set YK_PIN)");
+                        return Err(AgentError::from("Yubikey PIN required but not provided"));
+                    }
                 }
             }
 
@@ -431,6 +491,25 @@ impl SshAgentHandler for Handler {
                 println!("Signing Error: {e}");
                 AgentError::from("Yubikey signing error")
             })?;
+
+            return Ok(Response::SignResponse { signature });
+        } else if self
+            .fido_identity
+            .as_ref()
+            .is_some_and(|fido| fido.pubkey.fingerprint() == fingerprint)
+        {
+            let fido = self.fido_identity.as_ref().unwrap();
+
+            if fido.touch_requirement().is_required() {
+                if let Some(f) = &self.notification_function {
+                    f()
+                }
+            }
+
+            let signature = match fido.sign(&data) {
+                None => return Err(AgentError::from("Signing Error")),
+                Some(signature) => signature,
+            };
 
             return Ok(Response::SignResponse { signature });
         } else if let Signatory::Direct(privkey) = &self.signatory {
@@ -441,7 +520,7 @@ impl SshAgentHandler for Handler {
                 return Err(AgentError::from("No such key"));
             }
 
-            if privkey.key_type.is_sk {
+            if privkey.touch_requirement().is_required() {
                 if let Some(f) = &self.notification_function {
                     f()
                 }
@@ -472,8 +551,20 @@ impl SshAgentHandler for Handler {
             // won't have to tap here is if they are using cached keys and this is right after
             // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be
             // spurious.
-            if let Some(f) = &self.notification_function {
-                f()
+            if signer.touch_required {
+                if let Some(f) = &self.notification_function {
+                    f()
+                }
+            }
+
+            if signer.pin_required {
+                match &signer.pin {
+                    Some(pin) => verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)?,
+                    None => {
+                        println!("Key requires a PIN but none was provided (set YK_PIN)");
+                        return Err(AgentError::from("Yubikey PIN required but not provided"));
+                    }
+                }
             }
 
             let signature = yk.ssh_cert_signer(&data, &signer.slot).map_err(|e| {
@@ -486,6 +577,34 @@ impl SshAgentHandler for Handler {
             return Err(AgentError::from("Signing Error: No Valid Keys"));
         }
     }
+}
+
+/// Whether a slot's PIN policy requires the PIN before a private-key operation.
+/// Only `Once`/`Always` count; `Never` and missing metadata mean no PIN, so we
+/// never risk the retry counter on keys that don't need it.
+pub(crate) fn pin_required_for_slot(yk: &mut Yubikey, slot: &SlotId) -> bool {
+    match yubikey::piv::metadata(&mut yk.yk, *slot) {
+        Ok(metadata) => matches!(
+            metadata.policy,
+            Some((PinPolicy::Once | PinPolicy::Always, _))
+        ),
+        Err(_) => false,
+    }
+}
+
+/// PIN-only verification (no management key needed for signing). Fails without
+/// retrying so we never burn through the PIN retry counter.
+pub(crate) fn verify_yk_pin(yk: &mut Yubikey, serial: u32, pin: &str) -> Result<(), AgentError> {
+    if let Err(e) = yk.yk.verify_pin(pin.as_bytes()) {
+        println!("PIN verification error for Yubikey {serial}: {e}");
+        let tries_remaining = yk.yk.get_pin_retries().map(|x| x as i32).map_err(|e| {
+            println!("Could not fetch pin retries [{e}] for Yubikey: {serial}");
+            AgentError::from("Could not fetch pin retries")
+        })?;
+        println!("Could not verify PIN for Yubikey {serial}: {tries_remaining} tries remaining");
+        return Err(AgentError::from("Yubikey PIN verification error"));
+    }
+    Ok(())
 }
 
 /// Takes in a human readable slot descriptor and parses it into the Yubikey
@@ -517,23 +636,42 @@ pub fn slot_validator(slot: &str) -> Result<(), String> {
     }
 }
 
+fn piv_key_descriptor_from_yubikey(
+    yk: &mut Yubikey,
+    serial: u32,
+    slot: SlotId,
+    pin: Option<String>,
+) -> Option<YubikeyPIVKeyDescriptor> {
+    let public_key = yk.ssh_cert_fetch_pubkey(&slot).ok()?;
+    let subject = yk.fetch_subject(&slot).unwrap_or_default();
+    let touch_required = yk
+        .touch_requirement(&slot)
+        .map(|r| r.is_required())
+        .unwrap_or(false);
+    let pin_required = pin_required_for_slot(yk, &slot);
+
+    Some(YubikeyPIVKeyDescriptor {
+        serial,
+        slot,
+        public_key,
+        pin,
+        subject,
+        touch_required,
+        pin_required,
+    })
+}
+
 /// Provisions a new keypair on the Yubikey with the given settings.
 pub async fn provision_new_key(
     yubikey: YubikeySigner,
     pin: &str,
     subj: &str,
     mgm_key: &[u8],
-    require_touch: bool,
+    touch_policy: TouchPolicy,
     pin_policy: PinPolicy,
 ) -> Option<PIVAttestation> {
     println!("Provisioning new NISTP384 key in slot: {:?}", &yubikey.slot);
-
-    let policy = if require_touch {
-        println!("You're creating a key that will require touch to use.");
-        TouchPolicy::Always
-    } else {
-        TouchPolicy::Cached
-    };
+    println!("Creating key with touch policy: {:?}", touch_policy);
 
     let mut yk = yubikey.yk.lock().await;
 
@@ -542,7 +680,7 @@ pub async fn provision_new_key(
         return None;
     }
 
-    match yk.provision_p384(&yubikey.slot, subj, policy, pin_policy) {
+    match yk.provision_p384(&yubikey.slot, subj, touch_policy, pin_policy) {
         Ok(_) => {
             let certificate = yk.fetch_attestation(&yubikey.slot);
             let intermediate = yk.fetch_certificate(&SlotId::Attestation);
@@ -588,44 +726,31 @@ pub fn list_yubikey_serials() -> Result<Vec<i64>, RusticaAgentLibraryError> {
     Ok(serials)
 }
 
+/// `YK_PIN_<serial>` takes precedence over `YK_PIN`.
+pub(crate) fn yubikey_pin_from_env(serial: u32) -> Option<String> {
+    env::var(format!("YK_PIN_{serial}"))
+        .ok()
+        .or_else(|| env::var("YK_PIN").ok())
+}
+
 /// List all PIV keys on all connected Yubikeys
 pub fn get_all_piv_keys(
 ) -> Result<HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>, RusticaAgentLibraryError> {
     let mut all_keys = HashMap::new();
     let serials = list_yubikey_serials()?;
 
-    let global_pin = match env::var("YK_PIN") {
-        Ok(val) => Some(val),
-        Err(_e) => None,
-    };
-
     for serial in serials {
-        let pin = match env::var(format!("YK_PIN_{serial}")) {
-            Ok(val) => Some(val),
-            Err(_e) => None,
-        };
-
-        let pin = match (pin, &global_pin) {
-            (Some(pin), _) => Some(pin),
-            (None, Some(pin)) => Some(pin.clone()),
-            (None, None) => None,
-        };
-
         let serial = serial as u32;
+        let pin = yubikey_pin_from_env(serial);
+
         match &mut Yubikey::open(serial) {
             Ok(yk) => {
                 for slot in 0x82..0x96_u8 {
                     let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
-                    if let Ok(pubkey) = yk.ssh_cert_fetch_pubkey(&slot) {
-                        let subject = yk.fetch_subject(&slot).unwrap_or_default();
-                        let descriptor = YubikeyPIVKeyDescriptor {
-                            serial,
-                            slot,
-                            public_key: pubkey.clone(),
-                            pin: pin.clone(),
-                            subject,
-                        };
-                        all_keys.insert(pubkey.encode().to_vec(), descriptor);
+                    if let Some(descriptor) =
+                        piv_key_descriptor_from_yubikey(yk, serial, slot, pin.clone())
+                    {
+                        all_keys.insert(descriptor.public_key.encode().to_vec(), descriptor);
                     }
                 }
             }

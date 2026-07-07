@@ -1,7 +1,7 @@
 use std::env;
 
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::{slot_validator, Signatory, YubikeySigner};
+use rustica_agent::{slot_validator, Signatory, TouchPolicy, YubikeySigner};
 use yubikey::PinPolicy;
 
 use super::{get_signatory, ConfigurationError, RusticaAgentAction};
@@ -10,7 +10,7 @@ pub struct ProvisionPIVConfig {
     pub yubikey: YubikeySigner,
     pub pin: String,
     pub management_key: Vec<u8>,
-    pub require_touch: bool,
+    pub touch_policy: TouchPolicy,
     pub pin_policy: PinPolicy,
     pub subject: String,
 }
@@ -36,7 +36,16 @@ pub fn configure_provision_piv(
         Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile),
     };
 
-    let require_touch = matches.is_present("require-touch");
+    // No flag: cached (default). Bare -r/--touch-policy: always.
+    let touch_policy = if matches.is_present("touch-policy") {
+        match matches.value_of("touch-policy") {
+            Some("cached") => TouchPolicy::Cached,
+            Some("never") => TouchPolicy::Never,
+            _ => TouchPolicy::Always,
+        }
+    } else {
+        TouchPolicy::Cached
+    };
     let subject = matches.value_of("subject").unwrap().to_string();
     let management_key = match hex::decode(matches.value_of("management-key").unwrap()) {
         Ok(mgm) => mgm,
@@ -59,7 +68,7 @@ pub fn configure_provision_piv(
         pin,
         management_key,
         subject,
-        require_touch,
+        touch_policy,
         pin_policy,
     };
 
@@ -94,10 +103,14 @@ pub fn add_configuration(cmd: Command) -> Command {
             .takes_value(true),
     )
     .arg(
-        Arg::new("require-touch")
-            .help("Require the key to always be tapped. If this is not selected, a tap will be required if not tapped in the last 15 seconds.")
-            .long("require-touch")
+        Arg::new("touch-policy")
+            .help("Touch policy: cached (default; also when flag omitted), always, never. Bare -r means always (back-compat with --require-touch).")
+            .long("touch-policy")
+            .alias("require-touch")
             .short('r')
+            .takes_value(true)
+            .min_values(0)
+            .possible_values(["cached", "always", "never"])
     )
     .arg(
         Arg::new("pin-policy")

@@ -91,10 +91,10 @@ fn get_signatory(
     for (key, des) in public_keys {
         let key = PublicKey::from_bytes(key).unwrap();
         if certificate_fingerprint == key.fingerprint().hash {
-            let sig = Signatory::Yubikey(YubikeySigner {
-                yk: Yubikey::open(des.serial).unwrap().into(),
-                slot: des.slot,
-            });
+            let sig = Signatory::Yubikey(YubikeySigner::new(
+                Yubikey::open(des.serial).unwrap(),
+                des.slot,
+            ));
             return Ok((des.public_key.clone(), sig));
         }
     }
@@ -168,6 +168,8 @@ pub async fn configure_multimode(
         piv_identities: key_map,
         notification_function: None,
         certificate_priority: matches.is_present("certificate-priority"),
+        list_primary_certificate_only: false,
+        fido_identity: None,
     };
 
     let handler = Arc::new(handler);

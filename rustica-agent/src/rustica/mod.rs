@@ -117,16 +117,33 @@ pub async fn complete_rustica_challenge(
 
     // We need to sign the challenge so let's notify the user they
     // will need to interact with their device if (if a device is being used)
-    if let Some(f) = notification_function {
-        f();
+    let should_notify = match signatory {
+        Signatory::Yubikey(signer) => signer.touch_required,
+        Signatory::Direct(privkey) => privkey.lock().await.touch_requirement().is_required(),
+    };
+
+    if should_notify {
+        if let Some(f) = notification_function {
+            f();
+        }
     }
 
     let resigned_certificate = match signatory {
         Signatory::Yubikey(signer) => {
-            let signature = signer
-                .yk
-                .lock()
-                .await
+            let mut yk = signer.yk.lock().await;
+            // Verify the PIN for PIN-protected keys. This must be the last step
+            // before signing: the reconnect() above resets the PIV session and
+            // would clear a pin-once verification.
+            if signer.pin_required {
+                match &signer.pin {
+                    Some(pin) => {
+                        crate::verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)
+                            .map_err(|_| RefreshError::SigningError)?
+                    }
+                    None => return Err(RefreshError::SigningError),
+                }
+            }
+            let signature = yk
                 .ssh_cert_signer(&challenge_certificate.tbs_certificate(), &signer.slot)
                 .map_err(|_| RefreshError::SigningError)?;
             challenge_certificate

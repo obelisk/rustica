@@ -1,7 +1,7 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::UpdatableConfiguration, CertificateConfig, Handler, PrivateKey, Signatory,
-    YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::UpdatableConfiguration, piv_key_descriptor_from_yubikey, CertificateConfig, Handler,
+    PrivateKey, Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -31,6 +31,71 @@ pub struct RusticaAgentInstance {
     runtime: Runtime,
     shutdown_sender: Sender<()>,
     handler: Arc<Handler>,
+}
+
+/// Builds PIV key descriptors from parallel C arrays (serial/slot/pin per
+/// index, length `piv_key_count`). Returns `None` on malformed input or a
+/// Yubikey read failure. `skip_key` excludes one encoded public key from the
+/// resulting map.
+unsafe fn build_piv_identities_from_ffi(
+    piv_serials: *const c_long,
+    piv_slots: *const u8,
+    piv_pins: *const c_long,
+    piv_key_count: c_int,
+    // Excludes the primary signing key so it isn't duplicated in piv_identities.
+    skip_key: Option<&[u8]>,
+) -> Option<HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>> {
+    if piv_key_count < 0 {
+        return None;
+    }
+
+    let piv_key_count = piv_key_count as usize;
+    if piv_key_count == 0 {
+        return Some(HashMap::new());
+    }
+
+    if piv_serials.is_null() || piv_slots.is_null() || piv_pins.is_null() {
+        return None;
+    }
+
+    let key_serials = slice::from_raw_parts(piv_serials, piv_key_count);
+    let key_slots = slice::from_raw_parts(piv_slots, piv_key_count);
+    let key_pins = slice::from_raw_parts(piv_pins, piv_key_count);
+
+    // Group the requested identities by serial so that each physical Yubikey is
+    // opened once, even when several slots on the same device are requested.
+    let mut keys_by_serial: HashMap<u32, Vec<(SlotId, Option<String>)>> = HashMap::new();
+    for ((serial, slot), pin) in key_serials
+        .iter()
+        .zip(key_slots.iter())
+        .zip(key_pins.iter())
+    {
+        let serial = u32::try_from(*serial).ok()?;
+        let slot = SlotId::try_from(*slot).ok()?;
+        let pin = if *pin != 0 {
+            Some(pin.to_string())
+        } else {
+            None
+        };
+
+        keys_by_serial.entry(serial).or_default().push((slot, pin));
+    }
+
+    let mut piv_identities = HashMap::new();
+    for (serial, slots) in keys_by_serial {
+        let mut yk = Yubikey::open(serial).ok()?;
+        for (slot, pin) in slots {
+            let descriptor = piv_key_descriptor_from_yubikey(&mut yk, serial, slot, pin)?;
+            let encoded = descriptor.public_key.encode().to_vec();
+            if skip_key == Some(encoded.as_slice()) {
+                continue;
+            }
+
+            piv_identities.insert(encoded, descriptor);
+        }
+    }
+
+    Some(piv_identities)
 }
 
 /// Start a new Rustica instance. Does not return unless Rustica exits.
@@ -149,62 +214,16 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         private_key.set_device_path(&device);
     }
 
-    let piv_key_count = piv_key_count as usize;
-    let key_serials: Vec<u32> = slice::from_raw_parts(piv_serials, piv_key_count)
-        .into_iter()
-        .map(|x| *x as u32)
-        .collect();
-
-    let piv_pins: Vec<Option<String>> = slice::from_raw_parts(piv_pins, piv_key_count)
-        .into_iter()
-        .map(|x| {
-            let pin = *x as u32;
-            if pin != 0 {
-                Some(pin.to_string())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    let mut key_slots = vec![];
-
-    for maybe_slot in slice::from_raw_parts(piv_slots, piv_key_count) {
-        match SlotId::try_from(*maybe_slot) {
-            Ok(s) => key_slots.push(s),
-            Err(_) => return std::ptr::null(),
-        };
-    }
-
-    let mut piv_identities = HashMap::new();
-    for ((serial, slot), pin) in key_serials
-        .into_iter()
-        .zip(key_slots.into_iter())
-        .zip(piv_pins.into_iter())
-    {
-        let mut yk = match Yubikey::open(serial) {
-            Ok(yk) => yk,
-            Err(_) => return std::ptr::null(),
-        };
-
-        let pubkey = match yk.ssh_cert_fetch_pubkey(&slot) {
-            Ok(pk) => pk,
-            Err(_) => return std::ptr::null(),
-        };
-
-        let subject = yk.fetch_subject(&slot).unwrap_or_default();
-
-        piv_identities.insert(
-            pubkey.encode().to_vec(),
-            YubikeyPIVKeyDescriptor {
-                public_key: pubkey,
-                serial,
-                slot,
-                pin,
-                subject,
-            },
-        );
-    }
+    let piv_identities = match build_piv_identities_from_ffi(
+        piv_serials,
+        piv_slots,
+        piv_pins,
+        piv_key_count,
+        Some(&private_key.pubkey.encode()),
+    ) {
+        Some(piv_identities) => piv_identities,
+        None => return std::ptr::null(),
+    };
 
     println!("Fingerprint: {:?}", private_key.pubkey.fingerprint().hash);
 
@@ -233,6 +252,8 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
+        list_primary_certificate_only: false,
+        fido_identity: None,
     };
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
@@ -286,6 +307,59 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     authority: *const c_char,
     certificate_priority: bool,
 ) -> *const RusticaAgentInstance {
+    start_yubikey_rustica_agent_with_piv_idents(
+        yubikey_serial,
+        slot,
+        config_path,
+        socket_path,
+        std::ptr::null(),
+        notification_fn,
+        authority,
+        certificate_priority,
+        std::ptr::null(),
+        std::ptr::null(),
+        std::ptr::null(),
+        0,
+        false,
+        std::ptr::null(),
+    )
+}
+
+/// Start a new Rustica instance whose primary identity lives on a Yubikey PIV
+/// slot (`yubikey_serial`/`slot`). Does not return unless Rustica exits.
+///
+/// - By default the agent advertises both the bare primary key and its
+///   certificate; set `list_primary_certificate_only` to advertise only the
+///   certificate (e.g. for no-touch PIV keys where the bare key isn't usable).
+/// - Pass `piv_key_count > 0` to also load additional PIV identities from
+///   other slots/Yubikeys (`piv_serials`/`piv_slots`/`piv_pins`); any entry
+///   matching the primary key is skipped automatically.
+/// - Pass a non-null `fido_private_key` to additionally advertise a FIDO
+///   identity alongside the primary key.
+/// # Safety
+/// `config_path` and `socket_path` must be null terminated C strings. `pin` and
+/// `fido_private_key`, if non-null, must also be null terminated C strings. If
+/// `piv_key_count` is greater than zero, `piv_serials`, `piv_slots`, and
+/// `piv_pins` must point to arrays with at least `piv_key_count` entries.
+#[no_mangle]
+pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
+    yubikey_serial: u32,
+    slot: u8,
+    config_path: *const c_char,
+    socket_path: *const c_char,
+    pin: *const c_char,
+    notification_fn: unsafe extern "C" fn() -> (),
+    authority: *const c_char,
+    certificate_priority: bool,
+    piv_serials: *const c_long,
+    piv_slots: *const u8,
+    piv_pins: *const c_long,
+    piv_key_count: c_int,
+    // If true, advertise only the certificate for the primary key, never the bare key.
+    list_primary_certificate_only: bool,
+    // Optional additional FIDO identity to advertise alongside the primary key; null if unused.
+    fido_private_key: *const c_char,
+) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();
     println!("Starting a new Rustica instance!");
 
@@ -322,11 +396,48 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
     certificate_options.authority = authority;
 
+    // Falls back to YK_PIN env vars when null.
+    let primary_pin = if pin.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(pin).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(_) => return std::ptr::null(),
+        }
+    };
+
     let mut yk = Yubikey::open(yubikey_serial).unwrap();
     let slot = SlotId::try_from(slot).unwrap();
     let pubkey = match yk.ssh_cert_fetch_pubkey(&slot) {
         Ok(cert) => cert,
         Err(_) => return std::ptr::null(),
+    };
+    let piv_identities = match build_piv_identities_from_ffi(
+        piv_serials,
+        piv_slots,
+        piv_pins,
+        piv_key_count,
+        Some(&pubkey.encode()),
+    ) {
+        Some(piv_identities) => piv_identities,
+        None => return std::ptr::null(),
+    };
+
+    let mut signer = YubikeySigner::new(yk, slot);
+    if primary_pin.is_some() {
+        signer.pin = primary_pin;
+    }
+
+    let fido_identity = if fido_private_key.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(fido_private_key).to_str() {
+            Ok(s) => match PrivateKey::from_string(s) {
+                Ok(p) => Some(p),
+                Err(_) => return std::ptr::null(),
+            },
+            Err(_) => return std::ptr::null(),
+        }
     };
 
     let handler = Handler {
@@ -335,22 +446,22 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         stale_at: Mutex::new(0),
         pubkey,
         certificate_options,
-        signatory: Signatory::Yubikey(YubikeySigner {
-            yk: Mutex::new(Yubikey::open(yubikey_serial).unwrap()),
-            slot: SlotId::try_from(slot).unwrap(),
-        }),
+        signatory: Signatory::Yubikey(signer),
         identities: Mutex::new(HashMap::new()),
-        piv_identities: HashMap::new(),
+        piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
+        list_primary_certificate_only,
+        fido_identity,
     };
 
     println!("Slot: {:?}", SlotId::try_from(slot));
 
     let sp = CStr::from_ptr(socket_path);
+    // Own the path; the C pointer doesn't outlive this call.
     let socket_path = match sp.to_str() {
         Err(_) => return std::ptr::null(),
-        Ok(s) => s,
+        Ok(s) => s.to_owned(),
     };
 
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
@@ -359,12 +470,8 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
 
     let runtime_handler = handler.clone();
     runtime.spawn(async move {
-        Agent::run_with_termination_channel(
-            runtime_handler,
-            socket_path.to_string(),
-            Some(shutdown_receiver),
-        )
-        .await;
+        Agent::run_with_termination_channel(runtime_handler, socket_path, Some(shutdown_receiver))
+            .await;
         println!("Rustica Agent has shutdown");
     });
 
