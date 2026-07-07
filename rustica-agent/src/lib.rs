@@ -421,13 +421,11 @@ impl SshAgentHandler for Handler {
             // No-touch PIV primary mode: advertise only the certificate, never the bare
             // key. The PIV cert and the FIDO direct key are the primary pair, so they
             // flip together with certificate_priority: cert-first when prioritized.
-            (Ok(cert), priority) if self.list_primary_certificate_only => {
-                match (fido, priority) {
-                    (Some(fido), true) => identities.extend(vec![cert, fido]),
-                    (Some(fido), false) => identities.extend(vec![fido, cert]),
-                    (None, _) => identities.push(cert),
-                }
-            }
+            (Ok(cert), priority) if self.list_primary_certificate_only => match (fido, priority) {
+                (Some(fido), true) => identities.extend(vec![cert, fido]),
+                (Some(fido), false) => identities.extend(vec![fido, cert]),
+                (None, _) => identities.push(cert),
+            },
             (Ok(cert), false) => {
                 identities.extend(vec![key, cert]);
                 if let Some(fido) = fido {

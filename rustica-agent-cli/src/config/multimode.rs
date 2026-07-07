@@ -174,6 +174,8 @@ pub async fn configure_multimode(
         piv_identities: key_map,
         notification_function: None,
         certificate_priority: matches.is_present("certificate-priority"),
+        list_primary_certificate_only: false,
+        fido_identity: None,
     };
 
     let handler = Arc::new(handler);

@@ -462,12 +462,8 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
 
     let runtime_handler = handler.clone();
     runtime.spawn(async move {
-        Agent::run_with_termination_channel(
-            runtime_handler,
-            socket_path,
-            Some(shutdown_receiver),
-        )
-        .await;
+        Agent::run_with_termination_channel(runtime_handler, socket_path, Some(shutdown_receiver))
+            .await;
         println!("Rustica Agent has shutdown");
     });
 

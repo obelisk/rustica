@@ -63,6 +63,8 @@ pub async fn configure_singlemode(
         piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority: matches.is_present("certificate-priority"),
+        list_primary_certificate_only: false,
+        fido_identity: None,
     };
 
     let handler = Arc::new(handler);
