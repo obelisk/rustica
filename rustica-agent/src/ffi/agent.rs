@@ -33,11 +33,16 @@ pub struct RusticaAgentInstance {
     handler: Arc<Handler>,
 }
 
+/// Builds PIV key descriptors from parallel C arrays (serial/slot/pin per
+/// index, length `piv_key_count`). Returns `None` on malformed input or a
+/// Yubikey read failure. `skip_key` excludes one encoded public key from the
+/// resulting map.
 unsafe fn build_piv_identities_from_ffi(
     piv_serials: *const c_long,
     piv_slots: *const u8,
     piv_pins: *const c_long,
     piv_key_count: c_int,
+    // Excludes the primary signing key so it isn't duplicated in piv_identities.
     skip_key: Option<&[u8]>,
 ) -> Option<HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>> {
     if piv_key_count < 0 {
