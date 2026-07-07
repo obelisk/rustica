@@ -36,15 +36,15 @@ pub fn configure_provision_piv(
         Signatory::Direct(_) => return Err(ConfigurationError::CannotProvisionFile),
     };
 
-    let touch_policy = if matches.is_present("require-touch") {
-        match matches.value_of("require-touch") {
+    let touch_policy = if matches.is_present("touch-policy") {
+        match matches.value_of("touch-policy") {
             Some("cached") => TouchPolicy::Cached,
             Some("never") => TouchPolicy::Never,
             Some("always") => TouchPolicy::Always,
             None => TouchPolicy::Always, // Flag present without value
             Some(other) => {
                 return Err(ConfigurationError::YubikeyError(format!(
-                    "Invalid value '{}' for --require-touch (clap should have caught this)",
+                    "Invalid value '{}' for --touch-policy (clap should have caught this)",
                     other
                 )))
             }
@@ -109,9 +109,10 @@ pub fn add_configuration(cmd: Command) -> Command {
             .takes_value(true),
     )
     .arg(
-        Arg::new("require-touch")
-            .help("Touch policy for the key. No flag = touch cached for 15 seconds (default). -r/--require-touch (no value) = always require touch. --require-touch=cached = touch cached for 15 seconds. --require-touch=always = always require touch. --require-touch=never = no touch required.")
-            .long("require-touch")
+        Arg::new("touch-policy")
+            .help("Touch policy for the key. No flag = touch cached for 15 seconds (default). -r/--touch-policy (no value) = always require touch. --touch-policy=cached = touch cached for 15 seconds. --touch-policy=always = always require touch. --touch-policy=never = no touch required.")
+            .long("touch-policy")
+            .alias("require-touch")
             .short('r')
             .takes_value(true)
             .min_values(0)
