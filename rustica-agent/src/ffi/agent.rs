@@ -323,13 +323,10 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
 /// Start a new Rustica instance backed by a Yubikey PIV primary key and optional
 /// additional Yubikey PIV identities. Does not return unless Rustica exits.
 /// # Safety
-/// `config_path` and `socket_path` must be null terminated C strings. `pin`, if
-/// non-null, must be a null terminated C string holding the primary YubiKey's PIN.
-/// If `piv_key_count` is greater than zero, `piv_serials`, `piv_slots`, and
+/// `config_path` and `socket_path` must be null terminated C strings. `pin` and
+/// `fido_private_key`, if non-null, must also be null terminated C strings. If
+/// `piv_key_count` is greater than zero, `piv_serials`, `piv_slots`, and
 /// `piv_pins` must point to arrays with at least `piv_key_count` entries.
-/// `fido_private_key`, if non-null, must be a null terminated C string holding a
-/// FIDO (sk-*) private key in OpenSSH PEM form; it is exposed as a direct signing
-/// key (no certificate) alongside the PIV primary.
 #[no_mangle]
 pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     yubikey_serial: u32,
@@ -383,8 +380,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
     certificate_options.authority = authority;
 
-    // The primary key's PIN is optionally supplied over FFI. When absent,
-    // `YubikeySigner::new` falls back to the `YK_PIN_<serial>`/`YK_PIN` env vars.
+    // Falls back to YK_PIN env vars when null.
     let primary_pin = if pin.is_null() {
         None
     } else {
@@ -416,8 +412,6 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         signer.pin = primary_pin;
     }
 
-    // Optionally expose a FIDO key as a direct signing key (no certificate)
-    // alongside the PIV primary. Parsed the same way as the direct-agent path.
     let fido_identity = if fido_private_key.is_null() {
         None
     } else {
@@ -448,9 +442,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     println!("Slot: {:?}", SlotId::try_from(slot));
 
     let sp = CStr::from_ptr(socket_path);
-    // Own the path before spawning: the raw `socket_path` pointer is only valid
-    // for the duration of this FFI call, so the borrowed &str would dangle by the
-    // time the spawned task reads it on a worker thread (interior-null garbage).
+    // Own the path; the C pointer doesn't outlive this call.
     let socket_path = match sp.to_str() {
         Err(_) => return std::ptr::null(),
         Ok(s) => s.to_owned(),

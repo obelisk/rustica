@@ -61,12 +61,9 @@ pub struct YubikeySigner {
     /// Device serial, used for the PIN env lookup and diagnostics.
     pub serial: Option<u32>,
     pub touch_required: bool,
-    /// Whether the slot's PIN policy requires the PIN to be verified before
-    /// signing. Derived from slot metadata, exactly like `touch_required`.
+    /// PIN required by the slot's PIN policy (from metadata, like touch_required).
     pub pin_required: bool,
-    /// PIN used when `pin_required`. Resolved from the environment
-    /// (`YK_PIN_<serial>`/`YK_PIN`), the same way secondary PIV identities are
-    /// (see `get_all_piv_keys`).
+    /// PIN resolved from YK_PIN_<serial>/YK_PIN.
     pub pin: Option<String>,
 }
 
@@ -107,8 +104,7 @@ pub struct YubikeyPIVKeyDescriptor {
     pub pin: Option<String>,
     pub subject: String,
     pub touch_required: bool,
-    /// Whether the slot's PIN policy requires the PIN before signing. Derived
-    /// from slot metadata, exactly like `touch_required`.
+    /// PIN required by the slot's PIN policy (from metadata, like touch_required).
     pub pin_required: bool,
 }
 
@@ -196,15 +192,11 @@ pub struct Handler {
     /// Should we list the certificate or key first when we're asked to list
     /// identities
     pub certificate_priority: bool,
-    /// When true, only the Rustica-issued certificate is advertised for the
-    /// primary key (the bare public key is suppressed). Used for no-touch PIV
-    /// primary mode where we don't want a standalone key entry. If no server
-    /// certificate is available we still fall back to advertising the bare key.
+    /// When true, suppress the bare primary key and only advertise its
+    /// certificate (falls back to the bare key if no certificate is available).
     pub list_primary_certificate_only: bool,
     /// An optional FIDO (sk-*) key exposed as a direct signing key with no
-    /// Rustica certificate. Listed last in the identity list so ordering reads
-    /// [piv-primary (per certificate_priority), fido]. Signed directly via
-    /// PrivateKey::sign, exactly like the Signatory::Direct branch.
+    /// Rustica certificate.
     pub fido_identity: Option<PrivateKey>,
 }
 
@@ -396,16 +388,13 @@ impl SshAgentHandler for Handler {
             key_comment: String::new(),
         };
 
-        // The FIDO direct key (if any), built once so it can participate in the
-        // certificate_priority ordering below.
         let fido = self.fido_identity.as_ref().map(|fido| Identity {
             key_blob: fido.pubkey.encode().to_vec(),
             key_comment: fido.comment.clone(),
         });
 
         // The last identities are our primary key/certificate (and optional FIDO
-        // direct key) in the requested order. certificate_priority == true lists the
-        // certificate first.
+        // direct key), ordered by certificate_priority.
         match (certificate, self.certificate_priority) {
             (Err(_), _) => {
                 identities.push(Identity {
@@ -413,14 +402,11 @@ impl SshAgentHandler for Handler {
                     key_comment: "No server returned valid certificate. Only your key is available"
                         .to_string(),
                 });
-                // No certificate, so nothing to reorder against; FIDO is listed last.
                 if let Some(fido) = fido {
                     identities.push(fido);
                 }
             }
-            // No-touch PIV primary mode: advertise only the certificate, never the bare
-            // key. The PIV cert and the FIDO direct key are the primary pair, so they
-            // flip together with certificate_priority: cert-first when prioritized.
+            // No-touch PIV primary mode: advertise only the certificate, never the bare key.
             (Ok(cert), priority) if self.list_primary_certificate_only => match (fido, priority) {
                 (Some(fido), true) => identities.extend(vec![cert, fido]),
                 (Some(fido), false) => identities.extend(vec![fido, cert]),
@@ -512,10 +498,6 @@ impl SshAgentHandler for Handler {
             .as_ref()
             .is_some_and(|fido| fido.pubkey.fingerprint() == fingerprint)
         {
-            // The FIDO key is a direct signing key with no certificate. It's
-            // signed exactly like a Signatory::Direct key. A fingerprint
-            // mismatch is handled by the guard above so a non-matching request
-            // still falls through to the primary signatory branches.
             let fido = self.fido_identity.as_ref().unwrap();
 
             if fido.touch_requirement().is_required() {
@@ -598,10 +580,8 @@ impl SshAgentHandler for Handler {
 }
 
 /// Whether a slot's PIN policy requires the PIN before a private-key operation.
-/// Derived from slot metadata, mirroring how touch requirement is resolved. We
-/// only treat `Once`/`Always` as requiring a PIN; `Never`, the device default,
-/// and missing metadata are treated as "no PIN", so we never verify (and never
-/// risk the retry counter) for keys that don't need it.
+/// Only `Once`/`Always` count; `Never` and missing metadata mean no PIN, so we
+/// never risk the retry counter on keys that don't need it.
 pub(crate) fn pin_required_for_slot(yk: &mut Yubikey, slot: &SlotId) -> bool {
     match yubikey::piv::metadata(&mut yk.yk, *slot) {
         Ok(metadata) => matches!(
@@ -612,11 +592,8 @@ pub(crate) fn pin_required_for_slot(yk: &mut Yubikey, slot: &SlotId) -> bool {
     }
 }
 
-/// Verify the PIN on a Yubikey so a PIN-protected key (e.g. a no-touch PIV
-/// provisioned with `PinPolicy::Once`) can sign. This is PIN verification only:
-/// signing never needs the management key, so we don't authenticate with it.
-/// On failure we surface the number of remaining PIN attempts and return without
-/// retrying, so we never burn through the retry counter and block the card.
+/// PIN-only verification (no management key needed for signing). Fails without
+/// retrying so we never burn through the PIN retry counter.
 pub(crate) fn verify_yk_pin(yk: &mut Yubikey, serial: u32, pin: &str) -> Result<(), AgentError> {
     if let Err(e) = yk.yk.verify_pin(pin.as_bytes()) {
         println!("PIN verification error for Yubikey {serial}: {e}");
@@ -758,9 +735,7 @@ pub fn list_yubikey_serials() -> Result<Vec<i64>, RusticaAgentLibraryError> {
     Ok(serials)
 }
 
-/// Resolve the PIN for a Yubikey from the environment. A per-serial
-/// `YK_PIN_<serial>` variable takes precedence over the global `YK_PIN`.
-/// Returns `None` if neither is set.
+/// `YK_PIN_<serial>` takes precedence over `YK_PIN`.
 pub(crate) fn yubikey_pin_from_env(serial: u32) -> Option<String> {
     env::var(format!("YK_PIN_{serial}"))
         .ok()

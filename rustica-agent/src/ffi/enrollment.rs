@@ -283,12 +283,9 @@ pub unsafe extern "C" fn generate_and_enroll(
 }
 
 /// Enroll an already-provisioned key in the given slot with the Rustica server.
-///
-/// Unlike `generate_and_enroll`, this does NOT create a new keypair. It exports
-/// the existing key's attestation (PIV allows this at any time, not just at key
-/// generation) and registers it with the server. The server is responsible for
-/// verifying the attestation, which encodes the slot's touch/pin policy, so no
-/// touch_policy/pin_policy argument is needed here.
+/// Exports the existing key's attestation and registers it; no touch_policy/
+/// pin_policy argument is needed since the server reads those from the
+/// attestation.
 ///
 /// # Safety
 /// config_path, pin, and management_key must all be valid, null terminated C
