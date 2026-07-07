@@ -346,7 +346,9 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     piv_slots: *const u8,
     piv_pins: *const c_long,
     piv_key_count: c_int,
+    // If true, advertise only the certificate for the primary key, never the bare key.
     list_primary_certificate_only: bool,
+    // Optional additional FIDO identity to advertise alongside the primary key; null if unused.
     fido_private_key: *const c_char,
 ) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();
