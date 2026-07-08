@@ -5,7 +5,7 @@ use tokio::net::UnixStream;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
 
-use super::protocol::Request;
+use super::protocol::{Request, Response};
 
 use super::handler::SshAgentHandler;
 
@@ -20,7 +20,13 @@ impl Agent {
         loop {
             let req = Request::read(&mut stream).await?;
             trace!("request: {:?}", req);
-            let response = handler.handle_request(req).await?;
+            let response = match handler.handle_request(req).await {
+                Ok(response) => response,
+                Err(e) => {
+                    debug!("sign/handler request failed: {:?}", e);
+                    Response::Failure
+                }
+            };
             trace!("handler: {:?}", response);
             response.write(&mut stream).await?;
         }
