@@ -78,6 +78,10 @@ impl YubikeySigner {
         let pin = serial
             .and_then(yubikey_pin_from_env)
             .or_else(|| env::var("YK_PIN").ok());
+        println!(
+            "Yubikey signer for slot {slot:?} (serial {serial:?}): pin_required={pin_required}, pin_resolved={}",
+            pin.is_some()
+        );
         Self {
             yk: yk.into(),
             slot,
@@ -477,19 +481,24 @@ impl SshAgentHandler for Handler {
                 println!("Skipping notification for no-touch key");
             }
 
-            if descriptor.pin_required {
-                match &descriptor.pin {
-                    Some(pin) => verify_yk_pin(&mut yk, descriptor.serial, pin)?,
-                    None => {
-                        println!("Key requires a PIN but none was provided (set YK_PIN)");
-                        return Err(AgentError::from("Yubikey PIN required but not provided"));
-                    }
+            match &descriptor.pin {
+                Some(pin) => verify_yk_pin(&mut yk, descriptor.serial, pin)?,
+                None if descriptor.pin_required => {
+                    println!("Key requires a PIN but none was provided (set YK_PIN)");
+                    return Err(AgentError::from("Yubikey PIN required but not provided"));
                 }
+                None => {}
             }
 
             let signature = yk.ssh_cert_signer(&data, &descriptor.slot).map_err(|e| {
                 println!("Signing Error: {e}");
-                AgentError::from("Yubikey signing error")
+                if descriptor.pin.is_none() {
+                    AgentError::from(
+                        "Yubikey signing error (slot may require a PIN that wasn't provided)",
+                    )
+                } else {
+                    AgentError::from("Yubikey signing error")
+                }
             })?;
 
             return Ok(Response::SignResponse { signature });
@@ -557,19 +566,24 @@ impl SshAgentHandler for Handler {
                 }
             }
 
-            if signer.pin_required {
-                match &signer.pin {
-                    Some(pin) => verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)?,
-                    None => {
-                        println!("Key requires a PIN but none was provided (set YK_PIN)");
-                        return Err(AgentError::from("Yubikey PIN required but not provided"));
-                    }
+            match &signer.pin {
+                Some(pin) => verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)?,
+                None if signer.pin_required => {
+                    println!("Key requires a PIN but none was provided (set YK_PIN)");
+                    return Err(AgentError::from("Yubikey PIN required but not provided"));
                 }
+                None => {}
             }
 
             let signature = yk.ssh_cert_signer(&data, &signer.slot).map_err(|e| {
                 println!("Signing Error: {e}");
-                AgentError::from("Yubikey signing error")
+                if signer.pin.is_none() {
+                    AgentError::from(
+                        "Yubikey signing error (slot may require a PIN that wasn't provided)",
+                    )
+                } else {
+                    AgentError::from("Yubikey signing error")
+                }
             })?;
 
             return Ok(Response::SignResponse { signature });
