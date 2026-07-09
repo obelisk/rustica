@@ -64,6 +64,10 @@ pub async fn complete_rustica_challenge(
 ) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
     let ssh_pubkey = match signatory {
         Signatory::Yubikey(signer) => {
+            // Serialize card access: the reconnect() below resets the card,
+            // which would kill any concurrent transaction against it.
+            let serial_lock = crate::yk_serial_lock(signer.serial);
+            let _serial_guard = serial_lock.lock().await;
             let mut yk = signer.yk.lock().await;
             yk.reconnect()?;
             match yk.ssh_cert_fetch_pubkey(&signer.slot) {
@@ -130,16 +134,16 @@ pub async fn complete_rustica_challenge(
 
     let resigned_certificate = match signatory {
         Signatory::Yubikey(signer) => {
+            let serial_lock = crate::yk_serial_lock(signer.serial);
+            let _serial_guard = serial_lock.lock().await;
             let mut yk = signer.yk.lock().await;
             // Verify the PIN for PIN-protected keys. This must be the last step
             // before signing: the reconnect() above resets the PIV session and
             // would clear a pin-once verification.
             if signer.pin_required {
                 match &signer.pin {
-                    Some(pin) => {
-                        crate::verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)
-                            .map_err(|_| RefreshError::SigningError)?
-                    }
+                    Some(pin) => crate::verify_yk_pin(&mut yk, signer.serial, pin)
+                        .map_err(|_| RefreshError::SigningError)?,
                     None => return Err(RefreshError::SigningError),
                 }
             }
