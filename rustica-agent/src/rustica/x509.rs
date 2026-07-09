@@ -10,32 +10,43 @@ impl RusticaServer {
         &self,
         signatory: &mut Signatory,
     ) -> Result<Vec<u8>, RefreshError> {
-        let (mut yk, slot) = match signatory {
-            Signatory::Yubikey(yk) => (yk.yk.lock().await, yk.slot),
+        let signer = match signatory {
+            Signatory::Yubikey(signer) => signer,
             _ => return Err(RefreshError::UnsupportedMode),
         };
 
-        // The CN will be ignored by the backend
-        let csr = yk.generate_csr(&slot, "common_name").map_err(|_| {
-            RefreshError::ConfigurationError(format!(
-                "Could not generate CSR for slot {}. Is it provisioned?",
-                slot
-            ))
-        })?;
+        // Serialize card access for the whole CSR/attestation sequence (the
+        // reconnect()s reset the card). Guards drop before the network calls.
+        let serial_lock = crate::yk_serial_lock(signer.serial);
+        let (csr, attestation, attestation_intermediate) = {
+            let _serial_guard = serial_lock.lock().await;
+            let mut yk = signer.yk.lock().await;
+            let slot = signer.slot;
 
-        yk.reconnect().unwrap();
-
-        let attestation = yk.fetch_attestation(&slot).map_err(|e|
-            RefreshError::ConfigurationError(format!("Could not generate attestation for slot {slot}. Is it attestable (not imported)? Error {e}")))?;
-
-        yk.reconnect().unwrap();
-
-        let attestation_intermediate =
-            yk.fetch_certificate(&SlotId::Attestation).map_err(|_| {
+            // The CN will be ignored by the backend
+            let csr = yk.generate_csr(&slot, "common_name").map_err(|_| {
                 RefreshError::ConfigurationError(format!(
-                    "Could not fetch attestation intermediate. Have you manually removed it?"
+                    "Could not generate CSR for slot {}. Is it provisioned?",
+                    slot
                 ))
             })?;
+
+            yk.reconnect().unwrap();
+
+            let attestation = yk.fetch_attestation(&slot).map_err(|e|
+                RefreshError::ConfigurationError(format!("Could not generate attestation for slot {slot}. Is it attestable (not imported)? Error {e}")))?;
+
+            yk.reconnect().unwrap();
+
+            let attestation_intermediate =
+                yk.fetch_certificate(&SlotId::Attestation).map_err(|_| {
+                    RefreshError::ConfigurationError(format!(
+                        "Could not fetch attestation intermediate. Have you manually removed it?"
+                    ))
+                })?;
+
+            (csr, attestation, attestation_intermediate)
+        };
 
         let request = tonic::Request::new(AttestedX509CertificateRequest {
             // TODO: We need to start taking in key IDs

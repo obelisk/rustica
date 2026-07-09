@@ -22,6 +22,7 @@ pub use rustica::{
 };
 
 use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 use std::{convert::TryFrom, env};
 
 use std::time::SystemTime;
@@ -33,7 +34,9 @@ pub use sshcerts::{
     error::Error as SSHCertsError,
     fido::{generate::generate_new_ssh_key, list_fido_devices},
     ssh::{CertType, SSHCertificateSigner},
-    yubikey::piv::{AlgorithmId, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey},
+    yubikey::piv::{
+        AlgorithmId, Error as YkPivError, PinPolicy, RetiredSlotId, SlotId, TouchPolicy, Yubikey,
+    },
     Certificate, PrivateKey, PublicKey,
 };
 
@@ -58,8 +61,8 @@ pub struct RusticaServer {
 pub struct YubikeySigner {
     pub slot: SlotId,
     pub yk: Mutex<Yubikey>,
-    /// Device serial, used for the PIN env lookup and diagnostics.
-    pub serial: Option<u32>,
+    /// Device serial; keys the per-serial card lock and the PIN env lookup.
+    pub serial: u32,
     pub touch_required: bool,
     /// PIN required by the slot's PIN policy (from metadata, like touch_required).
     pub pin_required: bool,
@@ -74,10 +77,8 @@ impl YubikeySigner {
             .map(|r| r.is_required())
             .unwrap_or(false);
         let pin_required = pin_required_for_slot(&mut yk, &slot);
-        let serial = yk.serial().ok().map(|s| s.into());
-        let pin = serial
-            .and_then(yubikey_pin_from_env)
-            .or_else(|| env::var("YK_PIN").ok());
+        let serial: u32 = yk.serial().map(Into::into).unwrap_or(0);
+        let pin = yubikey_pin_from_env(serial).or_else(|| env::var("YK_PIN").ok());
         println!(
             "Yubikey signer for slot {slot:?} (serial {serial:?}): pin_required={pin_required}, pin_resolved={}",
             pin.is_some()
@@ -465,40 +466,45 @@ impl SshAgentHandler for Handler {
 
             return Ok(Response::SignResponse { signature });
         } else if let Some(descriptor) = self.piv_identities.get(&pubkey) {
+            // Serialize card access so a concurrent reconnect() can't reset
+            // the card mid-transaction (SCARD_W_RESET_CARD).
+            let serial_lock = yk_serial_lock(descriptor.serial);
+            let _serial_guard = serial_lock.lock().await;
+
             let mut yk = Yubikey::open(descriptor.serial).map_err(|e| {
                 println!("Unable to open Yubikey: {e}");
                 AgentError::from("Unable to open Yubikey")
             })?;
 
-            if descriptor.touch_required {
-                if let Some(f) = &self.notification_function {
-                    println!("Trying to send a notification");
-                    f()
+            let signature = with_reset_retry(&mut yk, |yk| {
+                if descriptor.touch_required {
+                    if let Some(f) = &self.notification_function {
+                        println!("Trying to send a notification");
+                        f()
+                    } else {
+                        println!("No notification function set");
+                    }
                 } else {
-                    println!("No notification function set");
+                    println!("Skipping notification for no-touch key");
                 }
-            } else {
-                println!("Skipping notification for no-touch key");
-            }
 
-            match &descriptor.pin {
-                Some(pin) => verify_yk_pin(&mut yk, descriptor.serial, pin)?,
-                None if descriptor.pin_required => {
-                    println!("Key requires a PIN but none was provided (set YK_PIN)");
-                    return Err(AgentError::from("Yubikey PIN required but not provided"));
+                match &descriptor.pin {
+                    Some(pin) => {
+                        verify_yk_pin(yk, descriptor.serial, pin).map_err(CardOpError::Fatal)?
+                    }
+                    None if descriptor.pin_required => {
+                        println!("Key requires a PIN but none was provided (set YK_PIN)");
+                        return Err(CardOpError::Fatal(AgentError::from(
+                            "Yubikey PIN required but not provided",
+                        )));
+                    }
+                    None => {}
                 }
-                None => {}
-            }
 
-            let signature = yk.ssh_cert_signer(&data, &descriptor.slot).map_err(|e| {
-                println!("Signing Error: {e}");
-                if descriptor.pin.is_none() {
-                    AgentError::from(
-                        "Yubikey signing error (slot may require a PIN that wasn't provided)",
-                    )
-                } else {
-                    AgentError::from("Yubikey signing error")
-                }
+                yk.ssh_cert_signer(&data, &descriptor.slot).map_err(|e| {
+                    println!("Signing Error: {e}");
+                    classify_yk_error(&e, yk_signing_error(descriptor.pin.is_some()))
+                })
             })?;
 
             return Ok(Response::SignResponse { signature });
@@ -542,53 +548,133 @@ impl SshAgentHandler for Handler {
 
             return Ok(Response::SignResponse { signature });
         } else if let Signatory::Yubikey(signer) = &self.signatory {
+            let serial_lock = yk_serial_lock(signer.serial);
+            let _serial_guard = serial_lock.lock().await;
             let mut yk = signer.yk.lock().await;
-            // Don't sign requests if the requested key does not match the signatory
-            if yk
-                .ssh_cert_fetch_pubkey(&signer.slot)
-                .map_err(|e| {
+
+            let signature = with_reset_retry(&mut yk, |yk| {
+                // Don't sign requests if the requested key does not match the signatory
+                let pubkey = yk.ssh_cert_fetch_pubkey(&signer.slot).map_err(|e| {
                     println!("Yubikey Fetch Certificate Error: {e}");
-                    AgentError::from("Yubikey fetch certificate error")
-                })?
-                .fingerprint()
-                != fingerprint
-            {
-                return Err(AgentError::from("No such key"));
-            }
-
-            // Since we are using the Yubikey for a signing operation the only time they
-            // won't have to tap here is if they are using cached keys and this is right after
-            // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be
-            // spurious.
-            if signer.touch_required {
-                if let Some(f) = &self.notification_function {
-                    f()
+                    classify_yk_error(&e, AgentError::from("Yubikey fetch certificate error"))
+                })?;
+                if pubkey.fingerprint() != fingerprint {
+                    return Err(CardOpError::Fatal(AgentError::from("No such key")));
                 }
-            }
 
-            match &signer.pin {
-                Some(pin) => verify_yk_pin(&mut yk, signer.serial.unwrap_or_default(), pin)?,
-                None if signer.pin_required => {
-                    println!("Key requires a PIN but none was provided (set YK_PIN)");
-                    return Err(AgentError::from("Yubikey PIN required but not provided"));
+                // Since we are using the Yubikey for a signing operation the only time they
+                // won't have to tap here is if they are using cached keys and this is right after
+                // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be
+                // spurious.
+                if signer.touch_required {
+                    if let Some(f) = &self.notification_function {
+                        f()
+                    }
                 }
-                None => {}
-            }
 
-            let signature = yk.ssh_cert_signer(&data, &signer.slot).map_err(|e| {
-                println!("Signing Error: {e}");
-                if signer.pin.is_none() {
-                    AgentError::from(
-                        "Yubikey signing error (slot may require a PIN that wasn't provided)",
-                    )
-                } else {
-                    AgentError::from("Yubikey signing error")
+                match &signer.pin {
+                    Some(pin) => {
+                        verify_yk_pin(yk, signer.serial, pin).map_err(CardOpError::Fatal)?
+                    }
+                    None if signer.pin_required => {
+                        println!("Key requires a PIN but none was provided (set YK_PIN)");
+                        return Err(CardOpError::Fatal(AgentError::from(
+                            "Yubikey PIN required but not provided",
+                        )));
+                    }
+                    None => {}
                 }
+
+                yk.ssh_cert_signer(&data, &signer.slot).map_err(|e| {
+                    println!("Signing Error: {e}");
+                    classify_yk_error(&e, yk_signing_error(signer.pin.is_some()))
+                })
             })?;
 
             return Ok(Response::SignResponse { signature });
         } else {
             return Err(AgentError::from("Signing Error: No Valid Keys"));
+        }
+    }
+}
+
+/// Per-serial locks serializing all PC/SC access to a physical Yubikey within
+/// this process: `reconnect()` (and dropping a `Yubikey` handle) resets the
+/// card, killing any other in-flight transaction with `SCARD_W_RESET_CARD`.
+///
+/// Lock ordering: serial lock OUTER, `YubikeySigner::yk` INNER. Never hold
+/// this lock across a network `.await`.
+static YK_SERIAL_LOCKS: OnceLock<std::sync::Mutex<HashMap<u32, Arc<Mutex<()>>>>> = OnceLock::new();
+
+/// Returns the process-wide lock for a physical Yubikey serial.
+pub(crate) fn yk_serial_lock(serial: u32) -> Arc<Mutex<()>> {
+    let map = YK_SERIAL_LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    let mut map = map.lock().expect("yubikey serial lock map poisoned");
+    map.entry(serial).or_default().clone()
+}
+
+/// True when a signing error indicates the PC/SC card was reset out from
+/// under us (e.g. by another process like `ykman`). `Unsupported` counts
+/// because sshcerts collapses resets hit during its key-type fetch into it.
+pub(crate) fn is_yk_reset_error(e: &YkPivError) -> bool {
+    match e {
+        YkPivError::InternalYubiKeyError(msg) => msg.contains("has been reset"),
+        YkPivError::Unsupported => true,
+        _ => false,
+    }
+}
+
+/// Error from a single attempt of a card sequence. `Reset` means the failure
+/// looked like the card was reset under us and the sequence is worth one
+/// retry after a reconnect; `Fatal` aborts immediately.
+enum CardOpError {
+    Reset(AgentError),
+    Fatal(AgentError),
+}
+
+impl CardOpError {
+    fn into_agent_error(self) -> AgentError {
+        match self {
+            CardOpError::Reset(e) | CardOpError::Fatal(e) => e,
+        }
+    }
+}
+
+/// Classify a Yubikey error: reset-like failures are retryable.
+fn classify_yk_error(e: &YkPivError, err: AgentError) -> CardOpError {
+    if is_yk_reset_error(e) {
+        CardOpError::Reset(err)
+    } else {
+        CardOpError::Fatal(err)
+    }
+}
+
+/// The error for a failed signing op; hint at the likely cause when no PIN
+/// was provided.
+fn yk_signing_error(pin_provided: bool) -> AgentError {
+    if pin_provided {
+        AgentError::from("Yubikey signing error")
+    } else {
+        AgentError::from("Yubikey signing error (slot may require a PIN that wasn't provided)")
+    }
+}
+
+/// Run a card sequence, reconnecting and retrying ONCE if it fails with a
+/// reset-like error. Caller must hold the serial lock for this card.
+fn with_reset_retry<T>(
+    yk: &mut Yubikey,
+    mut op: impl FnMut(&mut Yubikey) -> Result<T, CardOpError>,
+) -> Result<T, AgentError> {
+    match op(yk) {
+        Ok(v) => Ok(v),
+        Err(CardOpError::Fatal(e)) => Err(e),
+        Err(CardOpError::Reset(first_err)) => {
+            println!("Card sequence hit a reset-like error, reconnecting and retrying once");
+            if let Err(e) = yk.reconnect() {
+                println!("Reconnect after card reset failed: {e}");
+                return Err(first_err);
+            }
+            op(yk).map_err(CardOpError::into_agent_error)
         }
     }
 }
