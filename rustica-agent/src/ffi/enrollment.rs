@@ -23,6 +23,55 @@ pub enum GenerateAndEnrollStatus {
     InternalError,
     KeyFileError,
     KeyRegistrationError,
+    YubikeyCommunicationError,
+    ManagementKeyError,
+    ProvisionError,
+    AttestationError,
+}
+
+/// Shared by `generate_and_enroll` and `enroll_existing_piv`: decode the hex
+/// management key and slot id parameters, logging which one was invalid.
+unsafe fn parse_piv_args(
+    slot: u8,
+    management_key: *const c_char,
+) -> Result<(SlotId, Vec<u8>), i64> {
+    let management_key = CStr::from_ptr(management_key);
+    let management_key = match management_key
+        .to_str()
+        .ok()
+        .and_then(|s| hex::decode(s).ok())
+    {
+        Some(k) => k,
+        None => {
+            error!("Management key was not valid UTF-8 hex");
+            return Err(GenerateAndEnrollStatus::ManagementKeyError as i64);
+        }
+    };
+
+    let slot = match SlotId::try_from(slot) {
+        Ok(s) => s,
+        Err(_) => {
+            error!("Invalid slot id: {slot}");
+            return Err(GenerateAndEnrollStatus::ParameterError as i64);
+        }
+    };
+
+    Ok((slot, management_key))
+}
+
+/// Shared by `generate_and_enroll` and `enroll_existing_piv`: unlock the
+/// YubiKey, mapping an unlock failure to a status code that either reports
+/// the PIV PIN attempts remaining (negative) or that the key is blocked.
+fn unlock_or_pin_status(yk: &mut Yubikey, pin: &str, management_key: &[u8]) -> Result<(), i64> {
+    if let Err(e) = yk.unlock(pin.as_bytes(), management_key) {
+        error!("Could not unlock key: {e}");
+        return Err(match yk.yk.get_pin_retries() {
+            Ok(0) => GenerateAndEnrollStatus::KeyBlocked as i64,
+            Ok(n) => -(n as i64),
+            Err(_) => GenerateAndEnrollStatus::UnknownAttemptsRemaining as i64,
+        });
+    }
+    Ok(())
 }
 
 #[no_mangle]
@@ -182,6 +231,11 @@ pub unsafe extern "C" fn ffi_generate_and_enroll_fido(
 /// # Safety
 /// Subject, config_path, and pin must all be valid, null terminated C strings
 /// or this functions behaviour is undefined and will result in a crash.
+///
+/// # Return
+/// Returns a GenerateAndEnrollStatus enum cast to i64.
+/// If the key fails to generate due to pin, a negative value representing the
+/// attempts remaining is returned instead.
 #[no_mangle]
 pub unsafe extern "C" fn generate_and_enroll(
     yubikey_serial: u32,
@@ -192,11 +246,11 @@ pub unsafe extern "C" fn generate_and_enroll(
     config_path: *const c_char,
     pin: *const c_char,
     management_key: *const c_char,
-) -> bool {
+) -> i64 {
     println!("Generating and enrolling a new key!");
     let cf = CStr::from_ptr(config_path);
     let config_path = match cf.to_str() {
-        Err(_) => return false,
+        Err(_) => return GenerateAndEnrollStatus::ConfigurationError as i64,
         Ok(s) => s,
     };
 
@@ -204,16 +258,32 @@ pub unsafe extern "C" fn generate_and_enroll(
         Ok(c) => c,
         Err(e) => {
             error!("Configuration was invalid: {e}");
-            return false;
+            return GenerateAndEnrollStatus::ConfigurationError as i64;
         }
     };
 
     let pin = CStr::from_ptr(pin);
-    let management_key = CStr::from_ptr(management_key);
-    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
-    let subject = CStr::from_ptr(subject);
+    let pin = match pin.to_str() {
+        Err(_) => {
+            error!("PIN was not valid UTF-8");
+            return GenerateAndEnrollStatus::ParameterError as i64;
+        }
+        Ok(s) => s,
+    };
 
-    let slot = SlotId::try_from(slot).unwrap();
+    let subject = CStr::from_ptr(subject);
+    let subject = match subject.to_str() {
+        Err(_) => {
+            error!("Subject was not valid UTF-8");
+            return GenerateAndEnrollStatus::ParameterError as i64;
+        }
+        Ok(s) => s,
+    };
+
+    let (slot, management_key) = match parse_piv_args(slot, management_key) {
+        Ok(args) => args,
+        Err(status) => return status,
+    };
 
     let touch_policy = match touch_policy {
         0 => TouchPolicy::Never,
@@ -227,38 +297,42 @@ pub unsafe extern "C" fn generate_and_enroll(
         _ => PinPolicy::Always,
     };
 
-    let mut yk = Yubikey::open(yubikey_serial).unwrap();
+    let mut yk = match Yubikey::open(yubikey_serial) {
+        Ok(yk) => yk,
+        Err(e) => {
+            error!("Could not open YubiKey: {e}");
+            return GenerateAndEnrollStatus::YubikeyCommunicationError as i64;
+        }
+    };
 
-    if yk
-        .unlock(pin.to_str().unwrap().as_bytes(), &management_key)
-        .is_err()
-    {
-        println!("Could not unlock key");
-        return false;
+    if let Err(status) = unlock_or_pin_status(&mut yk, pin, &management_key) {
+        return status;
     }
 
-    let key_config =
-        match yk.provision_p384(&slot, subject.to_str().unwrap(), touch_policy, pin_policy) {
-            Ok(_) => {
-                let certificate = yk.fetch_attestation(&slot);
-                let intermediate = yk.fetch_certificate(&SlotId::Attestation);
+    let key_config = match yk.provision_p384(&slot, subject, touch_policy, pin_policy) {
+        Ok(_) => {
+            let certificate = yk.fetch_attestation(&slot);
+            let intermediate = yk.fetch_certificate(&SlotId::Attestation);
 
-                match (certificate, intermediate) {
-                    (Ok(certificate), Ok(intermediate)) => PIVAttestation {
-                        certificate,
-                        intermediate,
-                    },
-                    _ => return false,
-                }
+            match (certificate, intermediate) {
+                (Ok(certificate), Ok(intermediate)) => PIVAttestation {
+                    certificate,
+                    intermediate,
+                },
+                _ => return GenerateAndEnrollStatus::AttestationError as i64,
             }
-            Err(_) => return false,
-        };
+        }
+        Err(e) => {
+            error!("Could not provision key: {e}");
+            return GenerateAndEnrollStatus::ProvisionError as i64;
+        }
+    };
 
     let mut signatory = Signatory::Yubikey(YubikeySigner::new(yk, slot));
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
-        _ => return false,
+        _ => return GenerateAndEnrollStatus::InternalError as i64,
     };
 
     let runtime_handle = runtime.handle().to_owned();
@@ -270,7 +344,7 @@ pub unsafe extern "C" fn generate_and_enroll(
                     "Key was successfully registered with server: {}",
                     server.address
                 );
-                return true;
+                return GenerateAndEnrollStatus::Success as i64;
             }
             Err(e) => {
                 error!("Key could not be registered. Server said: {}", e);
@@ -279,7 +353,7 @@ pub unsafe extern "C" fn generate_and_enroll(
     }
 
     error!("All servers failed to register key");
-    false
+    GenerateAndEnrollStatus::KeyRegistrationError as i64
 }
 
 /// Enroll an already-provisioned key in the given slot with the Rustica server.
@@ -290,6 +364,11 @@ pub unsafe extern "C" fn generate_and_enroll(
 /// # Safety
 /// config_path, pin, and management_key must all be valid, null terminated C
 /// strings or this function's behaviour is undefined and will result in a crash.
+///
+/// # Return
+/// Returns a GenerateAndEnrollStatus enum cast to i64.
+/// If the key fails to unlock due to pin, a negative value representing the
+/// attempts remaining is returned instead.
 #[no_mangle]
 pub unsafe extern "C" fn enroll_existing_piv(
     yubikey_serial: u32,
@@ -297,11 +376,11 @@ pub unsafe extern "C" fn enroll_existing_piv(
     config_path: *const c_char,
     pin: *const c_char,
     management_key: *const c_char,
-) -> bool {
+) -> i64 {
     println!("Enrolling an existing key!");
     let cf = CStr::from_ptr(config_path);
     let config_path = match cf.to_str() {
-        Err(_) => return false,
+        Err(_) => return GenerateAndEnrollStatus::ConfigurationError as i64,
         Ok(s) => s,
     };
 
@@ -309,24 +388,34 @@ pub unsafe extern "C" fn enroll_existing_piv(
         Ok(c) => c,
         Err(e) => {
             error!("Configuration was invalid: {e}");
-            return false;
+            return GenerateAndEnrollStatus::ConfigurationError as i64;
         }
     };
 
     let pin = CStr::from_ptr(pin);
-    let management_key = CStr::from_ptr(management_key);
-    let management_key = hex::decode(&management_key.to_str().unwrap()).unwrap();
+    let pin = match pin.to_str() {
+        Err(_) => {
+            error!("PIN was not valid UTF-8");
+            return GenerateAndEnrollStatus::ParameterError as i64;
+        }
+        Ok(s) => s,
+    };
 
-    let slot = SlotId::try_from(slot).unwrap();
+    let (slot, management_key) = match parse_piv_args(slot, management_key) {
+        Ok(args) => args,
+        Err(status) => return status,
+    };
 
-    let mut yk = Yubikey::open(yubikey_serial).unwrap();
+    let mut yk = match Yubikey::open(yubikey_serial) {
+        Ok(yk) => yk,
+        Err(e) => {
+            error!("Could not open YubiKey: {e}");
+            return GenerateAndEnrollStatus::YubikeyCommunicationError as i64;
+        }
+    };
 
-    if yk
-        .unlock(pin.to_str().unwrap().as_bytes(), &management_key)
-        .is_err()
-    {
-        println!("Could not unlock key");
-        return false;
+    if let Err(status) = unlock_or_pin_status(&mut yk, pin, &management_key) {
+        return status;
     }
 
     // Export the attestation of the key already living in the slot — no
@@ -341,7 +430,7 @@ pub unsafe extern "C" fn enroll_existing_piv(
         },
         _ => {
             error!("Could not export attestation for slot {slot:?}. Is it provisioned and attestable (not imported)?");
-            return false;
+            return GenerateAndEnrollStatus::AttestationError as i64;
         }
     };
 
@@ -349,7 +438,7 @@ pub unsafe extern "C" fn enroll_existing_piv(
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
-        _ => return false,
+        _ => return GenerateAndEnrollStatus::InternalError as i64,
     };
 
     let runtime_handle = runtime.handle().to_owned();
@@ -361,7 +450,7 @@ pub unsafe extern "C" fn enroll_existing_piv(
                     "Key was successfully registered with server: {}",
                     server.address
                 );
-                return true;
+                return GenerateAndEnrollStatus::Success as i64;
             }
             Err(e) => {
                 error!("Key could not be registered. Server said: {}", e);
@@ -370,7 +459,7 @@ pub unsafe extern "C" fn enroll_existing_piv(
     }
 
     error!("All servers failed to register key");
-    false
+    GenerateAndEnrollStatus::KeyRegistrationError as i64
 }
 
 #[no_mangle]
