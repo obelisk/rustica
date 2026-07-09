@@ -95,11 +95,6 @@ pub unsafe extern "C" fn unlock_yubikey(
         return -4;
     };
 
-    // Note: this function's failure convention intentionally differs from
-    // enrollment.rs's unlock_or_pin_status — it returns the raw (positive)
-    // retries count rather than negating it, and has no separate "blocked"
-    // sentinel for Ok(0). Existing callers of unlock_yubikey depend on this
-    // contract, so it is not unified with the enrollment helper.
     match yk.unlock(pin.as_bytes(), &management_key) {
         Ok(_) => 0,
         Err(e) => {
