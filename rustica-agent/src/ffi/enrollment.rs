@@ -73,7 +73,9 @@ fn unlock_or_pin_status(yk: &mut Yubikey, pin: &str, management_key: &[u8]) -> R
 
     if is_yk_reset_error(&e) {
         println!("Unlock hit a reset-like error, reconnecting and retrying once");
-        let retry_result = yk.reconnect().and_then(|_| yk.unlock(pin.as_bytes(), management_key));
+        let retry_result = yk
+            .reconnect()
+            .and_then(|_| yk.unlock(pin.as_bytes(), management_key));
         match retry_result {
             Ok(_) => return Ok(()),
             Err(e) if !is_yk_reset_error(&e) => {
