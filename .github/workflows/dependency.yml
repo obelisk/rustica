@@ -1,0 +1,19 @@
+name: Dependency Checks
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-age:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    - uses: timweri/cargo-oxidate@5630341fca14f77a200402f6510f69adc63591f9 # v0.1.4
+      with:
+        min-age-days: 14
