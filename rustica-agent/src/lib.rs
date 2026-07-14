@@ -613,7 +613,7 @@ pub(crate) fn yk_serial_lock(serial: u32) -> Arc<Mutex<()>> {
     map.entry(serial).or_default().clone()
 }
 
-/// True when a signing error indicates the PC/SC card was reset out from
+/// True when a PIV operation error indicates the PC/SC card was reset out from
 /// under us (e.g. by another process like `ykman`). `Unsupported` counts
 /// because sshcerts collapses resets hit during its key-type fetch into it.
 pub fn is_yk_reset_error(e: &YkPivError) -> bool {

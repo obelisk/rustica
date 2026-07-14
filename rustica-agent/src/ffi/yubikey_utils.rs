@@ -61,7 +61,8 @@ pub unsafe extern "C" fn ffi_device_pin_retries(device: *const c_char) -> i32 {
 /// determined. `-10` if the unlock failed because the PC/SC card was reset
 /// (not because of a wrong PIN) and a reconnect-and-retry still failed; the
 /// PIN attempt counter is unaffected in this case. Any other positive value
-/// is the number of PIN attempts remaining after a genuine PIN failure.
+/// is the number of PIN attempts remaining at the time of the failure (which
+/// may be unchanged if the failure was not a wrong-PIN case).
 #[no_mangle]
 pub unsafe extern "C" fn unlock_yubikey(
     yubikey_serial: *const c_int,
