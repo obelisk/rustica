@@ -14,6 +14,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - uses: timweri/cargo-oxidate@v0.1.5
+    - uses: timweri/cargo-oxidate@v0.1.6 # immutable
       with:
         min-age-days: 14
