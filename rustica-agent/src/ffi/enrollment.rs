@@ -3,7 +3,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use crate::config::UpdatableConfiguration;
 use crate::rustica::key::U2FAttestation;
-use crate::{is_yk_reset_error, PIVAttestation, Signatory, YubikeySigner};
+use crate::{is_yk_reset_error, yk_serial_lock, PIVAttestation, Signatory, YubikeySigner};
 
 use sshcerts::error::Error as SSHCertsError;
 use sshcerts::fido::generate::generate_new_ssh_key;
@@ -65,6 +65,9 @@ unsafe fn parse_piv_args(
 /// (if the failure looks like a PC/SC card reset rather than a wrong PIN)
 /// a communication error, after one reconnect-and-retry attempt.
 fn unlock_or_pin_status(yk: &mut Yubikey, pin: &str, management_key: &[u8]) -> Result<(), i64> {
+    let serial_lock = yk_serial_lock(yk.yk.serial().into());
+    let _guard = serial_lock.blocking_lock();
+
     let e = match yk.unlock(pin.as_bytes(), management_key) {
         Ok(_) => return Ok(()),
         Err(e) => e,
@@ -73,18 +76,17 @@ fn unlock_or_pin_status(yk: &mut Yubikey, pin: &str, management_key: &[u8]) -> R
 
     if is_yk_reset_error(&e) {
         println!("Unlock hit a reset-like error, reconnecting and retrying once");
-        let retry_result = yk
-            .reconnect()
-            .and_then(|_| yk.unlock(pin.as_bytes(), management_key));
-        match retry_result {
+        if let Err(e) = yk.reconnect() {
+            error!("Reconnect after card reset failed: {e}");
+            return Err(GenerateAndEnrollStatus::YubikeyCommunicationError as i64);
+        }
+        match yk.unlock(pin.as_bytes(), management_key) {
             Ok(_) => return Ok(()),
-            Err(e) if !is_yk_reset_error(&e) => {
-                error!("Could not unlock key on retry: {e}");
-            }
-            Err(e) => {
+            Err(e) if is_yk_reset_error(&e) => {
                 error!("Unlock still failing after reconnect: {e}");
                 return Err(GenerateAndEnrollStatus::YubikeyCommunicationError as i64);
             }
+            Err(e) => error!("Could not unlock key on retry: {e}"),
         }
     }
 

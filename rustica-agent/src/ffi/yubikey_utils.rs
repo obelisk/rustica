@@ -4,8 +4,8 @@ use sshcerts::yubikey::piv::{RetiredSlotId, SlotId, Yubikey};
 use tokio::runtime::Runtime;
 
 use crate::{
-    config::UpdatableConfiguration, is_yk_reset_error, list_yubikey_serials, Signatory,
-    YubikeySigner,
+    config::UpdatableConfiguration, is_yk_reset_error, list_yubikey_serials, yk_serial_lock,
+    Signatory, YubikeySigner,
 };
 
 /// Check if the device path will require a pin to generate a new key
@@ -75,6 +75,8 @@ pub unsafe extern "C" fn unlock_yubikey(
             return -1;
         }
     };
+    let serial_lock = yk_serial_lock(yk.yk.serial().into());
+    let _guard = serial_lock.blocking_lock();
 
     let pin = if !pin.is_null() {
         let pin = CStr::from_ptr(pin);
@@ -113,10 +115,11 @@ pub unsafe extern "C" fn unlock_yubikey(
 
     if is_yk_reset_error(&e) {
         println!("Unlock hit a reset-like error, reconnecting and retrying once");
-        let retry_result = yk
-            .reconnect()
-            .and_then(|_| yk.unlock(pin.as_bytes(), &management_key));
-        match retry_result {
+        if let Err(e) = yk.reconnect() {
+            println!("Reconnect after card reset failed: {e}");
+            return -10;
+        }
+        match yk.unlock(pin.as_bytes(), &management_key) {
             Ok(_) => return 0,
             Err(e) if is_yk_reset_error(&e) => {
                 println!("Unlock still failing after reconnect: {e}");
