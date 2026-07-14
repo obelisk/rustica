@@ -16,6 +16,8 @@ jobs:
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v2
     - name: Install libpcsc
       run: sudo apt install -y libpcsclite-dev libusb-1.0-0-dev libudev-dev
