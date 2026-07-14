@@ -8,7 +8,7 @@ use egui::ComboBox;
 
 use home::home_dir;
 use rustica_agent::Yubikey;
-use rustica_agent::{get_all_piv_keys, YubikeyPIVKeyDescriptor};
+use rustica_agent::{get_all_piv_keys, is_yk_reset_error, YubikeyPIVKeyDescriptor};
 use tokio::{runtime::Runtime, sync::mpsc::Sender};
 
 #[derive(Debug)]
@@ -259,9 +259,20 @@ impl eframe::App for RusticaAgentGui {
                                         if ui.button("Unlock").clicked() {
                                             let pin_bytes = self.unlock_pin.as_bytes().to_owned();
                                             let yk = Yubikey::open(ui_key_handle.descriptor.serial);
+                                            let management_key = hex::decode("010203040506070801020304050607080102030405060708").unwrap();
                                             if let Ok(mut yk) = yk {
-                                                match yk.unlock(&pin_bytes, &hex::decode("010203040506070801020304050607080102030405060708").unwrap()) {
+                                                let unlock_result = match yk.unlock(&pin_bytes, &management_key) {
+                                                    Ok(_) => Ok(()),
+                                                    Err(e) if is_yk_reset_error(&e) => {
+                                                        yk.reconnect().and_then(|_| yk.unlock(&pin_bytes, &management_key))
+                                                    }
+                                                    Err(e) => Err(e),
+                                                };
+                                                match unlock_result {
                                                     Ok(_) => ui_key_handle.descriptor.pin = Some(self.unlock_pin.clone()),
+                                                    Err(e) if is_yk_reset_error(&e) => {
+                                                        self.status = "Unlock failed: the Yubikey was reset (not a PIN issue) — reconnect the key and try again".to_owned();
+                                                    }
                                                     Err(_) => {
                                                         match yk.yk.get_pin_retries() {
                                                             Ok(retries) => self.status = format!("Unlock failed, {retries} tries remaining"),

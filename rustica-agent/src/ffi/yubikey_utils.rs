@@ -3,7 +3,10 @@ use std::ffi::{c_char, c_int, c_long, CStr, CString};
 use sshcerts::yubikey::piv::{RetiredSlotId, SlotId, Yubikey};
 use tokio::runtime::Runtime;
 
-use crate::{config::UpdatableConfiguration, list_yubikey_serials, Signatory, YubikeySigner};
+use crate::{
+    config::UpdatableConfiguration, is_yk_reset_error, list_yubikey_serials, Signatory,
+    YubikeySigner,
+};
 
 /// Check if the device path will require a pin to generate a new key
 /// # Safety
@@ -52,6 +55,13 @@ pub unsafe extern "C" fn ffi_device_pin_retries(device: *const c_char) -> i32 {
     }
 }
 
+/// Unlock a Yubikey with the given PIN and management key.
+/// # Return
+/// `0` on success. `-9` if the PIN attempts remaining could not be
+/// determined. `-10` if the unlock failed because the PC/SC card was reset
+/// (not because of a wrong PIN) and a reconnect-and-retry still failed; the
+/// PIN attempt counter is unaffected in this case. Any other positive value
+/// is the number of PIN attempts remaining after a genuine PIN failure.
 #[no_mangle]
 pub unsafe extern "C" fn unlock_yubikey(
     yubikey_serial: *const c_int,
@@ -95,13 +105,28 @@ pub unsafe extern "C" fn unlock_yubikey(
         return -4;
     };
 
-    match yk.unlock(pin.as_bytes(), &management_key) {
-        Ok(_) => 0,
-        Err(e) => {
-            println!("Error unlocking key: {e}");
-            return yk.yk.get_pin_retries().map(|x| x as i32).unwrap_or(-9);
+    let e = match yk.unlock(pin.as_bytes(), &management_key) {
+        Ok(_) => return 0,
+        Err(e) => e,
+    };
+    println!("Error unlocking key: {e}");
+
+    if is_yk_reset_error(&e) {
+        println!("Unlock hit a reset-like error, reconnecting and retrying once");
+        let retry_result = yk
+            .reconnect()
+            .and_then(|_| yk.unlock(pin.as_bytes(), &management_key));
+        match retry_result {
+            Ok(_) => return 0,
+            Err(e) if is_yk_reset_error(&e) => {
+                println!("Unlock still failing after reconnect: {e}");
+                return -10;
+            }
+            Err(e) => println!("Error unlocking key on retry: {e}"),
         }
     }
+
+    yk.yk.get_pin_retries().map(|x| x as i32).unwrap_or(-9)
 }
 
 /// Fetch the list of serial numbers for the connected Yubikeys

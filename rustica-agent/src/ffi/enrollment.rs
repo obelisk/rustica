@@ -3,7 +3,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use crate::config::UpdatableConfiguration;
 use crate::rustica::key::U2FAttestation;
-use crate::{PIVAttestation, Signatory, YubikeySigner};
+use crate::{is_yk_reset_error, PIVAttestation, Signatory, YubikeySigner};
 
 use sshcerts::error::Error as SSHCertsError;
 use sshcerts::fido::generate::generate_new_ssh_key;
@@ -61,17 +61,36 @@ unsafe fn parse_piv_args(
 
 /// Shared by `generate_and_enroll` and `enroll_existing_piv`: unlock the
 /// YubiKey, mapping an unlock failure to a status code that either reports
-/// the PIV PIN attempts remaining (negative) or that the key is blocked.
+/// the PIV PIN attempts remaining (negative), that the key is blocked, or
+/// (if the failure looks like a PC/SC card reset rather than a wrong PIN)
+/// a communication error, after one reconnect-and-retry attempt.
 fn unlock_or_pin_status(yk: &mut Yubikey, pin: &str, management_key: &[u8]) -> Result<(), i64> {
-    if let Err(e) = yk.unlock(pin.as_bytes(), management_key) {
-        error!("Could not unlock key: {e}");
-        return Err(match yk.yk.get_pin_retries() {
-            Ok(0) => GenerateAndEnrollStatus::KeyBlocked as i64,
-            Ok(n) => -(n as i64),
-            Err(_) => GenerateAndEnrollStatus::UnknownAttemptsRemaining as i64,
-        });
+    let e = match yk.unlock(pin.as_bytes(), management_key) {
+        Ok(_) => return Ok(()),
+        Err(e) => e,
+    };
+    error!("Could not unlock key: {e}");
+
+    if is_yk_reset_error(&e) {
+        println!("Unlock hit a reset-like error, reconnecting and retrying once");
+        let retry_result = yk.reconnect().and_then(|_| yk.unlock(pin.as_bytes(), management_key));
+        match retry_result {
+            Ok(_) => return Ok(()),
+            Err(e) if !is_yk_reset_error(&e) => {
+                error!("Could not unlock key on retry: {e}");
+            }
+            Err(e) => {
+                error!("Unlock still failing after reconnect: {e}");
+                return Err(GenerateAndEnrollStatus::YubikeyCommunicationError as i64);
+            }
+        }
     }
-    Ok(())
+
+    Err(match yk.yk.get_pin_retries() {
+        Ok(0) => GenerateAndEnrollStatus::KeyBlocked as i64,
+        Ok(n) => -(n as i64),
+        Err(_) => GenerateAndEnrollStatus::UnknownAttemptsRemaining as i64,
+    })
 }
 
 #[no_mangle]
