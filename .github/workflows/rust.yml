@@ -16,6 +16,8 @@ jobs:
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=all
@@ -26,6 +28,8 @@ jobs:
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=splunk
@@ -36,6 +40,8 @@ jobs:
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=influx
@@ -46,6 +52,8 @@ jobs:
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=local-db
@@ -56,6 +64,8 @@ jobs:
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features=amazon-kms
@@ -66,6 +76,8 @@ jobs:
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v3
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --package=rustica --features="splunk,influx,local-db,amazon-kms"
