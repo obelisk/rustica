@@ -1,7 +1,7 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::UpdatableConfiguration, piv_key_descriptor_from_yubikey, CertificateConfig, Handler,
-    PrivateKey, Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::UpdatableConfiguration, piv_key_descriptor_from_yubikey, read_yubikey,
+    CertificateConfig, Handler, PrivateKey, Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -83,16 +83,19 @@ unsafe fn build_piv_identities_from_ffi(
 
     let mut piv_identities = HashMap::new();
     for (serial, slots) in keys_by_serial {
-        let mut yk = Yubikey::open(serial).ok()?;
-        for (slot, pin) in slots {
-            let descriptor = piv_key_descriptor_from_yubikey(&mut yk, serial, slot, pin)?;
-            let encoded = descriptor.public_key.encode().to_vec();
-            if skip_key == Some(encoded.as_slice()) {
-                continue;
-            }
+        read_yubikey(serial, |yk| {
+            for (slot, pin) in slots {
+                let descriptor = piv_key_descriptor_from_yubikey(yk, serial, slot, pin)?;
+                let encoded = descriptor.public_key.encode().to_vec();
+                if skip_key == Some(encoded.as_slice()) {
+                    continue;
+                }
 
-            piv_identities.insert(encoded, descriptor);
-        }
+                piv_identities.insert(encoded, descriptor);
+            }
+            Some(())
+        })
+        .flatten()?;
     }
 
     Some(piv_identities)

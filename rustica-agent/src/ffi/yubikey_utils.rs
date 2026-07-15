@@ -4,19 +4,9 @@ use sshcerts::yubikey::piv::{RetiredSlotId, SlotId, Yubikey};
 use tokio::runtime::Runtime;
 
 use crate::{
-    config::UpdatableConfiguration, is_yk_reset_error, list_yubikey_serials, yk_serial_lock,
-    Signatory, YubikeySigner,
+    config::UpdatableConfiguration, is_yk_reset_error, list_yubikey_serials, read_yubikey,
+    yk_serial_lock, Signatory, YubikeySigner,
 };
-
-/// Open the YubiKey just to read from it. Closing it the normal way resets the
-/// card, which can break something else that's using it at the same time (like
-/// enrolling a key). Closing with `LeaveCard` reads without disturbing it.
-fn read_yubikey<T>(serial: u32, f: impl FnOnce(&mut Yubikey) -> T) -> Option<T> {
-    let mut yk = Yubikey::open(serial).ok()?;
-    let out = f(&mut yk);
-    let _ = yk.yk.disconnect(pcsc::Disposition::LeaveCard);
-    Some(out)
-}
 
 /// Check if the device path will require a pin to generate a new key
 /// # Safety
@@ -272,19 +262,21 @@ pub unsafe extern "C" fn ffi_get_git_config_string_from_serial_and_slot(
     serial: u32,
     slot: u8,
 ) -> *const c_char {
-    let public_key = match &mut Yubikey::open(serial) {
-        Ok(yk) => {
-            let slot = match RetiredSlotId::try_from(slot) {
-                Ok(s) => SlotId::Retired(s),
-                Err(_) => return std::ptr::null(),
-            };
+    let public_key = match read_yubikey(serial, |yk| {
+        let slot = match RetiredSlotId::try_from(slot) {
+            Ok(s) => SlotId::Retired(s),
+            Err(_) => return None,
+        };
 
-            match yk.ssh_cert_fetch_pubkey(&slot) {
-                Ok(pk) => pk,
-                Err(_) => return std::ptr::null(),
-            }
+        match yk.ssh_cert_fetch_pubkey(&slot) {
+            Ok(pk) => Some(pk),
+            Err(_) => None,
         }
-        Err(_) => return std::ptr::null(),
+    })
+    .flatten()
+    {
+        Some(pk) => pk,
+        None => return std::ptr::null(),
     };
 
     let git_config = match CString::new(crate::git_config_from_public_key(&public_key)) {
