@@ -814,6 +814,9 @@ pub fn list_yubikey_serials() -> Result<Vec<i64>, RusticaAgentLibraryError> {
                 let reader = reader.unwrap();
                 let serial: u32 = reader.serial().into();
                 serials.push(serial.into());
+                // Close without resetting the card, so we don't interrupt
+                // anything else using it at the same time.
+                let _ = reader.disconnect(pcsc::Disposition::LeaveCard);
             }
         }
         Err(e) => {
