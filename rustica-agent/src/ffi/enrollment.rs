@@ -64,10 +64,9 @@ unsafe fn parse_piv_args(
 /// the PIV PIN attempts remaining (negative), that the key is blocked, or
 /// (if the failure looks like a PC/SC card reset rather than a wrong PIN)
 /// a communication error, after one reconnect-and-retry attempt.
+///
+/// Caller must hold the per-serial card lock.
 fn unlock_or_pin_status(yk: &mut Yubikey, pin: &str, management_key: &[u8]) -> Result<(), i64> {
-    let serial_lock = yk_serial_lock(yk.yk.serial().into());
-    let _guard = serial_lock.blocking_lock();
-
     let e = match yk.unlock(pin.as_bytes(), management_key) {
         Ok(_) => return Ok(()),
         Err(e) => e,
@@ -320,6 +319,12 @@ pub unsafe extern "C" fn generate_and_enroll(
         _ => PinPolicy::Always,
     };
 
+    // Hold the card lock across generate and attest so a concurrent sign or
+    // refresh reconnect can't reset the card mid-sequence. Dropped before
+    // register_key, which re-acquires it.
+    let card_lock = yk_serial_lock(yubikey_serial);
+    let card_guard = card_lock.blocking_lock();
+
     let mut yk = match Yubikey::open(yubikey_serial) {
         Ok(yk) => yk,
         Err(e) => {
@@ -352,6 +357,8 @@ pub unsafe extern "C" fn generate_and_enroll(
     };
 
     let mut signatory = Signatory::Yubikey(YubikeySigner::new(yk, slot));
+
+    drop(card_guard); // release before register_key, which re-acquires it
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
@@ -429,6 +436,12 @@ pub unsafe extern "C" fn enroll_existing_piv(
         Err(status) => return status,
     };
 
+    // Hold the card lock across unlock and attest so a concurrent sign or
+    // refresh reconnect can't reset the card mid-sequence. Dropped before
+    // register_key, which re-acquires it.
+    let card_lock = yk_serial_lock(yubikey_serial);
+    let card_guard = card_lock.blocking_lock();
+
     let mut yk = match Yubikey::open(yubikey_serial) {
         Ok(yk) => yk,
         Err(e) => {
@@ -441,7 +454,7 @@ pub unsafe extern "C" fn enroll_existing_piv(
         return status;
     }
 
-    // Export the attestation of the key already living in the slot — no
+    // Export the attestation of the key already living in the slot; no
     // provisioning happens here, so the existing keypair is left untouched.
     let certificate = yk.fetch_attestation(&slot);
     let intermediate = yk.fetch_certificate(&SlotId::Attestation);
@@ -458,6 +471,8 @@ pub unsafe extern "C" fn enroll_existing_piv(
     };
 
     let mut signatory = Signatory::Yubikey(YubikeySigner::new(yk, slot));
+
+    drop(card_guard); // release before register_key, which re-acquires it
 
     let runtime = match Runtime::new() {
         Ok(rt) => rt,
