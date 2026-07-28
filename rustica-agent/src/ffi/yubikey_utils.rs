@@ -3,7 +3,10 @@ use std::ffi::{c_char, c_int, c_long, CStr, CString};
 use sshcerts::yubikey::piv::{RetiredSlotId, SlotId, Yubikey};
 use tokio::runtime::Runtime;
 
-use crate::{config::UpdatableConfiguration, list_yubikey_serials, Signatory, YubikeySigner};
+use crate::{
+    config::UpdatableConfiguration, is_yk_reset_error, list_yubikey_serials, read_yubikey,
+    yk_serial_lock, Signatory, YubikeySigner,
+};
 
 /// Check if the device path will require a pin to generate a new key
 /// # Safety
@@ -52,6 +55,14 @@ pub unsafe extern "C" fn ffi_device_pin_retries(device: *const c_char) -> i32 {
     }
 }
 
+/// Unlock a Yubikey with the given PIN and management key.
+/// # Return
+/// `0` on success. `-9` if the PIN attempts remaining could not be
+/// determined. `-10` if the unlock failed because the PC/SC card was reset
+/// (not because of a wrong PIN) and a reconnect-and-retry still failed; the
+/// PIN attempt counter is unaffected in this case. Any other positive value
+/// is the number of PIN attempts remaining at the time of the failure (which
+/// may be unchanged if the failure was not a wrong-PIN case).
 #[no_mangle]
 pub unsafe extern "C" fn unlock_yubikey(
     yubikey_serial: *const c_int,
@@ -65,6 +76,8 @@ pub unsafe extern "C" fn unlock_yubikey(
             return -1;
         }
     };
+    let serial_lock = yk_serial_lock(yk.yk.serial().into());
+    let _guard = serial_lock.blocking_lock();
 
     let pin = if !pin.is_null() {
         let pin = CStr::from_ptr(pin);
@@ -95,13 +108,29 @@ pub unsafe extern "C" fn unlock_yubikey(
         return -4;
     };
 
-    match yk.unlock(pin.as_bytes(), &management_key) {
-        Ok(_) => 0,
-        Err(e) => {
-            println!("Error unlocking key: {e}");
-            return yk.yk.get_pin_retries().map(|x| x as i32).unwrap_or(-9);
+    let e = match yk.unlock(pin.as_bytes(), &management_key) {
+        Ok(_) => return 0,
+        Err(e) => e,
+    };
+    println!("Error unlocking key: {e}");
+
+    if is_yk_reset_error(&e) {
+        println!("Unlock hit a reset-like error, reconnecting and retrying once");
+        if let Err(e) = yk.reconnect() {
+            println!("Reconnect after card reset failed: {e}");
+            return -10;
+        }
+        match yk.unlock(pin.as_bytes(), &management_key) {
+            Ok(_) => return 0,
+            Err(e) if is_yk_reset_error(&e) => {
+                println!("Unlock still failing after reconnect: {e}");
+                return -10;
+            }
+            Err(e) => println!("Error unlocking key on retry: {e}"),
         }
     }
+
+    yk.yk.get_pin_retries().map(|x| x as i32).unwrap_or(-9)
 }
 
 /// Fetch the list of serial numbers for the connected Yubikeys
@@ -152,28 +181,30 @@ pub unsafe extern "C" fn list_keys(
     yubikey_serial: u32,
     out_length: *mut c_int,
 ) -> *mut *mut c_char {
-    match &mut Yubikey::open(yubikey_serial) {
-        Ok(yk) => {
-            let mut keys = vec![];
-            for slot in 0x82..0x96_u8 {
-                let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
-                if let Ok(subj) = yk.fetch_subject(&slot) {
-                    keys.push(CString::new(format!("{:?} - {}", slot, subj)).unwrap())
-                }
+    let result = read_yubikey(yubikey_serial, |yk| {
+        let mut keys = vec![];
+        for slot in 0x82..0x96_u8 {
+            let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
+            if let Ok(subj) = yk.fetch_subject(&slot) {
+                keys.push(CString::new(format!("{:?} - {}", slot, subj)).unwrap())
             }
+        }
 
-            let mut out = keys.into_iter().map(|s| s.into_raw()).collect::<Vec<_>>();
-            out.shrink_to_fit();
+        let mut out = keys.into_iter().map(|s| s.into_raw()).collect::<Vec<_>>();
+        out.shrink_to_fit();
 
-            let len = out.len();
-            let ptr = out.as_mut_ptr();
-            std::mem::forget(out);
+        let len = out.len();
+        let ptr = out.as_mut_ptr();
+        std::mem::forget(out);
+        (ptr, len)
+    });
+
+    match result {
+        Some((ptr, len)) => {
             std::ptr::write(out_length, len as c_int);
-
-            // Finally return the data
             ptr
         }
-        Err(_) => std::ptr::null_mut(),
+        None => std::ptr::null_mut(),
     }
 }
 
@@ -181,33 +212,26 @@ pub unsafe extern "C" fn list_keys(
 /// once we return
 #[no_mangle]
 pub extern "C" fn check_yubikey_slot_provisioned(yubikey_serial: u32, slot_id: u8) -> bool {
-    match &mut Yubikey::open(yubikey_serial) {
-        Ok(yk) => match SlotId::try_from(slot_id) {
-            Ok(slot) => yk.fetch_subject(&slot).is_ok(),
-            Err(_) => false,
-        },
-        Err(_) => false,
-    }
+    read_yubikey(yubikey_serial, |yk| {
+        SlotId::try_from(slot_id)
+            .map(|slot| yk.fetch_subject(&slot).is_ok())
+            .unwrap_or(false)
+    })
+    .unwrap_or(false)
 }
 
 /// The return from this function must be freed by the caller because we can no longer track it
 /// once we return
 #[no_mangle]
 pub extern "C" fn check_yubikey_slot_certificate_expiry(yubikey_serial: u32, slot_id: u8) -> u64 {
-    let (mut yk, slot) = match (Yubikey::open(yubikey_serial), SlotId::try_from(slot_id)) {
-        (Ok(yk), Ok(slot)) => (yk, slot),
-        _ => return 0,
-    };
-
-    let cert = match yk.fetch_certificate(&slot) {
-        Ok(cert) => cert,
-        Err(_) => return 0,
-    };
-
-    match x509_parser::parse_x509_certificate(&cert) {
-        Ok((_, cert)) => cert.tbs_certificate.validity.not_after.timestamp() as u64,
-        Err(_) => 0,
-    }
+    read_yubikey(yubikey_serial, |yk| {
+        let slot = SlotId::try_from(slot_id).ok()?;
+        let cert = yk.fetch_certificate(&slot).ok()?;
+        let (_, parsed) = x509_parser::parse_x509_certificate(&cert).ok()?;
+        Some(parsed.tbs_certificate.validity.not_after.timestamp() as u64)
+    })
+    .flatten()
+    .unwrap_or(0)
 }
 
 /// Free the list of Yubikey keys
@@ -238,19 +262,21 @@ pub unsafe extern "C" fn ffi_get_git_config_string_from_serial_and_slot(
     serial: u32,
     slot: u8,
 ) -> *const c_char {
-    let public_key = match &mut Yubikey::open(serial) {
-        Ok(yk) => {
-            let slot = match RetiredSlotId::try_from(slot) {
-                Ok(s) => SlotId::Retired(s),
-                Err(_) => return std::ptr::null(),
-            };
+    let public_key = match read_yubikey(serial, |yk| {
+        let slot = match RetiredSlotId::try_from(slot) {
+            Ok(s) => SlotId::Retired(s),
+            Err(_) => return None,
+        };
 
-            match yk.ssh_cert_fetch_pubkey(&slot) {
-                Ok(pk) => pk,
-                Err(_) => return std::ptr::null(),
-            }
+        match yk.ssh_cert_fetch_pubkey(&slot) {
+            Ok(pk) => Some(pk),
+            Err(_) => None,
         }
-        Err(_) => return std::ptr::null(),
+    })
+    .flatten()
+    {
+        Some(pk) => pk,
+        None => return std::ptr::null(),
     };
 
     let git_config = match CString::new(crate::git_config_from_public_key(&public_key)) {

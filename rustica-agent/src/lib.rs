@@ -613,10 +613,19 @@ pub(crate) fn yk_serial_lock(serial: u32) -> Arc<Mutex<()>> {
     map.entry(serial).or_default().clone()
 }
 
-/// True when a signing error indicates the PC/SC card was reset out from
+/// Read-only YubiKey access that closes with `LeaveCard`, so it doesn't reset
+/// the shared card out from under a concurrent operation (e.g. an enrollment).
+pub(crate) fn read_yubikey<T>(serial: u32, f: impl FnOnce(&mut Yubikey) -> T) -> Option<T> {
+    let mut yk = Yubikey::open(serial).ok()?;
+    let out = f(&mut yk);
+    let _ = yk.yk.disconnect(pcsc::Disposition::LeaveCard);
+    Some(out)
+}
+
+/// True when a PIV operation error indicates the PC/SC card was reset out from
 /// under us (e.g. by another process like `ykman`). `Unsupported` counts
 /// because sshcerts collapses resets hit during its key-type fetch into it.
-pub(crate) fn is_yk_reset_error(e: &YkPivError) -> bool {
+pub fn is_yk_reset_error(e: &YkPivError) -> bool {
     match e {
         YkPivError::InternalYubiKeyError(msg) => msg.contains("has been reset"),
         YkPivError::Unsupported => true,
@@ -814,6 +823,8 @@ pub fn list_yubikey_serials() -> Result<Vec<i64>, RusticaAgentLibraryError> {
                 let reader = reader.unwrap();
                 let serial: u32 = reader.serial().into();
                 serials.push(serial.into());
+                // Close without resetting the shared card.
+                let _ = reader.disconnect(pcsc::Disposition::LeaveCard);
             }
         }
         Err(e) => {
@@ -843,18 +854,18 @@ pub fn get_all_piv_keys(
         let serial = serial as u32;
         let pin = yubikey_pin_from_env(serial);
 
-        match &mut Yubikey::open(serial) {
-            Ok(yk) => {
-                for slot in 0x82..0x96_u8 {
-                    let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
-                    if let Some(descriptor) =
-                        piv_key_descriptor_from_yubikey(yk, serial, slot, pin.clone())
-                    {
-                        all_keys.insert(descriptor.public_key.encode().to_vec(), descriptor);
-                    }
+        let opened = read_yubikey(serial, |yk| {
+            for slot in 0x82..0x96_u8 {
+                let slot = SlotId::Retired(RetiredSlotId::try_from(slot).unwrap());
+                if let Some(descriptor) =
+                    piv_key_descriptor_from_yubikey(yk, serial, slot, pin.clone())
+                {
+                    all_keys.insert(descriptor.public_key.encode().to_vec(), descriptor);
                 }
             }
-            Err(_e) => return Err(RusticaAgentLibraryError::CouldNotOpenYubikey(serial)),
+        });
+        if opened.is_none() {
+            return Err(RusticaAgentLibraryError::CouldNotOpenYubikey(serial));
         }
     }
 
