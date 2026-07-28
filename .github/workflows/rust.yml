@@ -6,78 +6,37 @@ on:
   pull_request:
     branches: [ master, develop ]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  macos-build-with-all:
-    runs-on: macos-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            features: all
+          - os: ubuntu-latest
+            features: splunk
+          - os: ubuntu-latest
+            features: influx
+          - os: ubuntu-latest
+            features: local-db
+          - os: ubuntu-latest
+            features: amazon-kms
+          - os: ubuntu-latest
+            features: splunk,influx,local-db,amazon-kms
+    runs-on: ${{ matrix.os }}
 
     steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@v3
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
     - name: Build
-      run: cargo build --package=rustica --features=all
-
-  ubuntu-build-with-splunk:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v3
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --package=rustica --features=splunk
-
-  ubuntu-build-with-influx:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v3
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --package=rustica --features=influx
-
-  ubuntu-build-with-local-db:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v3
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --package=rustica --features=local-db
-
-  ubuntu-build-with-amazon-kms:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v3
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --package=rustica --features=amazon-kms
-
-  ubuntu-build-with-all-except-yubikey:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v3
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --package=rustica --features="splunk,influx,local-db,amazon-kms"
+      run: cargo build --package=rustica --features=${{ matrix.features }}

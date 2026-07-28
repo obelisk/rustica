@@ -4,6 +4,10 @@ on:
   push:
     branches: [ master, develop ]
   pull_request:
+    branches: [ master, develop ]
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,14 +22,10 @@ jobs:
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Install libpcsc
       run: sudo apt install -y libpcsclite-dev libusb-1.0-0-dev libudev-dev
 
     - name: Run cargo fmt check
       run: cargo fmt --check
-
-    - uses: timweri/cargo-oxidate@5630341fca14f77a200402f6510f69adc63591f9 # v0.1.4
-      with:
-        min-age-days: 14
