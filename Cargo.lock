@@ -5300,9 +5300,9 @@ dependencies = [
 
 [[package]]
 name = "sshcerts"
-version = "0.15.1"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6e20d5862243b7149d24be3fd772679232f8d839020e2d6affda527c02ee8bd"
+checksum = "7c7244d8465f322662cd665ff28b286820da77245d2eab3c0337f0be6382a539"
 dependencies = [
  "aes 0.7.5",
  "authenticator",
