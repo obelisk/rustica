@@ -69,6 +69,9 @@ struct CertificateRefreshSettings {
     not_before: u64,
 }
 
+/// The largest client mTLS CSR we're willing to parse.
+const MAX_MTLS_CSR_SIZE: usize = 4096;
+
 /// Macro for simplifying sending error logs to the Rustica logging system.
 macro_rules! rustica_error {
     ($self:ident, $message:expr) => {
@@ -352,6 +355,31 @@ fn validate_request(
     ))
 }
 
+/// Build the parameters for a renewed client mTLS certificate. Shared by the CSR
+/// signing path and the legacy keypair-generation path.
+fn build_client_certificate_params(
+    mtls_identities: &[String],
+    settings: &CertificateRefreshSettings,
+) -> Result<rcgen::CertificateParams, RusticaServerError> {
+    let mut params = rcgen::CertificateParams::new(mtls_identities.to_vec());
+    params.not_before = (UNIX_EPOCH + Duration::from_secs(settings.not_before)).into();
+    params.not_after = (UNIX_EPOCH + Duration::from_secs(settings.not_after)).into();
+    params.distinguished_name.push(
+        DnType::CommonName,
+        mtls_identities.first().cloned().unwrap_or_default(),
+    );
+
+    // Without an explicit serial, rcgen derives one from the public key. Since
+    // renewals can now reuse the same key, that would give every renewal the
+    // same serial, so generate one instead.
+    let mut serial = [0; 16];
+    ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut serial)
+        .map_err(|_| RusticaServerError::Unknown)?;
+    params.serial_number = Some(rcgen::SerialNumber::from_slice(&serial));
+
+    Ok(params)
+}
+
 /// Check that mTLS identity is not rate limited for allowed_signers endpoint
 async fn is_rate_limited(srv: &RusticaServer, identities: String, current_time: Duration) -> bool {
     let rate_limiter = srv.allowed_signers_rate_limiter.clone();
@@ -486,6 +514,39 @@ impl Rustica for RusticaServer {
                 Err(e) => return Ok(create_response(e)),
             };
 
+        // Parse any mTLS CSR up front, before signing the SSH certificate, so a
+        // bad CSR doesn't cost us an unlogged SSH cert. Parsing also verifies the
+        // CSR's self signature, proving the client holds the key it's presenting.
+        let mtls_csr = if mtls_refresh.is_some() && !request.mtls_csr.is_empty() {
+            if request.mtls_csr.len() > MAX_MTLS_CSR_SIZE {
+                rustica_warning!(
+                    self,
+                    format!(
+                        "Received an mTLS CSR that is far too large from: {}. Size: {}",
+                        mtls_identities.join(","),
+                        request.mtls_csr.len(),
+                    )
+                );
+                return Ok(create_response(RusticaServerError::BadRequest));
+            }
+
+            match rcgen::CertificateSigningRequest::from_der(&request.mtls_csr) {
+                Ok(csr) => Some(csr),
+                Err(e) => {
+                    rustica_warning!(
+                        self,
+                        format!(
+                            "Received an invalid mTLS CSR from: {}. Error: {e}",
+                            mtls_identities.join(","),
+                        )
+                    );
+                    return Ok(create_response(RusticaServerError::BadRequest));
+                }
+            }
+        } else {
+            None
+        };
+
         let current_timestamp = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
             Ok(ts) => ts.as_secs(),
             Err(_e) => 0xFFFFFFFFFFFFFFFF,
@@ -607,21 +668,36 @@ impl Rustica for RusticaServer {
             self.signer
                 .get_client_certificate_authority(&self.client_authority.authority),
         ) {
-            let mut params = rcgen::CertificateParams::new(mtls_identities.clone());
-            params.not_before = (UNIX_EPOCH + Duration::from_secs(settings.not_before)).into();
-            params.not_after = (UNIX_EPOCH + Duration::from_secs(settings.not_after)).into();
-            params.distinguished_name.push(
-                DnType::CommonName,
-                mtls_identities
-                    .get(0)
-                    .map(|x| x.to_owned())
-                    .unwrap_or_default(),
-            );
+            let params = match build_client_certificate_params(&mtls_identities, settings) {
+                Ok(params) => params,
+                Err(e) => return Ok(create_response(e)),
+            };
 
-            let new_certificate = rcgen::Certificate::from_params(params).unwrap();
+            match mtls_csr {
+                // Client's key stays with it; we only take the public key from the CSR.
+                Some(mut csr) => {
+                    csr.params = params;
 
-            reply.new_client_key = new_certificate.serialize_private_key_pem();
-            reply.new_client_certificate = new_certificate.serialize_pem_with_signer(ca).unwrap();
+                    reply.new_client_certificate = match csr.serialize_pem_with_signer(ca) {
+                        Ok(certificate) => certificate,
+                        Err(e) => {
+                            rustica_error!(
+                                self,
+                                format!("Could not sign renewed mTLS certificate: {e}")
+                            );
+                            return Ok(create_response(RusticaServerError::BadRequest));
+                        }
+                    };
+                }
+                // No CSR: generate the keypair ourselves and send the private key back.
+                None => {
+                    let new_certificate = rcgen::Certificate::from_params(params).unwrap();
+
+                    reply.new_client_key = new_certificate.serialize_private_key_pem();
+                    reply.new_client_certificate =
+                        new_certificate.serialize_pem_with_signer(ca).unwrap();
+                }
+            }
         };
 
         let _ = self

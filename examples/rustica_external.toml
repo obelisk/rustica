@@ -59,6 +59,9 @@ validity_length = 181440000 # Three weeks * 100
 # server will generate a new mTLS access certificate and send that back with
 # the request.
 #
+# If the client sent a CSR, the server signs it and only a new certificate is
+# returned, so the client keeps its key. Older clients get a new keypair instead.
+#
 # This value should always be less than the validity length
 expiration_renewal_period = 181439980 #60480000 # One Week * 100
 

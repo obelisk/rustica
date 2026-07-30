@@ -8,6 +8,31 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 impl RusticaServer {
+    /// CSR for our existing mTLS keypair, so renewal doesn't need a new key.
+    /// Empty on failure, which makes the server fall back to generating one.
+    fn mtls_renewal_csr(&self) -> Vec<u8> {
+        let key_pair = match rcgen::KeyPair::from_pem(&self.mtls_key) {
+            Ok(key_pair) => key_pair,
+            Err(e) => {
+                warn!("Could not parse our mTLS key to build a renewal CSR: {e}");
+                return vec![];
+            }
+        };
+
+        // The server overwrites subject and validity, so no point setting them here.
+        let mut params = rcgen::CertificateParams::new(vec![]);
+        params.alg = key_pair.algorithm();
+        params.key_pair = Some(key_pair);
+
+        match rcgen::Certificate::from_params(params).and_then(|c| c.serialize_request_der()) {
+            Ok(csr) => csr,
+            Err(e) => {
+                warn!("Could not generate an mTLS renewal CSR: {e}");
+                vec![]
+            }
+        }
+    }
+
     pub async fn refresh_certificate_async(
         &self,
         signatory: &Signatory,
@@ -32,6 +57,7 @@ impl RusticaServer {
             valid_before: current_timestamp + options.duration,
             valid_after: current_timestamp,
             challenge: Some(challenge),
+            mtls_csr: self.mtls_renewal_csr(),
         });
 
         let response = client.certificate(request).await?;
@@ -45,8 +71,8 @@ impl RusticaServer {
         }
 
         // If there is a certificate, then create a new MtlsCredentials struct
-        // and return it. It's possible in the future the server will only
-        // return the certificate which is why we only check the certificate.
+        // and return it. When the server renewed from our CSR it only returns
+        // the certificate, which is why we only check the certificate here.
         let mtls_credentials = if !response.new_client_certificate.is_empty() {
             Some(MtlsCredentials {
                 certificate: response.new_client_certificate,

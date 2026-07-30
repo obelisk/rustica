@@ -4723,6 +4723,7 @@ dependencies = [
  "log",
  "pcsc",
  "prost",
+ "rcgen",
  "ring 0.17.14",
  "serde",
  "serde_derive",
