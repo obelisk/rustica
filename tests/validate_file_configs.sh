@@ -6,6 +6,7 @@ set -e
 cargo run --features=all --bin rustica -- -vv --config examples/rustica_external.toml
 cargo run --features=all --bin rustica -- -vv --config tests/test_configs/rustica_local_file.toml
 cargo run --features=all --bin rustica -- -vv --config tests/test_configs/rustica_local_file_alt.toml
+cargo run --features=all --bin rustica -- -vv --config tests/test_configs/rustica_local_file_no_renewal.toml
 cargo run --features=all --bin rustica -- -vv --config tests/test_configs/rustica_local_file_multi.toml
 cargo run --features=all --bin rustica -- -vv --config tests/test_configs/rustica_local_file_with_influx.toml
 cargo run --features=all --bin rustica -- -vv --config tests/test_configs/rustica_local_file_with_splunk.toml

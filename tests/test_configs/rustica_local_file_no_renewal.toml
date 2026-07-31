@@ -1,0 +1,118 @@
+# This is the listen address that will be used for the Rustica service
+listen_address = "0.0.0.0:50052"
+
+# This setting controls if the agent has to prove that it
+# controls the private key to Rustica. Setting this to true means a user needs
+# to generate two signatures (one to Rustica, and one to the host). The
+# advantage of using this, is a compromised host cannot get certificates
+# from the server without physical interaction.
+#
+# A client will always need to sign the challenge from the host they
+# are attempting to connect to however so a physical tap will always
+# be required.
+require_rustica_proof = false
+
+# This setting controls if Rustica will allow users to register keys that
+# cannot have their providence validated. If set to true, if a registration
+# either does not provide an attestation or the attestation fails, the key
+# will be rejected and the API call will fail. In the case of using an
+# external authorizer, a call will not be made to inform it of this event.
+require_attestation_chain = true
+
+
+# The certificate presented to connecting clients
+server_cert = '''
+-----BEGIN CERTIFICATE-----
+MIIBvTCCAWSgAwIBAgIUac6/skXLRQCSfqjAd0REJJxOGvwwCgYIKoZIzj0EAwIw
+GzEZMBcGA1UEAwwQRW50ZXJwcmlzZVJvb3RDQTAeFw0yNDA2MDYwNDA4MThaFw0y
+NjA5MDkwNDA4MThaMDExEDAOBgNVBAMMB3J1c3RpY2ExEDAOBgNVBAoMB1J1c3Rp
+Y2ExCzAJBgNVBAYTAkNBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqzdtAcXS
+9j3ECPWlucXR0yma0vQUU8PIioV3g7LthqtMTLwZJmtqDlhJE6PZUPdtSALeA6Xt
+GxwpOv8sEA2zDaNwMG4wHwYDVR0jBBgwFoAUOhiiXYkz9/H/i5F87/PRfqg/6E4w
+CQYDVR0TBAIwADALBgNVHQ8EBAMCBPAwFAYDVR0RBA0wC4IJbG9jYWxob3N0MB0G
+A1UdDgQWBBReU9iTPgqopxzmL9s3DLM6HKqb9DAKBggqhkjOPQQDAgNHADBEAiAy
+oOcGRjuYhrn89g2PxntRYD5mnBYqgiAmxIy04GpcjgIgQNbAu0KO7vIB3FIicjtJ
+ALZO9s3gY1HbIz18rVHKBNk=
+-----END CERTIFICATE-----
+'''
+
+# The key for the certificate presented to clients
+server_key = '''
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgQbGgAy6FMW/NcVeS
+zQCaBCQgK1QA+Xk/6JdJhgoYqQqhRANCAASrN20BxdL2PcQI9aW5xdHTKZrS9BRT
+w8iKhXeDsu2Gq0xMvBkma2oOWEkTo9lQ921IAt4Dpe0bHCk6/ywQDbMN
+-----END PRIVATE KEY-----
+'''
+
+# Configuration for authenticating connecting clients as well as defining
+# automatic renewal settings.
+[client_authority]
+# This must be one of the signing authorities defined in the signing structure
+authority = "example_test_environment"
+# When we issue a new access certificate, how long is it valid for.
+validity_length = 181440000 # Three weeks * 100
+
+# I think the easiest way to explain this is with an example.
+#
+# If a certificate is issued for three months, setting this to one week means
+# in the week before it expires, when they request a new SSH certificate, the
+# server will generate a new mTLS access certificate and send that back with
+# the request.
+#
+# This value should always be less than the validity length
+#
+# This config keeps the renewal window small (unlike the other test configs)
+# so integration.sh can assert that renewal does NOT happen for a cert that
+# isn't close to expiry.
+expiration_renewal_period = 60
+
+[signing]
+default_authority = "example_test_environment"
+
+# Rustica has many ways it can sign SSH certificates which are sent to
+# clients. This method uses private keys embedded in the configuration
+# file. This will mean the hosts which you want to login to via Rustica
+# must respect the public portion of the user key variable below.
+[signing.authority_configurations.example_test_environment]
+kind = "File"
+user_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+gAAAKhxqRWZcakV
+mQAAAAtzc2gtZWQyNTUxOQAAACDhq7U0gcW66mJNWpsL/4ADNXoOUMLHXYbM8PIHbqPT+g
+AAAEA8yRG/XWtjlY007gj8tNflVX9fnHPDcQYH2HTImTKvPeGrtTSBxbrqYk1amwv/gAM1
+eg5Qwsddhszw8gduo9P6AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+host_key = '''
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnewAAAKhQSP5+UEj+
+fgAAAAtzc2gtZWQyNTUxOQAAACAXAtkLkmySqYT2isdH0cROdrAzT2cGg9pL9eLpZwQnew
+AAAEAevZOed5UnsVdAASUn+sJ+dUfUnG1kQ1wRH9L758mSCxcC2QuSbJKphPaKx0fRxE52
+sDNPZwaD2kv14ulnBCd7AAAAIW9iZWxpc2tATWl0Y2hlbGxzLU1CUC5sb2NhbGRvbWFpbg
+ECAwQ=
+-----END OPENSSH PRIVATE KEY-----
+'''
+
+x509_private_key = "MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDOLp3ZkQZasW1BKZ+fG3ODQgNThvI7pV38DOEFCz6c+gr8whSiV6EHWT04VrddShehZANiAARKbU0hcFy5+9qqHxGx/FBQb2dh6u+pAYh4ASh7skBkPv5DK/46FH6pvyPp6Gfkp8gagcFsr9nAKbwjkVTtBopuhh45KUM5k4VqIqaNox7g+XCrgG29oVqA5WZpW8DFH2c="
+x509_private_key_alg = "p384"
+
+client_certificate_authority_private_key = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgFEwFOjsK54VOGLVajOMpV6PXEbOHKS8EXIMxRwmLQ/qhRANCAAQ+F90NcFu0EucoggNcbOGI4KP70/Mdb9hMxbd2NYx0DAeEvFiIjP2CI8QV6JgNW32zBKibV2iMtcwEyjMG7bR8"
+client_certificate_authority_private_key_algorithm = "p256"
+client_certificate_authority_common_name = "RusticaAccess"
+
+[logging."stdout"]
+
+[authorization."database"]
+path = "examples/example.db"
+
+[allowed_signers]
+cache_validity_length.secs = 900
+cache_validity_length.nanos = 0
+lru_rate_limiter_size = 16
+rate_limit_cooldown.secs = 15
+rate_limit_cooldown.nanos = 0

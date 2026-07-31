@@ -7,14 +7,40 @@
 
 cleanup_and_exit () {
     rm $SSH_AUTH_SOCK
+    if [ -n "$AGENT_CONFIG" ]; then
+        rm -f "$AGENT_CONFIG" "$AGENT_CONFIG.pre"
+    fi
     docker kill rustica_test_ssh_server > /dev/null 2>&1
     docker rm rustica_test_ssh_server > /dev/null 2>&1
     exit $1
 }
 
+# The mTLS private key is the only "PRIVATE KEY" PEM block in an agent config
+# (the top-level key and SSH host/user keys are "OPENSSH PRIVATE KEY").
+# tr -d '\n' makes the comparison insensitive to line-wrapping differences
+# between the hand-written config and the toml-serialized one the agent
+# writes back after a renewal.
+mtls_key_from_config () {
+    sed -n '/-----BEGIN PRIVATE KEY-----/,/-----END PRIVATE KEY-----/p' "$1" | tr -d '\n'
+}
+
+# Used by the renewal tests below to fail with a consistent message while
+# still stopping the currently running Rustica server.
+renewal_fail () {
+    echo "FAIL: $1"
+    kill $RUSTICA_PID
+    wait $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+}
+
 
 # Build Rustica and RusticaAgent
 cargo build --features=all
+
+# The agent rewrites its config in place when the server renews our mTLS
+# access certificate, so work from a copy and leave the tracked example alone.
+AGENT_CONFIG=$(mktemp /tmp/rustica_agent_config.XXXXXX)
+cp examples/rustica_agent_local.toml "$AGENT_CONFIG"
 
 # Build test SSH Server. This server trusts all the test keys in this folder as
 # as well as the user key in rustica_local_file.toml. The reason we start up alt
@@ -27,7 +53,7 @@ cd ../..
 docker run --name rustica_test_ssh_server -p 2424:22 rustica_test_ssh_server:latest &
 
 # Verify that Rustica is not running and that this should fail
-if ./target/debug/rustica-agent-cli immediate --config examples/rustica_agent_local.toml > /tmp/rustica_log 2>&1; then
+if ./target/debug/rustica-agent-cli immediate --config "$AGENT_CONFIG" > /tmp/rustica_log 2>&1; then
     echo "FAIL: Some other Rustica instance is running!"
     exit 1
 else
@@ -40,7 +66,7 @@ RUSTICA_PID=$!
 sleep 2
 
 # Test that we can fetch a certificate
-if ./target/debug/rustica-agent-cli immediate --config examples/rustica_agent_local.toml > /tmp/rustica_agent_log 2>&1; then
+if ./target/debug/rustica-agent-cli immediate --config "$AGENT_CONFIG" > /tmp/rustica_agent_log 2>&1; then
     echo "PASS: Successfully pulled a certificate from Rustica"
 else 
     echo "FAIL: Could not pull a certificate from Rustica"
@@ -53,7 +79,7 @@ else
 fi
 
 # Test that we can fetch a certificate and write it to a file
-if ./target/debug/rustica-agent-cli immediate --config examples/rustica_agent_local.toml --out /tmp/testing_cert > /dev/null 2>&1; then
+if ./target/debug/rustica-agent-cli immediate --config "$AGENT_CONFIG" --out /tmp/testing_cert > /dev/null 2>&1; then
     echo "PASS: Successfully saved a certificate to a file"
     if ssh-keygen -Lf /tmp/testing_cert > /dev/null; then
         echo "PASS: Validated ssh-keygen parses saved certificate"
@@ -74,7 +100,7 @@ SOCKET_PATH="/tmp/rustica_agent_$SOCKET_RND"
 echo "PASS: Using the following socket path for this test run: $SOCKET_PATH"
 
 # Start RusticaAgent
-./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
+./target/debug/rustica-agent-cli single --config "$AGENT_CONFIG" --socket $SOCKET_PATH > /dev/null 2>&1 &
 AGENT_PID=$!
 sleep 2
 
@@ -106,7 +132,7 @@ fi
 kill $AGENT_PID
 wait $AGENT_PID 2>/dev/null
 rm $SSH_AUTH_SOCK
-./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 & 
+./target/debug/rustica-agent-cli single --config "$AGENT_CONFIG" --socket $SOCKET_PATH > /dev/null 2>&1 & 
 AGENT_PID=$!
 sleep 2
 
@@ -132,7 +158,7 @@ fi
 kill $AGENT_PID
 wait $AGENT_PID 2>/dev/null
 rm $SSH_AUTH_SOCK
-./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 & 
+./target/debug/rustica-agent-cli single --config "$AGENT_CONFIG" --socket $SOCKET_PATH > /dev/null 2>&1 & 
 AGENT_PID=$!
 sleep 2
 
@@ -163,7 +189,7 @@ wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
 RUSTICA_PID=$!
 sleep 2
 
-./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH > /dev/null 2>&1 &
+./target/debug/rustica-agent-cli single --config "$AGENT_CONFIG" --socket $SOCKET_PATH > /dev/null 2>&1 &
 AGENT_PID=$!
 sleep 2
 
@@ -176,6 +202,91 @@ else
     cleanup_and_exit 1
 fi
 
-kill $AGENT_PID $RUSTICA_PID
-wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+# Stop the single-mode agent, but leave the Rustica server (rustica_local_file.toml)
+# running: its client_authority settings force an mTLS access certificate
+# renewal on every request, which is what we want to exercise next.
+kill $AGENT_PID
+wait $AGENT_PID > /dev/null 2>&1
+
+# Renewal test: prove the server renews our mTLS access certificate, reuses
+# our existing key via the CSR we send, and that the renewed certificate is
+# then accepted on a subsequent request.
+cp "$AGENT_CONFIG" "$AGENT_CONFIG.pre"
+PRE_MTLS_KEY=$(mtls_key_from_config "$AGENT_CONFIG.pre")
+
+if [ -z "$PRE_MTLS_KEY" ]; then
+    renewal_fail "Could not find an mTLS private key in the agent configuration"
+fi
+
+if ./target/debug/rustica-agent-cli immediate --config "$AGENT_CONFIG" > /tmp/rustica_renewal_log 2>&1; then
+    echo "PASS: Successfully pulled a certificate while renewal was expected"
+else
+    echo "Rustica Agent Log:"
+    cat /tmp/rustica_renewal_log
+    renewal_fail "Could not pull a certificate from Rustica during renewal test"
+fi
+
+if grep -q "Your access credentials to the server have been updated" /tmp/rustica_renewal_log; then
+    echo "PASS: Rustica renewed our mTLS access certificate"
+else
+    renewal_fail "Rustica did not renew our mTLS access certificate when it should have"
+fi
+
+if cmp -s "$AGENT_CONFIG" "$AGENT_CONFIG.pre"; then
+    renewal_fail "Agent config was not updated with the renewed mTLS access certificate"
+else
+    echo "PASS: Agent config was updated with the renewed mTLS access certificate"
+fi
+
+POST_MTLS_KEY=$(mtls_key_from_config "$AGENT_CONFIG")
+if [ -n "$POST_MTLS_KEY" ] && [ "$PRE_MTLS_KEY" = "$POST_MTLS_KEY" ]; then
+    echo "PASS: Renewal reused our existing mTLS private key"
+else
+    renewal_fail "Renewal replaced our mTLS private key instead of reusing it"
+fi
+
+# If the renewed certificate didn't match the retained key, this mTLS
+# handshake would fail.
+if ./target/debug/rustica-agent-cli immediate --config "$AGENT_CONFIG" > /tmp/rustica_renewed_log 2>&1; then
+    echo "PASS: Renewed mTLS access certificate was accepted by Rustica"
+else
+    echo "Rustica Agent Log:"
+    cat /tmp/rustica_renewed_log
+    renewal_fail "Renewed mTLS access certificate was rejected by Rustica"
+fi
+
+rm -f "$AGENT_CONFIG.pre"
+kill $RUSTICA_PID
+wait $RUSTICA_PID > /dev/null 2>&1
+
+# No-renewal test: with a server whose renewal window is small, and a
+# certificate that isn't close to expiring, no renewal should occur.
+./target/debug/rustica --config tests/test_configs/rustica_local_file_no_renewal.toml > /dev/null 2>&1 &
+RUSTICA_PID=$!
+sleep 2
+
+cp "$AGENT_CONFIG" "$AGENT_CONFIG.pre"
+
+if ./target/debug/rustica-agent-cli immediate --config "$AGENT_CONFIG" > /tmp/rustica_no_renewal_log 2>&1; then
+    echo "PASS: Successfully pulled a certificate while no renewal was expected"
+else
+    echo "Rustica Agent Log:"
+    cat /tmp/rustica_no_renewal_log
+    renewal_fail "Could not pull a certificate from Rustica during no-renewal test"
+fi
+
+if grep -q "Your access credentials to the server have been updated" /tmp/rustica_no_renewal_log; then
+    renewal_fail "Rustica renewed our mTLS access certificate when it should not have"
+else
+    echo "PASS: Rustica did not renew our mTLS access certificate"
+fi
+
+if cmp -s "$AGENT_CONFIG" "$AGENT_CONFIG.pre"; then
+    echo "PASS: Agent config was left unchanged when no renewal was needed"
+else
+    renewal_fail "Agent config changed even though no renewal should have occurred"
+fi
+
+kill $RUSTICA_PID
+wait $RUSTICA_PID > /dev/null 2>&1
 cleanup_and_exit 0
