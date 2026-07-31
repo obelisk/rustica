@@ -62,9 +62,8 @@ validity_length = 181440000 # Three weeks * 100
 #
 # This value should always be less than the validity length
 #
-# This config keeps the renewal window small (unlike the other test configs)
-# so integration.sh can assert that renewal does NOT happen for a cert that
-# isn't close to expiry.
+# Kept short here (unlike the other test configs) so integration.sh can test
+# that renewal doesn't happen for a cert that isn't close to expiry.
 expiration_renewal_period = 60
 
 [signing]
