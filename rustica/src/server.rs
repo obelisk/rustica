@@ -690,7 +690,18 @@ impl Rustica for RusticaServer {
                     };
                 }
                 // No CSR: generate the keypair ourselves and send the private key back.
+                // Older clients always take this path; newer clients only take it if
+                // their own renewal window doesn't yet agree that renewal is due, so
+                // this is worth surfacing to catch that mismatch operationally.
                 None => {
+                    rustica_warning!(
+                        self,
+                        format!(
+                            "Renewing mTLS access certificate for [{}] without a CSR: \
+                             generating a new keypair and transmitting the private key",
+                            mtls_identities.join(",")
+                        )
+                    );
                     let new_certificate = rcgen::Certificate::from_params(params).unwrap();
 
                     reply.new_client_key = new_certificate.serialize_private_key_pem();

@@ -891,9 +891,18 @@ pub async fn fetch_new_certificate(
     options: &CertificateConfig,
     notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
 ) -> Result<Certificate, RusticaAgentLibraryError> {
+    let mtls_csr_renewal_period = configuration
+        .get_configuration()
+        .effective_mtls_csr_renewal_period();
+
     for server in configuration.get_servers_mut() {
         match server
-            .refresh_certificate_async(signatory, options, notification_function)
+            .refresh_certificate_async(
+                signatory,
+                options,
+                notification_function,
+                mtls_csr_renewal_period,
+            )
             .await
         {
             Ok((cert, mtls_credentials)) => {

@@ -1,4 +1,9 @@
 version = 2
+# How long before our mTLS cert expires we bother generating a renewal CSR at
+# all. Set to match the paired test server's expiration_renewal_period so the
+# checked-in cert here still falls inside the window and the integration test
+# exercises key-retaining renewal.
+mtls_csr_renewal_period = 181439980
 key = """
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW

@@ -8,9 +8,36 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 impl RusticaServer {
+    /// Whether our mTLS cert is within `renewal_period` of expiring (or we
+    /// can't tell). Used to skip CSR generation the vast majority of the time
+    /// the cert isn't due for renewal.
+    fn mtls_cert_near_expiry(&self, renewal_period: u64) -> bool {
+        // Can't tell, so don't skip: better to generate an unneeded CSR than
+        // to silently never renew our own key.
+        let (_, pem) = match x509_parser::pem::parse_x509_pem(self.mtls_cert.as_bytes()) {
+            Ok(v) => v,
+            Err(_) => return true,
+        };
+        let expiry = match pem.parse_x509() {
+            Ok(cert) => cert.validity().not_after.timestamp(),
+            Err(_) => return true,
+        };
+
+        let now = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+            Ok(ts) => ts.as_secs(),
+            Err(_) => return true,
+        };
+
+        now.saturating_add(renewal_period) >= expiry as u64
+    }
+
     /// CSR for our existing mTLS keypair, so renewal doesn't need a new key.
     /// Empty on failure, which makes the server fall back to generating one.
-    fn mtls_renewal_csr(&self) -> Vec<u8> {
+    fn mtls_renewal_csr(&self, renewal_period: u64) -> Vec<u8> {
+        if !self.mtls_cert_near_expiry(renewal_period) {
+            return vec![];
+        }
+
         let key_pair = match rcgen::KeyPair::from_pem(&self.mtls_key) {
             Ok(key_pair) => key_pair,
             Err(e) => {
@@ -38,6 +65,7 @@ impl RusticaServer {
         signatory: &Signatory,
         options: &CertificateConfig,
         notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
+        mtls_csr_renewal_period: u64,
     ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
         let (mut client, challenge) =
             super::complete_rustica_challenge(self, signatory, notification_function).await?;
@@ -57,7 +85,7 @@ impl RusticaServer {
             valid_before: current_timestamp + options.duration,
             valid_after: current_timestamp,
             challenge: Some(challenge),
-            mtls_csr: self.mtls_renewal_csr(),
+            mtls_csr: self.mtls_renewal_csr(mtls_csr_renewal_period),
         });
 
         let response = client.certificate(request).await?;
@@ -97,10 +125,16 @@ impl RusticaServer {
         options: &CertificateConfig,
         handle: &Handle,
         notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
+        mtls_csr_renewal_period: u64,
     ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
         handle.block_on(async {
-            self.refresh_certificate_async(signatory, options, notification_function)
-                .await
+            self.refresh_certificate_async(
+                signatory,
+                options,
+                notification_function,
+                mtls_csr_renewal_period,
+            )
+            .await
         })
     }
 }
