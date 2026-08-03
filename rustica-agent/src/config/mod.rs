@@ -39,13 +39,6 @@ pub struct Config {
     pub mtls_csr_renewal_period: Option<u64>,
 }
 
-impl Config {
-    pub fn effective_mtls_csr_renewal_period(&self) -> u64 {
-        self.mtls_csr_renewal_period
-            .unwrap_or(DEFAULT_MTLS_CSR_RENEWAL_PERIOD)
-    }
-}
-
 pub struct UpdatableConfiguration {
     path: PathBuf,
     configuration: Config,

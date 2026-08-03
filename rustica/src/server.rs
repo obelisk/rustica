@@ -355,31 +355,6 @@ fn validate_request(
     ))
 }
 
-/// Build the parameters for a renewed client mTLS certificate. Shared by the CSR
-/// signing path and the legacy keypair-generation path.
-fn build_client_certificate_params(
-    mtls_identities: &[String],
-    settings: &CertificateRefreshSettings,
-) -> Result<rcgen::CertificateParams, RusticaServerError> {
-    let mut params = rcgen::CertificateParams::new(mtls_identities.to_vec());
-    params.not_before = (UNIX_EPOCH + Duration::from_secs(settings.not_before)).into();
-    params.not_after = (UNIX_EPOCH + Duration::from_secs(settings.not_after)).into();
-    params.distinguished_name.push(
-        DnType::CommonName,
-        mtls_identities.first().cloned().unwrap_or_default(),
-    );
-
-    // Without an explicit serial, rcgen derives one from the public key. Since
-    // renewals can now reuse the same key, that would give every renewal the
-    // same serial, so generate one instead.
-    let mut serial = [0; 16];
-    ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut serial)
-        .map_err(|_| RusticaServerError::Unknown)?;
-    params.serial_number = Some(rcgen::SerialNumber::from_slice(&serial));
-
-    Ok(params)
-}
-
 /// Check that mTLS identity is not rate limited for allowed_signers endpoint
 async fn is_rate_limited(srv: &RusticaServer, identities: String, current_time: Duration) -> bool {
     let rate_limiter = srv.allowed_signers_rate_limiter.clone();
@@ -668,10 +643,24 @@ impl Rustica for RusticaServer {
             self.signer
                 .get_client_certificate_authority(&self.client_authority.authority),
         ) {
-            let params = match build_client_certificate_params(&mtls_identities, settings) {
-                Ok(params) => params,
-                Err(e) => return Ok(create_response(e)),
-            };
+            let mut params = rcgen::CertificateParams::new(mtls_identities.clone());
+            params.not_before = (UNIX_EPOCH + Duration::from_secs(settings.not_before)).into();
+            params.not_after = (UNIX_EPOCH + Duration::from_secs(settings.not_after)).into();
+            params.distinguished_name.push(
+                DnType::CommonName,
+                mtls_identities.first().cloned().unwrap_or_default(),
+            );
+
+            // Without an explicit serial, rcgen derives one from the public key. Since
+            // renewals can now reuse the same key, that would give every renewal the
+            // same serial, so generate one instead.
+            let mut serial = [0; 16];
+            if ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut serial)
+                .is_err()
+            {
+                return Ok(create_response(RusticaServerError::Unknown));
+            }
+            params.serial_number = Some(rcgen::SerialNumber::from_slice(&serial));
 
             match mtls_csr {
                 // Client's key stays with it; we only take the public key from the CSR.

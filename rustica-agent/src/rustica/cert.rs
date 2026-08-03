@@ -8,33 +8,23 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 impl RusticaServer {
-    /// Whether our mTLS cert is within `renewal_period` of expiring (or we
-    /// can't tell). Used to skip CSR generation the vast majority of the time
-    /// the cert isn't due for renewal.
-    fn mtls_cert_near_expiry(&self, renewal_period: u64) -> bool {
-        // Can't tell, so don't skip: better to generate an unneeded CSR than
-        // to silently never renew our own key.
-        let (_, pem) = match x509_parser::pem::parse_x509_pem(self.mtls_cert.as_bytes()) {
-            Ok(v) => v,
-            Err(_) => return true,
-        };
-        let expiry = match pem.parse_x509() {
-            Ok(cert) => cert.validity().not_after.timestamp(),
-            Err(_) => return true,
-        };
-
-        let now = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(ts) => ts.as_secs(),
-            Err(_) => return true,
-        };
-
-        now.saturating_add(renewal_period) >= expiry as u64
-    }
-
     /// CSR for our existing mTLS keypair, so renewal doesn't need a new key.
-    /// Empty on failure, which makes the server fall back to generating one.
+    /// Empty if we're not within `renewal_period` of the cert's expiry yet (no
+    /// point generating one), or on any failure below (which makes the server
+    /// fall back to generating a keypair itself). Failing to tell how close we
+    /// are to expiry counts as "yes, generate one" — better an unneeded CSR
+    /// than to silently never renew our own key.
     fn mtls_renewal_csr(&self, renewal_period: u64) -> Vec<u8> {
-        if !self.mtls_cert_near_expiry(renewal_period) {
+        let not_near_expiry = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .ok()
+            .and_then(|now| {
+                let (_, pem) = x509_parser::pem::parse_x509_pem(self.mtls_cert.as_bytes()).ok()?;
+                let expiry = pem.parse_x509().ok()?.validity().not_after.timestamp() as u64;
+                Some(now.as_secs().saturating_add(renewal_period) < expiry)
+            })
+            .unwrap_or(false);
+        if not_near_expiry {
             return vec![];
         }
 
