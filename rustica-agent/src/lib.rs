@@ -197,6 +197,11 @@ pub struct Handler {
     /// Should we list the certificate or key first when we're asked to list
     /// identities
     pub certificate_priority: bool,
+    /// Never fetch or advertise the primary certificate, only the raw key.
+    /// Supersedes certificate_priority. OpenSSH 10.5+ always tries
+    /// certificates first regardless of agent listing order, so this is the
+    /// only way to authenticate with the bare key on those clients.
+    pub disable_certificate: bool,
     /// When true, suppress the bare primary key and only advertise its
     /// certificate (falls back to the bare key if no certificate is available).
     pub list_primary_certificate_only: bool,
@@ -379,15 +384,6 @@ impl SshAgentHandler for Handler {
             key_comment: format!("Yubikey Serial: {} Slot: {:?}", x.1.serial, x.1.slot),
         }));
 
-        let certificate = match self.get_certificate_async(true).await {
-            Ok(Some(v)) => Ok(Identity {
-                key_blob: v.serialized,
-                key_comment: v.comment.unwrap_or_default(),
-            }),
-            Ok(None) => Err(RusticaAgentLibraryError::NoServersReturnedCertificate),
-            Err(e) => Err(e),
-        };
-
         let key = Identity {
             key_blob: self.pubkey.encode().to_vec(),
             key_comment: String::new(),
@@ -398,8 +394,33 @@ impl SshAgentHandler for Handler {
             key_comment: fido.comment.clone(),
         });
 
+        // Certificates disabled: don't fetch one, advertise the key and fido
+        // only (or just fido in certificate-only mode). Since OpenSSH 10.5
+        // always tries certificates before bare keys no matter what order the
+        // agent lists them in, this is the only way to get key-first auth
+        // there.
+        if self.disable_certificate {
+            if !self.list_primary_certificate_only {
+                identities.push(key);
+            }
+            if let Some(fido) = fido {
+                identities.push(fido);
+            }
+            return Ok(Response::Identities(identities));
+        }
+
+        let certificate = match self.get_certificate_async(true).await {
+            Ok(Some(v)) => Ok(Identity {
+                key_blob: v.serialized,
+                key_comment: v.comment.unwrap_or_default(),
+            }),
+            Ok(None) => Err(RusticaAgentLibraryError::NoServersReturnedCertificate),
+            Err(e) => Err(e),
+        };
+
         // The last identities are our primary key/certificate (and optional FIDO
-        // direct key), ordered by certificate_priority.
+        // direct key), ordered by certificate_priority. Ignored by OpenSSH
+        // 10.5+, which always tries the certificate first.
         match (certificate, self.certificate_priority) {
             (Err(_), _) => {
                 identities.push(Identity {

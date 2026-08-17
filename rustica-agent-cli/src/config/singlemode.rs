@@ -63,6 +63,7 @@ pub async fn configure_singlemode(
         piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority: matches.is_present("certificate-priority"),
+        disable_certificate: matches.is_present("disable-certificate"),
         list_primary_certificate_only: false,
         fido_identity: None,
     };
