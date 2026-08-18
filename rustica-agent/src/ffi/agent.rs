@@ -152,10 +152,6 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     piv_slots: *const u8,
     piv_pins: *const c_long,
     piv_key_count: c_int,
-    // Never fetch or advertise the certificate, only the raw key. Needed for
-    // key-only auth with OpenSSH 10.5+, which always prefers certificates.
-    // Kept last so callers built against the old signature misread at worst a
-    // garbage bool instead of shifting the pointer arguments.
     disable_certificate: bool,
 ) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();
@@ -376,9 +372,6 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     list_primary_certificate_only: bool,
     // Optional additional FIDO identity to advertise alongside the primary key; null if unused.
     fido_private_key: *const c_char,
-    // Never fetch or advertise the certificate, only the raw key. Kept last so
-    // callers built against the old signature misread at worst a garbage bool
-    // instead of shifting the pointer arguments.
     disable_certificate: bool,
 ) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();

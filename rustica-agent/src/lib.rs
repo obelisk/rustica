@@ -395,9 +395,7 @@ impl SshAgentHandler for Handler {
         });
 
         // Certificates disabled: don't fetch one, advertise the key and fido
-        // only (or just fido in certificate-only mode). Since OpenSSH 10.5
-        // always tries certificates before bare keys, this is the only way to
-        // get key-first auth there.
+        // only (or just fido in certificate-only mode).
         if self.disable_certificate {
             if !self.list_primary_certificate_only {
                 identities.push(key);
