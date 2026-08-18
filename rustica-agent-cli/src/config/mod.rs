@@ -158,7 +158,7 @@ pub fn add_daemon_options(cmd: Command) -> Command {
     cmd
         .arg(
             Arg::new("certificate-priority")
-                .help("If this is present, the certificate will be listed first in the identity listing (otherwise the key will be first). Ignored by OpenSSH 10.5+, which always tries certificates first; see --disable-certificate")
+                .help("If this is present, the certificate will be listed first in the identity listing (otherwise the key will be first)")
                 .long("priority")
                 .takes_value(false)
         )
