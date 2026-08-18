@@ -176,6 +176,63 @@ else
     cleanup_and_exit 1
 fi
 
+# Positive control: the default agent advertises the certificate
+if ssh-add -L | grep -q "cert-v01@openssh.com"; then
+    echo "PASS: Certificate is advertised by default"
+else
+    echo "FAIL: Certificate missing from default agent listing"
+    kill $AGENT_PID $RUSTICA_PID
+    wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+fi
+
+# Restart RusticaAgent with --priority to check certificate ordering
+kill $AGENT_PID
+wait $AGENT_PID 2>/dev/null
+rm $SSH_AUTH_SOCK
+./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH --priority > /dev/null 2>&1 &
+AGENT_PID=$!
+sleep 2
+
+if ssh-add -L | head -n 1 | grep -q "cert-v01@openssh.com"; then
+    echo "PASS: Certificate listed first with --priority"
+else
+    echo "FAIL: Certificate not listed first with --priority"
+    kill $AGENT_PID $RUSTICA_PID
+    wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+fi
+
+# Restart RusticaAgent with certificates disabled
+kill $AGENT_PID
+wait $AGENT_PID 2>/dev/null
+rm $SSH_AUTH_SOCK
+./target/debug/rustica-agent-cli single --config examples/rustica_agent_local.toml --socket $SOCKET_PATH --disable-certificate > /dev/null 2>&1 &
+AGENT_PID=$!
+sleep 2
+
+if ssh-add -L | grep -q "cert-v01@openssh.com"; then
+    echo "FAIL: Certificate advertised despite --disable-certificate"
+    kill $AGENT_PID $RUSTICA_PID
+    wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+else
+    echo "PASS: Certificate not advertised with --disable-certificate"
+fi
+
+# The test server only trusts the CA for this key, so the connection must
+# fail without the certificate. Success here would mean the certificate is
+# still being offered (OpenSSH 10.5+ always prefers certificates when the
+# agent lists one).
+if ssh -o StrictHostKeyChecking=no testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
+    echo "FAIL: SSH succeeded despite --disable-certificate"
+    kill $AGENT_PID $RUSTICA_PID
+    wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+else
+    echo "PASS: SSH correctly fails without certificate (--disable-certificate)"
+fi
+
 kill $AGENT_PID $RUSTICA_PID
 wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
 cleanup_and_exit 0
