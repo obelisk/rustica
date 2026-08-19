@@ -285,10 +285,9 @@ require_rustica_running
 
 # Renewal test: the server renews the mTLS access cert, reuses our existing key
 # via the CSR we send, and accepts the renewed cert on the next request.
-#
-# Reset to the pristine example config first. Earlier steps already renewed our
-# cert, and a just renewed cert has more life left (validity_length) than
-# expiration_renewal_period, so it would not renew again.
+
+# Reset to the pristine example config. A cert renewed in an earlier step has
+# more life left than expiration_renewal_period, so it wouldn't renew again.
 cp examples/rustica_agent_local.toml "$AGENT_CONFIG"
 cp "$AGENT_CONFIG" "$AGENT_CONFIG.pre"
 PRE_MTLS_KEY=$(mtls_key_from_config "$AGENT_CONFIG.pre")
@@ -322,9 +321,11 @@ run_immediate /tmp/rustica_renewed_log "Renewed mTLS access certificate was reje
 echo "PASS: Renewed mTLS access certificate was accepted by Rustica"
 
 # Legacy fallback: a client outside its own renewal window won't attach a CSR
-# even when the server wants to renew, and the server must still renew by
-# generating a fresh keypair like it always did. The pristine cert has far more
-# life left than the default client window, and this server's window is huge.
+# even when the server wants to renew, so the server generates a new keypair
+# instead of reusing one.
+
+# This cert isn't close to expiry, so no CSR gets attached here, exercising
+# that fallback.
 sed '/^mtls_csr_renewal_period/d' examples/rustica_agent_local.toml > "$AGENT_CONFIG"
 cp "$AGENT_CONFIG" "$AGENT_CONFIG.pre"
 PRE_MTLS_KEY=$(mtls_key_from_config "$AGENT_CONFIG.pre")

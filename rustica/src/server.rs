@@ -677,9 +677,9 @@ impl Rustica for RusticaServer {
                         }
                     };
                 }
-                // No CSR: generate the keypair and send the private key back. Older
-                // clients always land here, newer ones only if their renewal window
-                // hasn't opened yet, which is worth warning about.
+                // No CSR: generate a keypair and return the private key. Older clients
+                // always take this path, newer clients only if their renewal window
+                // hasn't opened yet.
                 None => {
                     rustica_warning!(
                         self,
