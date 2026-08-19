@@ -197,6 +197,11 @@ pub struct Handler {
     /// Should we list the certificate or key first when we're asked to list
     /// identities
     pub certificate_priority: bool,
+    /// Never fetch or advertise the primary certificate, only the raw key.
+    /// Supersedes certificate_priority. OpenSSH 10.5+ always tries
+    /// certificates first, so this is the only way to authenticate with the
+    /// bare key on those clients.
+    pub disable_certificate: bool,
     /// When true, suppress the bare primary key and only advertise its
     /// certificate (falls back to the bare key if no certificate is available).
     pub list_primary_certificate_only: bool,
@@ -379,15 +384,6 @@ impl SshAgentHandler for Handler {
             key_comment: format!("Yubikey Serial: {} Slot: {:?}", x.1.serial, x.1.slot),
         }));
 
-        let certificate = match self.get_certificate_async(true).await {
-            Ok(Some(v)) => Ok(Identity {
-                key_blob: v.serialized,
-                key_comment: v.comment.unwrap_or_default(),
-            }),
-            Ok(None) => Err(RusticaAgentLibraryError::NoServersReturnedCertificate),
-            Err(e) => Err(e),
-        };
-
         let key = Identity {
             key_blob: self.pubkey.encode().to_vec(),
             key_comment: String::new(),
@@ -397,6 +393,27 @@ impl SshAgentHandler for Handler {
             key_blob: fido.pubkey.encode().to_vec(),
             key_comment: fido.comment.clone(),
         });
+
+        // Certificates disabled: don't fetch one, advertise the key and fido
+        // only (or just fido in certificate-only mode).
+        if self.disable_certificate {
+            if !self.list_primary_certificate_only {
+                identities.push(key);
+            }
+            if let Some(fido) = fido {
+                identities.push(fido);
+            }
+            return Ok(Response::Identities(identities));
+        }
+
+        let certificate = match self.get_certificate_async(true).await {
+            Ok(Some(v)) => Ok(Identity {
+                key_blob: v.serialized,
+                key_comment: v.comment.unwrap_or_default(),
+            }),
+            Ok(None) => Err(RusticaAgentLibraryError::NoServersReturnedCertificate),
+            Err(e) => Err(e),
+        };
 
         // The last identities are our primary key/certificate (and optional FIDO
         // direct key), ordered by certificate_priority.
@@ -1032,4 +1049,127 @@ pub async fn get_allowed_signers(
         }
     }
     Err(RusticaAgentLibraryError::NoServersReturnedAllowedSigners)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sshcerts::ssh::KeyTypeKind;
+
+    // Marker blob so we can tell the certificate identity apart from the
+    // bare key in listings without a real server.
+    const CERT_BLOB: &[u8] = b"test-certificate";
+
+    struct TestHandler {
+        handler: Handler,
+        key_blob: Vec<u8>,
+        fido_blob: Option<Vec<u8>>,
+    }
+
+    fn test_handler(
+        certificate_priority: bool,
+        disable_certificate: bool,
+        list_primary_certificate_only: bool,
+        with_cert: bool,
+        with_fido: bool,
+    ) -> TestHandler {
+        let config_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../examples/rustica_agent_local.toml"
+        );
+        let updatable_configuration = UpdatableConfiguration::new(config_path).unwrap();
+        let certificate_options =
+            CertificateConfig::from(updatable_configuration.get_configuration().options.clone());
+
+        let private_key = PrivateKey::new(KeyTypeKind::Ed25519, "test").unwrap();
+        let pubkey = private_key.pubkey.clone();
+        let key_blob = pubkey.encode().to_vec();
+
+        // Seed a cached, never-expiring certificate so identities() doesn't
+        // hit the network.
+        let (cert, stale_at) = if with_cert {
+            let ca_key = PrivateKey::new(KeyTypeKind::Ed25519, "ca").unwrap();
+            let mut cert = Certificate::builder(&pubkey, CertType::User, &ca_key.pubkey).unwrap();
+            cert.serialized = CERT_BLOB.to_vec();
+            (Some(cert), u64::MAX)
+        } else {
+            (None, 0)
+        };
+
+        let fido_identity =
+            with_fido.then(|| PrivateKey::new(KeyTypeKind::Ed25519, "fido").unwrap());
+        let fido_blob = fido_identity.as_ref().map(|f| f.pubkey.encode().to_vec());
+
+        TestHandler {
+            handler: Handler {
+                updatable_configuration: Mutex::new(updatable_configuration),
+                cert: Mutex::new(cert),
+                pubkey,
+                signatory: Signatory::Direct(Mutex::new(private_key)),
+                stale_at: Mutex::new(stale_at),
+                certificate_options,
+                identities: Mutex::new(HashMap::new()),
+                piv_identities: HashMap::new(),
+                notification_function: None,
+                certificate_priority,
+                disable_certificate,
+                list_primary_certificate_only,
+                fido_identity,
+            },
+            key_blob,
+            fido_blob,
+        }
+    }
+
+    async fn listed_blobs(t: &TestHandler) -> Vec<Vec<u8>> {
+        match t.handler.identities().await.unwrap() {
+            Response::Identities(ids) => ids.into_iter().map(|i| i.key_blob).collect(),
+            _ => panic!("expected identities"),
+        }
+    }
+
+    #[tokio::test]
+    async fn certificate_only_lists_cert_not_key() {
+        for priority in [false, true] {
+            let t = test_handler(priority, false, true, true, false);
+            assert_eq!(listed_blobs(&t).await, vec![CERT_BLOB.to_vec()]);
+        }
+    }
+
+    #[tokio::test]
+    async fn certificate_only_with_fido_orders_by_priority() {
+        let t = test_handler(true, false, true, true, true);
+        assert_eq!(
+            listed_blobs(&t).await,
+            vec![CERT_BLOB.to_vec(), t.fido_blob.clone().unwrap()]
+        );
+
+        let t = test_handler(false, false, true, true, true);
+        assert_eq!(
+            listed_blobs(&t).await,
+            vec![t.fido_blob.clone().unwrap(), CERT_BLOB.to_vec()]
+        );
+    }
+
+    #[tokio::test]
+    async fn disable_certificate_in_certificate_only_mode_lists_nothing() {
+        let t = test_handler(false, true, true, true, false);
+        assert_eq!(listed_blobs(&t).await, Vec::<Vec<u8>>::new());
+
+        // FIDO is not a certificate, so it survives.
+        let t = test_handler(false, true, true, true, true);
+        assert_eq!(listed_blobs(&t).await, vec![t.fido_blob.clone().unwrap()]);
+    }
+
+    #[tokio::test]
+    async fn disable_certificate_lists_bare_key() {
+        let t = test_handler(false, true, false, true, false);
+        assert_eq!(listed_blobs(&t).await, vec![t.key_blob.clone()]);
+
+        let t = test_handler(false, true, false, true, true);
+        assert_eq!(
+            listed_blobs(&t).await,
+            vec![t.key_blob.clone(), t.fido_blob.clone().unwrap()]
+        );
+    }
 }

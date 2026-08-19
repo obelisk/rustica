@@ -489,9 +489,9 @@ impl Rustica for RusticaServer {
                 Err(e) => return Ok(create_response(e)),
             };
 
-        // Parse any mTLS CSR up front, before signing the SSH certificate, so a
-        // bad CSR doesn't cost us an unlogged SSH cert. Parsing also verifies the
-        // CSR's self signature, proving the client holds the key it's presenting.
+        // Parse before signing the SSH certificate so a bad CSR doesn't cost us an
+        // unlogged SSH cert. Parsing also verifies the CSR's self signature, proving
+        // the client holds the key.
         let mtls_csr = if mtls_refresh.is_some() && !request.mtls_csr.is_empty() {
             if request.mtls_csr.len() > MAX_MTLS_CSR_SIZE {
                 rustica_warning!(
@@ -651,9 +651,8 @@ impl Rustica for RusticaServer {
                 mtls_identities.first().cloned().unwrap_or_default(),
             );
 
-            // Without an explicit serial, rcgen derives one from the public key. Since
-            // renewals can now reuse the same key, that would give every renewal the
-            // same serial, so generate one instead.
+            // rcgen derives the serial from the public key when we don't set one, and
+            // renewals can now reuse a key, so set it ourselves to keep serials unique.
             let mut serial = [0; 16];
             if ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut serial)
                 .is_err()
@@ -663,7 +662,7 @@ impl Rustica for RusticaServer {
             params.serial_number = Some(rcgen::SerialNumber::from_slice(&serial));
 
             match mtls_csr {
-                // Client's key stays with it; we only take the public key from the CSR.
+                // Only the public key comes from the CSR, so the client keeps its key.
                 Some(mut csr) => {
                     csr.params = params;
 
@@ -678,10 +677,9 @@ impl Rustica for RusticaServer {
                         }
                     };
                 }
-                // No CSR: generate the keypair ourselves and send the private key back.
-                // Older clients always take this path; newer clients only take it if
-                // their own renewal window doesn't yet agree that renewal is due, so
-                // this is worth surfacing to catch that mismatch operationally.
+                // No CSR: generate the keypair and send the private key back. Older
+                // clients always land here, newer ones only if their renewal window
+                // hasn't opened yet, which is worth warning about.
                 None => {
                     rustica_warning!(
                         self,

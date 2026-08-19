@@ -15,8 +15,8 @@ cleanup_and_exit () {
     exit $1
 }
 
-# mtls_key is the only "PRIVATE KEY" PEM block in an agent config (other keys
-# are "OPENSSH PRIVATE KEY"). tr -d '\n' ignores line-wrap differences.
+# mtls_key is the only "PRIVATE KEY" PEM block in an agent config, the other
+# keys are "OPENSSH PRIVATE KEY".
 mtls_key_from_config () {
     sed -n '/-----BEGIN PRIVATE KEY-----/,/-----END PRIVATE KEY-----/p' "$1" | tr -d '\n'
 }
@@ -37,7 +37,6 @@ require_rustica_running () {
     fi
 }
 
-# Runs `immediate`, logging and failing via renewal_fail on error.
 run_immediate () {
     if ./target/debug/rustica-agent-cli immediate --config "$AGENT_CONFIG" > "$1" 2>&1; then
         return 0
@@ -217,19 +216,79 @@ else
     cleanup_and_exit 1
 fi
 
-# Stop the single-mode agent; keep the Rustica server running (its config
-# forces an mTLS renewal for a cert close to expiry, which we test next).
-kill $AGENT_PID
-wait $AGENT_PID > /dev/null 2>&1
+# Positive control: the default agent advertises the certificate
+if ssh-add -L | grep -q "cert-v01@openssh.com"; then
+    echo "PASS: Certificate is advertised by default"
+else
+    echo "FAIL: Certificate missing from default agent listing"
+    kill $AGENT_PID $RUSTICA_PID
+    wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+fi
 
-# Renewal test: server renews the mTLS access cert, reuses our existing key
-# via the CSR we send, and the renewed cert is accepted on the next request.
+# Restart RusticaAgent with --priority to check certificate ordering
+kill $AGENT_PID
+wait $AGENT_PID 2>/dev/null
+rm $SSH_AUTH_SOCK
+./target/debug/rustica-agent-cli single --config "$AGENT_CONFIG" --socket $SOCKET_PATH --priority > /dev/null 2>&1 &
+AGENT_PID=$!
+sleep 2
+
+if ssh-add -L | head -n 1 | grep -q "cert-v01@openssh.com"; then
+    echo "PASS: Certificate listed first with --priority"
+else
+    echo "FAIL: Certificate not listed first with --priority"
+    kill $AGENT_PID $RUSTICA_PID
+    wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+fi
+
+# Restart RusticaAgent with certificates disabled
+kill $AGENT_PID
+wait $AGENT_PID 2>/dev/null
+rm $SSH_AUTH_SOCK
+./target/debug/rustica-agent-cli single --config "$AGENT_CONFIG" --socket $SOCKET_PATH --disable-certificate > /dev/null 2>&1 &
+AGENT_PID=$!
+sleep 2
+
+if ssh-add -L | grep -q "cert-v01@openssh.com"; then
+    echo "FAIL: Certificate advertised despite --disable-certificate"
+    kill $AGENT_PID $RUSTICA_PID
+    wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+else
+    echo "PASS: Certificate not advertised with --disable-certificate"
+fi
+
+# The test server only trusts the CA for this key, so the connection must
+# fail without the certificate. Success here would mean the certificate is
+# still being offered (OpenSSH 10.5+ always prefers certificates when the
+# agent lists one).
+if ssh -o StrictHostKeyChecking=no testuser@localhost -p2424 -t 'exit' > /dev/null 2>&1; then
+    echo "FAIL: SSH succeeded despite --disable-certificate"
+    kill $AGENT_PID $RUSTICA_PID
+    wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+    cleanup_and_exit 1
+else
+    echo "PASS: SSH correctly fails without certificate (--disable-certificate)"
+fi
+
+kill $AGENT_PID $RUSTICA_PID
+wait $AGENT_PID $RUSTICA_PID > /dev/null 2>&1
+
+# Start a Rustica server whose config forces an mTLS renewal for a cert close
+# to expiry, which the renewal tests below rely on.
+./target/debug/rustica --config tests/test_configs/rustica_local_file.toml > /dev/null 2>&1 &
+RUSTICA_PID=$!
+sleep 2
+require_rustica_running
+
+# Renewal test: the server renews the mTLS access cert, reuses our existing key
+# via the CSR we send, and accepts the renewed cert on the next request.
 #
-# Reset to the pristine example config first: earlier steps in this script
-# already renewed our mTLS cert, and a just-renewed cert's remaining life
-# (validity_length) is just over expiration_renewal_period, so it won't
-# renew again. The checked-in cert's real expiry is close enough to trigger
-# a renewal here.
+# Reset to the pristine example config first. Earlier steps already renewed our
+# cert, and a just renewed cert has more life left (validity_length) than
+# expiration_renewal_period, so it would not renew again.
 cp examples/rustica_agent_local.toml "$AGENT_CONFIG"
 cp "$AGENT_CONFIG" "$AGENT_CONFIG.pre"
 PRE_MTLS_KEY=$(mtls_key_from_config "$AGENT_CONFIG.pre")
@@ -257,18 +316,15 @@ else
     renewal_fail "Renewal replaced our mTLS private key instead of reusing it"
 fi
 
-# A mismatched key here would fail the mTLS handshake, so success also
-# confirms the renewed certificate matches the retained key.
+# A mismatched key would fail the mTLS handshake, so success here also confirms
+# the renewed certificate matches the retained key.
 run_immediate /tmp/rustica_renewed_log "Renewed mTLS access certificate was rejected by Rustica"
 echo "PASS: Renewed mTLS access certificate was accepted by Rustica"
 
-# Legacy fallback test: the client's own renewal window is independent of the
-# server's, so a client that doesn't yet think its cert is due for renewal
-# won't attach a CSR even if the server does want to renew. The server must
-# still renew in that case, falling back to generating a fresh keypair (the
-# only path there was before this feature). Reuses the pristine checked-in
-# cert (real remaining life is far beyond a default client renewal window)
-# against this same server, whose own window is deliberately huge.
+# Legacy fallback: a client outside its own renewal window won't attach a CSR
+# even when the server wants to renew, and the server must still renew by
+# generating a fresh keypair like it always did. The pristine cert has far more
+# life left than the default client window, and this server's window is huge.
 sed '/^mtls_csr_renewal_period/d' examples/rustica_agent_local.toml > "$AGENT_CONFIG"
 cp "$AGENT_CONFIG" "$AGENT_CONFIG.pre"
 PRE_MTLS_KEY=$(mtls_key_from_config "$AGENT_CONFIG.pre")

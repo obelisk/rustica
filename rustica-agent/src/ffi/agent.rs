@@ -115,6 +115,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
     certificate_priority: bool,
+    disable_certificate: bool,
 ) -> *const RusticaAgentInstance {
     return start_direct_rustica_agent_with_piv_idents(
         private_key,
@@ -129,6 +130,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent(
         std::ptr::null(),
         std::ptr::null(),
         0,
+        disable_certificate,
     );
 }
 
@@ -150,6 +152,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     piv_slots: *const u8,
     piv_pins: *const c_long,
     piv_key_count: c_int,
+    disable_certificate: bool,
 ) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();
     println!("Starting a new Rustica instance!");
@@ -255,6 +258,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
+        disable_certificate,
         list_primary_certificate_only: false,
         fido_identity: None,
     };
@@ -309,6 +313,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
     notification_fn: unsafe extern "C" fn() -> (),
     authority: *const c_char,
     certificate_priority: bool,
+    disable_certificate: bool,
 ) -> *const RusticaAgentInstance {
     start_yubikey_rustica_agent_with_piv_idents(
         yubikey_serial,
@@ -325,6 +330,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
         0,
         false,
         std::ptr::null(),
+        disable_certificate,
     )
 }
 
@@ -339,6 +345,10 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent(
 ///   matching the primary key is skipped automatically.
 /// - Pass a non-null `fido_private_key` to additionally advertise a FIDO
 ///   identity alongside the primary key.
+/// - Set `disable_certificate` to never fetch or advertise the certificate,
+///   only the raw key. Needed for key-only auth with OpenSSH 10.5+, which
+///   always prefers certificates. Combined with
+///   `list_primary_certificate_only` no primary identity is advertised.
 /// # Safety
 /// `config_path` and `socket_path` must be null terminated C strings. `pin` and
 /// `fido_private_key`, if non-null, must also be null terminated C strings. If
@@ -362,6 +372,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     list_primary_certificate_only: bool,
     // Optional additional FIDO identity to advertise alongside the primary key; null if unused.
     fido_private_key: *const c_char,
+    disable_certificate: bool,
 ) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();
     println!("Starting a new Rustica instance!");
@@ -454,6 +465,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
+        disable_certificate,
         list_primary_certificate_only,
         fido_identity,
     };

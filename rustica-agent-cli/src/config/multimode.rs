@@ -168,6 +168,7 @@ pub async fn configure_multimode(
         piv_identities: key_map,
         notification_function: None,
         certificate_priority: matches.is_present("certificate-priority"),
+        disable_certificate: matches.is_present("disable-certificate"),
         list_primary_certificate_only: false,
         fido_identity: None,
     };

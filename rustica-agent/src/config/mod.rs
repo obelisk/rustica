@@ -20,8 +20,8 @@ struct Version {
     version: u64,
 }
 
-/// Default window before an mTLS certificate's expiry in which we bother
-/// generating a renewal CSR at all.
+/// How close to expiry an mTLS certificate must be before we generate a
+/// renewal CSR.
 pub const DEFAULT_MTLS_CSR_RENEWAL_PERIOD: u64 = 60 * 60 * 24 * 30;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -32,10 +32,9 @@ pub struct Config {
     pub key: Option<String>,
     pub options: Option<Options>,
     pub socket: Option<String>,
-    // This must be set to at least the server's client_authority.expiration_renewal_period,
-    // or the client may not attach a CSR in time for a renewal the server already
-    // wants to do, causing it to generate and transmit a fresh keypair instead of
-    // reusing ours (logged server-side as a warning, but otherwise silent here).
+    // Set this to at least the server's client_authority.expiration_renewal_period,
+    // otherwise we won't have attached a CSR yet when the server renews and it
+    // generates a new keypair for us instead.
     pub mtls_csr_renewal_period: Option<u64>,
 }
 
