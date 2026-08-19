@@ -129,3 +129,66 @@ impl RusticaServer {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use x509_parser::prelude::FromDer;
+
+    // test_server's certificate expires in the year 4096 (rcgen's default), so whether
+    // it counts as near expiry depends only on the renewal period a test passes in.
+    // u64::MAX covers any expiry, 60 seconds covers none.
+    const ALWAYS_RENEW: u64 = u64::MAX;
+    const NEVER_RENEW: u64 = 60;
+
+    /// A server holding a self signed mTLS certificate and its matching key.
+    fn test_server() -> RusticaServer {
+        let key_pair = rcgen::KeyPair::generate(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+        let mtls_key = key_pair.serialize_pem();
+
+        let mut params = rcgen::CertificateParams::new(vec![]);
+        params.alg = key_pair.algorithm();
+        params.key_pair = Some(key_pair);
+        let mtls_cert = rcgen::Certificate::from_params(params)
+            .unwrap()
+            .serialize_pem()
+            .unwrap();
+
+        RusticaServer {
+            address: String::new(),
+            ca_pem: String::new(),
+            mtls_cert,
+            mtls_key,
+        }
+    }
+
+    fn cert_public_key(pem: &str) -> Vec<u8> {
+        let (_, pem) = x509_parser::pem::parse_x509_pem(pem.as_bytes()).unwrap();
+        pem.parse_x509()
+            .unwrap()
+            .tbs_certificate
+            .subject_pki
+            .raw
+            .to_vec()
+    }
+
+    fn csr_public_key(der: &[u8]) -> Vec<u8> {
+        let (_, csr) = x509_parser::certification_request::X509CertificationRequest::from_der(der)
+            .expect("CSR should be parseable");
+        csr.certification_request_info.subject_pki.raw.to_vec()
+    }
+
+    #[test]
+    fn csr_carries_the_key_from_our_current_certificate() {
+        let server = test_server();
+        let csr = server.mtls_renewal_csr(ALWAYS_RENEW);
+
+        assert!(!csr.is_empty());
+        assert_eq!(csr_public_key(&csr), cert_public_key(&server.mtls_cert));
+    }
+
+    #[test]
+    fn no_csr_when_certificate_is_not_near_expiry() {
+        assert!(test_server().mtls_renewal_csr(NEVER_RENEW).is_empty());
+    }
+}
