@@ -8,11 +8,13 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 impl RusticaServer {
-    /// CSR for our existing mTLS keypair so a renewal can keep that key. Empty
-    /// if the cert is not within `renewal_period` of expiry, or if anything below
-    /// fails, in which case the server generates a keypair itself. If we cannot
-    /// tell how close expiry is, generate one anyway.
+    /// Builds a CSR for our existing mTLS keypair so a renewal can reuse that key.
+    ///
+    /// Returns an empty CSR if the cert isn't within `renewal_period` of expiry, or if the
+    /// CSR can't be built. If we can't tell how close the cert is to expiry, we build a CSR
+    /// anyway.
     fn mtls_renewal_csr(&self, renewal_period: u64) -> Vec<u8> {
+        // Parse our mTLS cert and check whether its expiry is outside the renewal window.
         let not_near_expiry = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .ok()
@@ -26,6 +28,7 @@ impl RusticaServer {
             return vec![];
         }
 
+        // Parse our existing mTLS private key so the CSR is built for it, not a new one.
         let key_pair = match rcgen::KeyPair::from_pem(&self.mtls_key) {
             Ok(key_pair) => key_pair,
             Err(e) => {
