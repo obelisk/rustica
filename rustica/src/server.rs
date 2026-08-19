@@ -662,7 +662,8 @@ impl Rustica for RusticaServer {
             params.serial_number = Some(rcgen::SerialNumber::from_slice(&serial));
 
             match mtls_csr {
-                // Only the public key comes from the CSR, so the client keeps its key.
+                // Only the public key comes from the CSR. Everything else (subject, validity,
+                // serial) is overwritten below with server-controlled values.
                 Some(mut csr) => {
                     csr.params = params;
 
