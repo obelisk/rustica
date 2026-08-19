@@ -163,6 +163,12 @@ pub fn add_daemon_options(cmd: Command) -> Command {
                 .takes_value(false)
         )
         .arg(
+            Arg::new("disable-certificate")
+                .help("Never fetch or advertise the certificate, only the raw key. Required for key-only auth with OpenSSH 10.5+")
+                .long("disable-certificate")
+                .takes_value(false)
+        )
+        .arg(
             Arg::new("socket")
                 .help("Manually specify the path that will be used for the auth sock")
                 .long("socket")
