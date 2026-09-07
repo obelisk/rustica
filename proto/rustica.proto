@@ -32,6 +32,10 @@ message CertificateRequest {
     uint64 valid_after = 7;
     uint64 valid_before = 8;
     Challenge challenge = 9;
+    // DER encoded PKCS#10 CSR for the client's existing mTLS keypair. When set,
+    // a renewal signs this instead of generating a new keypair. Older clients
+    // don't send it.
+    bytes mtls_csr = 10;
 }
 
 message CertificateResponse {

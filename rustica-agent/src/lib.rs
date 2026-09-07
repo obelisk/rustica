@@ -9,7 +9,7 @@ pub mod sshagent;
 use async_trait::async_trait;
 use rustica::key::U2FAttestation;
 
-use config::{Options, UpdatableConfiguration};
+use config::{Options, UpdatableConfiguration, DEFAULT_MTLS_CSR_RENEWAL_PERIOD};
 use sshagent::constraints::Constraint;
 
 pub use config::Config;
@@ -908,9 +908,19 @@ pub async fn fetch_new_certificate(
     options: &CertificateConfig,
     notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
 ) -> Result<Certificate, RusticaAgentLibraryError> {
+    let mtls_csr_renewal_period = configuration
+        .get_configuration()
+        .mtls_csr_renewal_period
+        .unwrap_or(DEFAULT_MTLS_CSR_RENEWAL_PERIOD);
+
     for server in configuration.get_servers_mut() {
         match server
-            .refresh_certificate_async(signatory, options, notification_function)
+            .refresh_certificate_async(
+                signatory,
+                options,
+                notification_function,
+                mtls_csr_renewal_period,
+            )
             .await
         {
             Ok((cert, mtls_credentials)) => {

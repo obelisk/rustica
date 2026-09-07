@@ -17,3 +17,4 @@ jobs:
     - uses: timweri/cargo-oxidate@v0.1.8 # immutable
       with:
         min-age-days: 14
+        exempt-packages: sshcerts

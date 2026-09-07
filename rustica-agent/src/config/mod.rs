@@ -20,6 +20,10 @@ struct Version {
     version: u64,
 }
 
+/// How close to expiry an mTLS certificate must be before we generate a
+/// renewal CSR.
+pub const DEFAULT_MTLS_CSR_RENEWAL_PERIOD: u64 = 60 * 60 * 24 * 30;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     version: u64,
@@ -28,6 +32,10 @@ pub struct Config {
     pub key: Option<String>,
     pub options: Option<Options>,
     pub socket: Option<String>,
+    // Set this to at least the server's client_authority.expiration_renewal_period,
+    // otherwise we won't have attached a CSR yet when the server renews and it
+    // generates a new keypair for us instead.
+    pub mtls_csr_renewal_period: Option<u64>,
 }
 
 pub struct UpdatableConfiguration {
@@ -126,6 +134,7 @@ fn parse_v1_config(config: &str) -> Result<Config, RusticaAgentLibraryError> {
         key: config_v1.key,
         options: config_v1.options,
         socket: config_v1.socket,
+        mtls_csr_renewal_period: None,
     })
 }
 

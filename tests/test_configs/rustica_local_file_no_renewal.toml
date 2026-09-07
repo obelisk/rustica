@@ -50,7 +50,7 @@ XDCmIUu1zK0AIsK+9JhPnmmrID6CgcOA3hHJR4N0NUSN7OefQ5typEL5
 [client_authority]
 # This must be one of the signing authorities defined in the signing structure
 authority = "example_test_environment"
-# When we issue a new access certificate, how long is it valid for. 
+# When we issue a new access certificate, how long is it valid for.
 validity_length = 181440000 # Three weeks * 100
 
 # I think the easiest way to explain this is with an example.
@@ -61,7 +61,10 @@ validity_length = 181440000 # Three weeks * 100
 # the request.
 #
 # This value should always be less than the validity length
-expiration_renewal_period = 181439980 #60480000 # One Week * 100
+#
+# Kept short so integration.sh can test that renewal doesn't happen for a cert
+# that isn't close to expiry.
+expiration_renewal_period = 60
 
 [signing]
 default_authority = "example_test_environment"
