@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicBool, Arc};
 
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::{slot_validator, Handler, Signatory};
+use rustica_agent::{slot_validator, CertificateState, Handler, Signatory};
 
 use notify_rust::Notification;
 
@@ -53,17 +53,15 @@ pub async fn configure_singlemode(
     };
 
     let handler = Handler {
-        updatable_configuration: updatable_configuration.into(),
-        cert: None.into(),
+        certificate_state: CertificateState::new(updatable_configuration, certificate_options)
+            .into(),
         pubkey: pubkey.clone(),
         signatory,
-        stale_at: 0.into(),
-        certificate_options,
         identities: HashMap::new().into(),
         piv_identities: HashMap::new(),
         notification_function: Some(Box::new(notification_f)),
         certificate_priority: matches.is_present("certificate-priority"),
-        disable_certificate: matches.is_present("disable-certificate"),
+        disable_certificate: AtomicBool::new(matches.is_present("disable-certificate")),
         list_primary_certificate_only: false,
         fido_identity: None,
     };
@@ -71,6 +69,7 @@ pub async fn configure_singlemode(
     let handler = Arc::new(handler);
     Ok(RusticaAgentAction::Run(RunConfig {
         socket_path,
+        control_socket_path: matches.value_of("control-socket").map(Into::into),
         pubkey,
         handler,
     }))

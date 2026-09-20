@@ -2,6 +2,7 @@
 extern crate log;
 
 pub mod config;
+pub mod control;
 pub mod ffi;
 pub mod rustica;
 pub mod sshagent;
@@ -22,6 +23,8 @@ pub use rustica::{
 };
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::{convert::TryFrom, env};
 
@@ -40,7 +43,7 @@ pub use sshcerts::{
     Certificate, PrivateKey, PublicKey,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CertificateConfig {
     pub principals: Vec<String>,
     pub hosts: Vec<String>,
@@ -172,22 +175,44 @@ impl std::fmt::Display for RusticaAgentLibraryError {
 
 impl std::error::Error for RusticaAgentLibraryError {}
 
-pub struct Handler {
+/// The values that must change together when the active certificate
+/// configuration is replaced.
+pub struct CertificateState {
     /// Configuration path that can be updated if a server returns updated
-    /// settings
-    pub updatable_configuration: Mutex<UpdatableConfiguration>,
+    /// settings.
+    pub updatable_configuration: UpdatableConfiguration,
     /// A previously issued certificate
-    pub cert: Mutex<Option<Certificate>>,
-    /// The public key we for the key we are providing a certificate for
-    pub pubkey: PublicKey,
-    /// The signing method for the private part of our public key. This needs to have
-    /// interior mutability because it's sometimes a Yubikey that requires exclusive
-    /// access to the USB interface
-    pub signatory: Signatory,
+    pub cert: Option<Certificate>,
     /// When our certificate expires and we must request a new one
-    pub stale_at: Mutex<u64>,
+    pub stale_at: u64,
     /// Any settings we wish to ask the server for in our certificate
     pub certificate_options: CertificateConfig,
+}
+
+impl CertificateState {
+    pub fn new(
+        updatable_configuration: UpdatableConfiguration,
+        certificate_options: CertificateConfig,
+    ) -> Self {
+        Self {
+            updatable_configuration,
+            cert: None,
+            stale_at: 0,
+            certificate_options,
+        }
+    }
+}
+
+pub struct Handler {
+    /// Configuration, effective options, cache, and expiry for the active
+    /// certificate source. Refreshes retain this lock so configuration swaps
+    /// wait for them to complete.
+    pub certificate_state: Mutex<CertificateState>,
+    /// The public key we provide a certificate for.
+    pub pubkey: PublicKey,
+    /// The signing method for the private part of our public key. This needs
+    /// interior mutability for YubiKey access.
+    pub signatory: Signatory,
     /// Any other identities added to our agent
     pub identities: Mutex<HashMap<Vec<u8>, PrivateKey>>,
     /// Other PIV identities
@@ -201,7 +226,7 @@ pub struct Handler {
     /// Supersedes certificate_priority. OpenSSH 10.5+ always tries
     /// certificates first, so this is the only way to authenticate with the
     /// bare key on those clients.
-    pub disable_certificate: bool,
+    pub disable_certificate: AtomicBool,
     /// When true, suppress the bare primary key and only advertise its
     /// certificate (falls back to the bare key if no certificate is available).
     pub list_primary_certificate_only: bool,
@@ -212,7 +237,7 @@ pub struct Handler {
 
 impl std::fmt::Debug for Handler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Handler").field("cert", &self.cert).finish()
+        f.debug_struct("Handler").finish()
     }
 }
 
@@ -252,6 +277,64 @@ impl From<Option<Options>> for CertificateConfig {
 }
 
 impl Handler {
+    fn disabled_identities(
+        &self,
+        mut identities: Vec<Identity>,
+        key: Identity,
+        fido: Option<Identity>,
+    ) -> Response {
+        if !self.list_primary_certificate_only {
+            identities.push(key);
+        }
+        if let Some(fido) = fido {
+            identities.push(fido);
+        }
+        Response::Identities(identities)
+    }
+
+    pub fn certificates_disabled(&self) -> bool {
+        self.disable_certificate.load(Ordering::Acquire)
+    }
+
+    /// Sets primary certificate discovery and returns the resulting value.
+    pub fn set_certificates_disabled(&self, disabled: bool) -> bool {
+        self.disable_certificate.store(disabled, Ordering::Release);
+        disabled
+    }
+
+    /// Atomically flips primary certificate discovery and returns the result.
+    pub fn toggle_certificates_disabled(&self) -> bool {
+        !self.disable_certificate.fetch_xor(true, Ordering::AcqRel)
+    }
+
+    pub async fn config_path(&self) -> PathBuf {
+        self.certificate_state
+            .lock()
+            .await
+            .updatable_configuration
+            .path()
+            .to_owned()
+    }
+
+    /// Parse before waiting for an active refresh. Invalid files leave the current state intact.
+    pub async fn set_config_path(
+        &self,
+        path: PathBuf,
+    ) -> Result<PathBuf, RusticaAgentLibraryError> {
+        if !path.is_absolute() {
+            return Err(RusticaAgentLibraryError::CouldNotReadConfigurationFile(
+                "configuration path must be absolute".to_owned(),
+            ));
+        }
+        let configuration = UpdatableConfiguration::new(&path)?;
+        let certificate_options =
+            CertificateConfig::from(configuration.get_configuration().options.clone());
+
+        let mut state = self.certificate_state.lock().await;
+        *state = CertificateState::new(configuration, certificate_options);
+        Ok(path)
+    }
+
     /// First, fetch the previous cert if present and valid. If cert is still valid, return it.
     ///
     /// If cached cert is invalid, and if fetch_new_cert_if_needed is:
@@ -267,58 +350,56 @@ impl Handler {
             .as_secs();
 
         if fetch_new_cert_if_needed {
-            let mut stale_at = self.stale_at.lock().await;
-            let mut existing_cert = self.cert.lock().await;
-            let mut configuration = self.updatable_configuration.lock().await;
+            let mut state = self.certificate_state.lock().await;
 
             // Fetch a new certificate or use the cached one if it's still valid
             // We add 5 to the timestamp to try and ensure by the time the user
             // taps their key, the certificate is still valid. This appears to
             // primarily be an issue with GitHub pull and push tiers.
-            let certificate = match (&*existing_cert, timestamp + 5 < *stale_at) {
+            let certificate = match (&state.cert, timestamp + 5 < state.stale_at) {
                 // In the case we have a certificate and it's not expired.
                 (Some(cert), true) => {
                     debug!(
                         "Using cached certificate which expires in {} seconds",
-                        *stale_at - timestamp
+                        state.stale_at - timestamp
                     );
                     cert.clone()
                 }
                 // All other cases require us to fetch a certificate from one
                 // of the configured servers
                 _ => {
+                    let certificate_options = state.certificate_options.clone();
                     // Fetch a new certificate from one of the servers
                     let cert = fetch_new_certificate(
-                        &mut configuration,
+                        &mut state.updatable_configuration,
                         &self.signatory,
-                        &self.certificate_options,
+                        &certificate_options,
                         &self.notification_function,
                     )
                     .await?;
 
                     // This is ugly doing a mutation in a map
                     // Look for a better way to do this.
-                    *existing_cert = Some(cert.clone());
-                    *stale_at = cert.valid_before;
+                    state.cert = Some(cert.clone());
+                    state.stale_at = cert.valid_before;
 
                     cert
                 }
             };
             Ok(Some(certificate))
         } else {
-            let stale_at = self.stale_at.lock().await;
-            let existing_cert = self.cert.lock().await;
+            let state = self.certificate_state.lock().await;
 
             // Fetch a new certificate or use the cached one if it's still valid
             // We add 5 to the timestamp to try and ensure by the time the user
             // taps their key, the certificate is still valid. This appears to
             // primarily be an issue with GitHub pull and push tiers.
-            let certificate = match (&*existing_cert, timestamp + 5 < *stale_at) {
+            let certificate = match (&state.cert, timestamp + 5 < state.stale_at) {
                 // In the case we have a certificate and it's not expired.
                 (Some(cert), true) => {
                     debug!(
                         "Using cached certificate which expires in {} seconds",
-                        *stale_at - timestamp
+                        state.stale_at - timestamp
                     );
                     Some(cert.clone())
                 }
@@ -396,14 +477,8 @@ impl SshAgentHandler for Handler {
 
         // Certificates disabled: don't fetch one, advertise the key and fido
         // only (or just fido in certificate-only mode).
-        if self.disable_certificate {
-            if !self.list_primary_certificate_only {
-                identities.push(key);
-            }
-            if let Some(fido) = fido {
-                identities.push(fido);
-            }
-            return Ok(Response::Identities(identities));
+        if self.certificates_disabled() {
+            return Ok(self.disabled_identities(identities, key, fido));
         }
 
         let certificate = match self.get_certificate_async(true).await {
@@ -414,6 +489,11 @@ impl SshAgentHandler for Handler {
             Ok(None) => Err(RusticaAgentLibraryError::NoServersReturnedCertificate),
             Err(e) => Err(e),
         };
+
+        // Certificates may have been disabled during the fetch.
+        if self.certificates_disabled() {
+            return Ok(self.disabled_identities(identities, key, fido));
+        }
 
         // The last identities are our primary key/certificate (and optional FIDO
         // direct key), ordered by certificate_priority.
@@ -1054,11 +1134,115 @@ pub async fn get_allowed_signers(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rustica::rustica_proto::rustica_server::{
+        Rustica as RusticaService, RusticaServer as TonicRusticaServer,
+    };
+    use crate::rustica::rustica_proto::{
+        AllowedSignersRequest, AllowedSignersResponse, AttestedX509CertificateRequest,
+        AttestedX509CertificateResponse, CertificateRequest, CertificateResponse, ChallengeRequest,
+        ChallengeResponse, RegisterKeyRequest, RegisterKeyResponse, RegisterU2fKeyRequest,
+        RegisterU2fKeyResponse,
+    };
     use sshcerts::ssh::KeyTypeKind;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixStream;
+    use tokio::sync::mpsc;
+    use tokio::sync::Notify;
+    use tokio_stream::wrappers::TcpListenerStream;
+    use tonic::transport::{Identity as TonicIdentity, Server, ServerTlsConfig};
+    use tonic::{Request as TonicRequest, Response as TonicResponse, Status};
 
     // Marker blob so we can tell the certificate identity apart from the
     // bare key in listings without a real server.
     const CERT_BLOB: &[u8] = b"test-certificate";
+
+    struct PausedServer {
+        arrived: Notify,
+        release: Notify,
+        requests: Mutex<Vec<CertificateRequest>>,
+        renewals: Mutex<Vec<(String, String)>>,
+    }
+
+    #[async_trait]
+    impl RusticaService for PausedServer {
+        async fn challenge(
+            &self,
+            _request: TonicRequest<ChallengeRequest>,
+        ) -> Result<TonicResponse<ChallengeResponse>, Status> {
+            Ok(TonicResponse::new(ChallengeResponse {
+                time: "now".into(),
+                challenge: "".into(),
+                no_signature_required: true,
+            }))
+        }
+        async fn certificate(
+            &self,
+            request: TonicRequest<CertificateRequest>,
+        ) -> Result<TonicResponse<CertificateResponse>, Status> {
+            let request = request.into_inner();
+            let request_number = {
+                let mut requests = self.requests.lock().await;
+                requests.push(request.clone());
+                requests.len()
+            };
+            if request_number == 1 {
+                self.arrived.notify_waiters();
+                self.release.notified().await;
+            }
+            let pubkey = PublicKey::from_string(&request.challenge.unwrap().pubkey)
+                .map_err(|_| Status::invalid_argument("key"))?;
+            let ca =
+                PrivateKey::new(KeyTypeKind::Ed25519, "ca").map_err(|_| Status::internal("ca"))?;
+            let certificate = Certificate::builder(&pubkey, CertType::User, &ca.pubkey)
+                .map_err(|_| Status::internal("certificate"))?
+                .sign(&ca)
+                .map_err(|_| Status::internal("certificate"))?;
+            let renewal = rcgen::generate_simple_self_signed(vec![format!(
+                "renewed-client-{request_number}"
+            )])
+            .map_err(|_| Status::internal("renewal"))?;
+            let renewal_certificate = renewal
+                .serialize_pem()
+                .map_err(|_| Status::internal("renewal"))?;
+            let renewal_key = renewal.serialize_private_key_pem();
+            self.renewals
+                .lock()
+                .await
+                .push((renewal_certificate.clone(), renewal_key.clone()));
+            Ok(TonicResponse::new(CertificateResponse {
+                certificate: certificate.to_string(),
+                error: String::new(),
+                error_code: 0,
+                new_client_certificate: renewal_certificate,
+                new_client_key: renewal_key,
+            }))
+        }
+        async fn register_key(
+            &self,
+            _: TonicRequest<RegisterKeyRequest>,
+        ) -> Result<TonicResponse<RegisterKeyResponse>, Status> {
+            Err(Status::unimplemented("unused"))
+        }
+        async fn register_u2f_key(
+            &self,
+            _: TonicRequest<RegisterU2fKeyRequest>,
+        ) -> Result<TonicResponse<RegisterU2fKeyResponse>, Status> {
+            Err(Status::unimplemented("unused"))
+        }
+        async fn attested_x509_certificate(
+            &self,
+            _: TonicRequest<AttestedX509CertificateRequest>,
+        ) -> Result<TonicResponse<AttestedX509CertificateResponse>, Status> {
+            Err(Status::unimplemented("unused"))
+        }
+        async fn allowed_signers(
+            &self,
+            _: TonicRequest<AllowedSignersRequest>,
+        ) -> Result<TonicResponse<AllowedSignersResponse>, Status> {
+            Err(Status::unimplemented("unused"))
+        }
+    }
 
     struct TestHandler {
         handler: Handler,
@@ -1100,19 +1284,21 @@ mod tests {
             with_fido.then(|| PrivateKey::new(KeyTypeKind::Ed25519, "fido").unwrap());
         let fido_blob = fido_identity.as_ref().map(|f| f.pubkey.encode().to_vec());
 
+        let mut certificate_state =
+            CertificateState::new(updatable_configuration, certificate_options);
+        certificate_state.cert = cert;
+        certificate_state.stale_at = stale_at;
+
         TestHandler {
             handler: Handler {
-                updatable_configuration: Mutex::new(updatable_configuration),
-                cert: Mutex::new(cert),
+                certificate_state: Mutex::new(certificate_state),
                 pubkey,
                 signatory: Signatory::Direct(Mutex::new(private_key)),
-                stale_at: Mutex::new(stale_at),
-                certificate_options,
                 identities: Mutex::new(HashMap::new()),
                 piv_identities: HashMap::new(),
                 notification_function: None,
                 certificate_priority,
-                disable_certificate,
+                disable_certificate: AtomicBool::new(disable_certificate),
                 list_primary_certificate_only,
                 fido_identity,
             },
@@ -1171,5 +1357,406 @@ mod tests {
             listed_blobs(&t).await,
             vec![t.key_blob.clone(), t.fido_blob.clone().unwrap()]
         );
+    }
+
+    fn test_directory(name: &str) -> PathBuf {
+        let directory = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(
+            &directory,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+        directory
+    }
+
+    async fn request_identities(socket: &std::path::Path) -> Vec<Vec<u8>> {
+        let mut stream = UnixStream::connect(socket).await.unwrap();
+        stream.write_u32(1).await.unwrap();
+        stream.write_u8(11).await.unwrap();
+        stream.flush().await.unwrap();
+        let length = stream.read_u32().await.unwrap() as usize;
+        let mut body = vec![0; length];
+        stream.read_exact(&mut body).await.unwrap();
+        assert_eq!(body[0], 12);
+        let mut body = &body[1..];
+        let count = AsyncReadExt::read_u32(&mut body).await.unwrap();
+        let mut keys = Vec::new();
+        for _ in 0..count {
+            let key_length = AsyncReadExt::read_u32(&mut body).await.unwrap() as usize;
+            let mut key = vec![0; key_length];
+            AsyncReadExt::read_exact(&mut body, &mut key).await.unwrap();
+            let comment_length = AsyncReadExt::read_u32(&mut body).await.unwrap() as usize;
+            let mut comment = vec![0; comment_length];
+            AsyncReadExt::read_exact(&mut body, &mut comment)
+                .await
+                .unwrap();
+            keys.push(key);
+        }
+        keys
+    }
+
+    async fn raw_control_request(stream: &mut UnixStream, json: &[u8]) -> serde_json::Value {
+        stream.write_u32(json.len() as u32).await.unwrap();
+        stream.write_all(json).await.unwrap();
+        stream.flush().await.unwrap();
+        let length = stream.read_u32().await.unwrap() as usize;
+        let mut body = vec![0; length];
+        stream.read_exact(&mut body).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn control_protocol_uses_real_socket_and_rejects_bad_requests_without_mutation() {
+        let test = test_handler(false, false, false, true, false);
+        let handler = Arc::new(test.handler);
+        let directory = test_directory("rustica-control-protocol");
+        let ssh = directory.join("agent.sock");
+        let control = directory.join("control.sock");
+        let runner =
+            control::RusticaAgentRunner::bind(handler, &ssh, Some(control.clone())).unwrap();
+        let (shutdown, receiver) = mpsc::channel(1);
+        let task = tokio::spawn(runner.run(receiver));
+        let mut stream = UnixStream::connect(&control).await.unwrap();
+        for request in [
+            br#"{"version":1,"op":"get","setting":"disable_certificate"}"#.as_slice(),
+            br#"{"version":1,"op":"get","setting":"disable_certificate"}"#.as_slice(),
+        ] {
+            assert_eq!(
+                raw_control_request(&mut stream, request).await["value"],
+                false
+            );
+        }
+        for request in [
+            br#"{"version":2,"op":"get","setting":"disable_certificate"}"#.as_slice(),
+            br#"{"version":1,"op":"get","setting":"unknown"}"#.as_slice(),
+            br#"{"version":1,"op":"toggle","setting":"disable_certificate","value":null}"#
+                .as_slice(),
+            br#"{"version":1,"op":"get","setting":"disable_certificate","unknown":true}"#
+                .as_slice(),
+            br#"{"version":1,"op":"toggle","setting":"disable_certificate"} {}"#.as_slice(),
+            br#"{"version":1,"op":"set","setting":"disable_certificate","value":"true"}"#
+                .as_slice(),
+            br#"{"version":1,"op":"set","setting":"config_path","value":"relative.toml"}"#
+                .as_slice(),
+            br#"{"version":1,"op":"get","setting":"disable_certificate","value":false}"#.as_slice(),
+            br#"{"version":1,"op":"toggle","setting":"config_path"}"#.as_slice(),
+        ] {
+            assert_eq!(raw_control_request(&mut stream, request).await["ok"], false);
+        }
+        let mut forwarded = UnixStream::connect(&ssh).await.unwrap();
+        let request = br#"{"version":1,"op":"toggle","setting":"disable_certificate"}"#;
+        forwarded.write_u32(request.len() as u32).await.unwrap();
+        forwarded.write_all(request).await.unwrap();
+        assert_eq!(forwarded.read_u32().await.unwrap(), 1);
+        assert_eq!(forwarded.read_u8().await.unwrap(), 5);
+        assert_eq!(
+            raw_control_request(
+                &mut stream,
+                br#"{"version":1,"op":"get","setting":"disable_certificate"}"#
+            )
+            .await["value"],
+            false
+        );
+        stream
+            .write_u32((control::MAX_FRAME_SIZE + 1) as u32)
+            .await
+            .unwrap();
+        let mut byte = [0];
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), stream.read(&mut byte))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+        shutdown.send(()).await.unwrap();
+        task.await.unwrap();
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[tokio::test]
+    async fn control_toggle_changes_identity_listing_over_real_sockets() {
+        let test = test_handler(false, false, false, true, false);
+        let expected_key = test.key_blob.clone();
+        let handler = Arc::new(test.handler);
+        let directory = test_directory("rustica-agent-runtime-settings");
+        let ssh = directory.join("agent.sock");
+        let control = directory.join("control.sock");
+        let runner =
+            control::RusticaAgentRunner::bind(handler, &ssh, Some(control.clone())).unwrap();
+        let (shutdown, receiver) = mpsc::channel(1);
+        let task = tokio::spawn(runner.run(receiver));
+
+        assert_eq!(
+            request_identities(&ssh).await,
+            vec![expected_key.clone(), CERT_BLOB.to_vec()]
+        );
+        let client = control::ControlClient::new(control.clone());
+        assert!(client.toggle_disable_certificate().await.unwrap());
+        let mut toggles = tokio::task::JoinSet::new();
+        for _ in 0..20 {
+            let endpoint = control.clone();
+            toggles.spawn(async move {
+                control::ControlClient::new(endpoint)
+                    .toggle_disable_certificate()
+                    .await
+                    .unwrap()
+            });
+        }
+        while let Some(result) = toggles.join_next().await {
+            result.unwrap();
+        }
+        assert!(matches!(
+            client
+                .get(control::Setting::DisableCertificate)
+                .await
+                .unwrap(),
+            control::SettingValue::Bool(true)
+        ));
+        assert_eq!(request_identities(&ssh).await, vec![expected_key.clone()]);
+        assert_eq!(
+            client
+                .set(
+                    control::Setting::DisableCertificate,
+                    control::SettingValue::Bool(false),
+                )
+                .await
+                .unwrap(),
+            control::SettingValue::Bool(false)
+        );
+        assert_eq!(
+            request_identities(&ssh).await,
+            vec![expected_key, CERT_BLOB.to_vec()]
+        );
+
+        shutdown.send(()).await.unwrap();
+        task.await.unwrap();
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[tokio::test]
+    async fn control_configuration_switch_replaces_options_and_invalidates_cache() {
+        let test = test_handler(false, false, false, true, false);
+        let handler = Arc::new(test.handler);
+        let directory = test_directory("rustica-agent-config-settings");
+        let replacement = directory.join("replacement.toml");
+        let original = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../examples/rustica_agent_local.toml"
+        ))
+        .unwrap();
+        std::fs::write(
+            &replacement,
+            original.replace(
+                "authority = \"example_test_environment\"",
+                "authority = \"replacement\"",
+            ),
+        )
+        .unwrap();
+        let ssh = directory.join("agent.sock");
+        let control = directory.join("control.sock");
+        let runner =
+            control::RusticaAgentRunner::bind(handler.clone(), &ssh, Some(control.clone()))
+                .unwrap();
+        let (shutdown, receiver) = mpsc::channel(1);
+        let task = tokio::spawn(runner.run(receiver));
+
+        let client = control::ControlClient::new(control);
+        assert_eq!(
+            client
+                .set(
+                    control::Setting::ConfigPath,
+                    control::SettingValue::Path(replacement.clone()),
+                )
+                .await
+                .unwrap(),
+            control::SettingValue::Path(replacement.clone())
+        );
+        assert_eq!(
+            client.get(control::Setting::ConfigPath).await.unwrap(),
+            control::SettingValue::Path(replacement.clone())
+        );
+        assert!(client
+            .set(
+                control::Setting::ConfigPath,
+                control::SettingValue::Path(directory.join("missing.toml")),
+            )
+            .await
+            .is_err());
+        assert_eq!(
+            client.get(control::Setting::ConfigPath).await.unwrap(),
+            control::SettingValue::Path(replacement)
+        );
+        let state = handler.certificate_state.lock().await;
+        assert!(state.cert.is_none());
+        assert_eq!(state.stale_at, 0);
+        assert_eq!(state.certificate_options.authority, "replacement");
+        drop(state);
+
+        shutdown.send(()).await.unwrap();
+        task.await.unwrap();
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[tokio::test]
+    async fn disabling_completes_while_a_real_certificate_refresh_is_paused() {
+        let server_certificate =
+            rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let ca_pem = server_certificate.serialize_pem().unwrap();
+        let tls_key = server_certificate.serialize_private_key_pem();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let paused = Arc::new(PausedServer {
+            arrived: Notify::new(),
+            release: Notify::new(),
+            requests: Mutex::new(Vec::new()),
+            renewals: Mutex::new(Vec::new()),
+        });
+        let server = paused.clone();
+        let server_pem = ca_pem.clone();
+        tokio::spawn(async move {
+            Server::builder()
+                .tls_config(
+                    ServerTlsConfig::new().identity(TonicIdentity::from_pem(server_pem, tls_key)),
+                )
+                .unwrap()
+                .add_service(TonicRusticaServer::from_arc(server))
+                .serve_with_incoming(TcpListenerStream::new(listener))
+                .await
+                .unwrap();
+        });
+        let directory = test_directory("rustica-agent-paused-refresh");
+        let config_path = directory.join("agent.toml");
+        let config = format!("server = \"https://localhost:{}\"\nca_pem = '''{}'''\nmtls_cert = '''{}'''\nmtls_key = '''{}'''\n[options]\nauthority = \"old\"\nprincipals = [\"old-principal\"]\n", address.port(), ca_pem, ca_pem, server_certificate.serialize_private_key_pem());
+        std::fs::write(&config_path, &config).unwrap();
+        let replacement_path = directory.join("replacement.toml");
+        std::fs::write(
+            &replacement_path,
+            config
+                .replace("authority = \"old\"", "authority = \"new\"")
+                .replace("old-principal", "new-principal"),
+        )
+        .unwrap();
+        let replacement_before = std::fs::read(&replacement_path).unwrap();
+        let configuration = UpdatableConfiguration::new(&config_path).unwrap();
+        let private_key = PrivateKey::new(KeyTypeKind::Ed25519, "test").unwrap();
+        let handler = Arc::new(Handler {
+            certificate_state: Mutex::new(CertificateState::new(
+                configuration,
+                CertificateConfig::from(Some(Options {
+                    principals: Some(vec!["old-principal".into()]),
+                    hosts: None,
+                    kind: None,
+                    duration: None,
+                    authority: Some("old".into()),
+                })),
+            )),
+            pubkey: private_key.pubkey.clone(),
+            signatory: Signatory::Direct(Mutex::new(private_key)),
+            identities: Mutex::new(HashMap::new()),
+            piv_identities: HashMap::new(),
+            notification_function: None,
+            certificate_priority: false,
+            disable_certificate: AtomicBool::new(false),
+            list_primary_certificate_only: false,
+            fido_identity: None,
+        });
+        let ssh = directory.join("agent.sock");
+        let control = directory.join("control.sock");
+        let runner =
+            control::RusticaAgentRunner::bind(handler.clone(), &ssh, Some(control.clone()))
+                .unwrap();
+        let (shutdown, receiver) = mpsc::channel(1);
+        let runner_task = tokio::spawn(runner.run(receiver));
+        let listing = {
+            let ssh = ssh.clone();
+            tokio::spawn(async move { request_identities(&ssh).await })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(5), paused.arrived.notified())
+            .await
+            .unwrap();
+        let switch_client = control::ControlClient::new(control.clone());
+        let reload_path = replacement_path.clone();
+        let mut switch = tokio::spawn(async move {
+            switch_client
+                .set(
+                    control::Setting::ConfigPath,
+                    control::SettingValue::Path(reload_path),
+                )
+                .await
+        });
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(25), &mut switch)
+                .await
+                .is_err()
+        );
+        let client = control::ControlClient::new(control);
+        assert_eq!(
+            client
+                .set(
+                    control::Setting::DisableCertificate,
+                    control::SettingValue::Bool(true)
+                )
+                .await
+                .unwrap(),
+            control::SettingValue::Bool(true)
+        );
+        paused.release.notify_waiters();
+        assert_eq!(listing.await.unwrap().len(), 1);
+        assert_eq!(
+            switch.await.unwrap().unwrap(),
+            control::SettingValue::Path(replacement_path.clone())
+        );
+        assert_eq!(
+            std::fs::read(&replacement_path).unwrap(),
+            replacement_before
+        );
+        let old_renewed = config::parse_config_path(&config_path).unwrap();
+        let first_renewal = paused.renewals.lock().await[0].clone();
+        assert_eq!(old_renewed.servers[0].mtls_cert, first_renewal.0);
+        assert_eq!(old_renewed.servers[0].mtls_key, first_renewal.1);
+        let old_after_refresh = std::fs::read(&config_path).unwrap();
+        assert_eq!(paused.requests.lock().await.len(), 1);
+        client
+            .set(
+                control::Setting::DisableCertificate,
+                control::SettingValue::Bool(false),
+            )
+            .await
+            .unwrap();
+        let _ = request_identities(&ssh).await;
+        let requests = paused.requests.lock().await;
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].key_id, "new");
+        assert_eq!(requests[1].principals, vec!["new-principal"]);
+        drop(requests);
+        let new_renewed = config::parse_config_path(&replacement_path).unwrap();
+        let second_renewal = paused.renewals.lock().await[1].clone();
+        assert_ne!(first_renewal.0, second_renewal.0);
+        assert_eq!(new_renewed.servers[0].mtls_cert, second_renewal.0);
+        assert_eq!(new_renewed.servers[0].mtls_key, second_renewal.1);
+        assert_eq!(std::fs::read(&config_path).unwrap(), old_after_refresh);
+        let edited = std::fs::read_to_string(&replacement_path)
+            .unwrap()
+            .replace("authority = \"new\"", "authority = \"reloaded\"")
+            .replace("new-principal", "reloaded-principal");
+        std::fs::write(&replacement_path, edited).unwrap();
+        client
+            .set(
+                control::Setting::ConfigPath,
+                control::SettingValue::Path(replacement_path.clone()),
+            )
+            .await
+            .unwrap();
+        let _ = request_identities(&ssh).await;
+        let requests = paused.requests.lock().await;
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[2].key_id, "reloaded");
+        assert_eq!(requests[2].principals, vec!["reloaded-principal"]);
+        shutdown.send(()).await.unwrap();
+        runner_task.await.unwrap();
+        let _ = std::fs::remove_dir_all(directory);
     }
 }

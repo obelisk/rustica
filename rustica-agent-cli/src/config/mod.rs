@@ -7,6 +7,7 @@ mod multimode;
 mod provisionpiv;
 mod refresh_attested_x509_certificate;
 mod register;
+pub(crate) mod settings;
 mod singlemode;
 
 use clap::{Arg, ArgMatches, Command};
@@ -37,10 +38,30 @@ pub enum ConfigurationError {
     NoMode,
     YubikeyError(String),
     UnableToDetermineKey,
+    MissingControlSocket,
+    InvalidBoolean,
+    InvalidToggleSetting,
 }
+
+impl std::fmt::Display for ConfigurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingControlSocket => write!(
+                f,
+                "no control socket: pass --control-socket PATH or set SSH_AUTH_SOCK"
+            ),
+            Self::InvalidBoolean => write!(f, "disable_certificate must be exactly true or false"),
+            Self::InvalidToggleSetting => write!(f, "only disable_certificate can be toggled"),
+            _ => write!(f, "{self:?}"),
+        }
+    }
+}
+
+impl std::error::Error for ConfigurationError {}
 
 pub struct RunConfig {
     pub socket_path: String,
+    pub control_socket_path: Option<std::path::PathBuf>,
     pub pubkey: PublicKey,
     pub handler: Arc<Handler>,
 }
@@ -56,6 +77,7 @@ pub enum RusticaAgentAction {
     GitConfig(PublicKey),
     RefreshAttestedX509(refresh_attested_x509_certificate::RefreshAttestedX509Config),
     GetAllowedSigners(allowed_signers::GetAllowedSignersConfig),
+    Settings(settings::SettingsConfig),
 }
 
 impl From<std::io::Error> for ConfigurationError {
@@ -161,6 +183,12 @@ pub fn add_daemon_options(cmd: Command) -> Command {
                 .help("If this is present, the certificate will be listed first in the identity listing (otherwise the key will be first)")
                 .long("priority")
                 .takes_value(false)
+        )
+        .arg(
+            Arg::new("control-socket")
+                .help("Manually specify the path for the private control socket")
+                .long("control-socket")
+                .takes_value(true)
         )
         .arg(
             Arg::new("disable-certificate")
@@ -278,6 +306,10 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         "Fetch a list of all signers and their keys",
     );
 
+    let settings = settings::add_configuration(
+        Command::new("settings").about("Inspect or change settings on a running Rustica agent"),
+    );
+
     let command_configuration = command_configuration
         .subcommand(immediate_mode)
         .subcommand(multi_mode)
@@ -289,7 +321,8 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
         .subcommand(list_fido_devices)
         .subcommand(git_config)
         .subcommand(refresh_x509)
-        .subcommand(allowed_signers);
+        .subcommand(allowed_signers)
+        .subcommand(settings);
     let mut cc_help = command_configuration.clone();
 
     let matches = command_configuration.get_matches();
@@ -335,8 +368,12 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             .await;
     }
 
-    if let Some(allowed_signers_config) = matches.subcommand_matches("allowed_signers") {
+    if let Some(allowed_signers_config) = matches.subcommand_matches("allowed-signers") {
         return allowed_signers::configure_allowed_signers(allowed_signers_config).await;
+    }
+
+    if let Some(settings) = matches.subcommand_matches("settings") {
+        return settings::configure_settings(settings);
     }
 
     cc_help.print_help().unwrap();

@@ -45,10 +45,20 @@ pub struct UpdatableConfiguration {
 
 impl UpdatableConfiguration {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, RusticaAgentLibraryError> {
+        let path = path.as_ref();
+        let path = if path.is_absolute() {
+            path.to_owned()
+        } else {
+            std::env::current_dir()
+                .map_err(|e| {
+                    RusticaAgentLibraryError::CouldNotReadConfigurationFile(e.to_string())
+                })?
+                .join(path)
+        };
         let configuration = parse_config_path(&path)?;
 
         Ok(Self {
-            path: path.as_ref().to_owned(),
+            path,
             configuration,
         })
     }
@@ -78,6 +88,11 @@ impl UpdatableConfiguration {
 
     pub fn get_configuration_mut(&mut self) -> &mut Config {
         &mut self.configuration
+    }
+
+    /// The file that receives mTLS credential renewal updates.
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
 

@@ -5,7 +5,9 @@ mod config;
 
 use yubikey::Certificate;
 
+use crate::config::settings::SettingsOperation;
 use crate::config::RusticaAgentAction;
+use rustica_agent::control::{ControlClient, RusticaAgentRunner, SettingValue};
 use rustica_agent::rustica::key::U2FAttestation;
 use rustica_agent::*;
 
@@ -157,20 +159,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Normal operation: Starts RusticaAgent as an SSHAgent and waits to answer
         // requests from SSH clients.
         Ok(RusticaAgentAction::Run(config)) => {
+            let (shutdown_sender, shutdown_receiver) = channel(1);
+            let mut interrupt =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+            let mut terminate =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = interrupt.recv() => {},
+                    _ = terminate.recv() => {},
+                }
+                let _ = shutdown_sender.send(()).await;
+            });
+            let runner = RusticaAgentRunner::bind(
+                config.handler,
+                &config.socket_path,
+                config.control_socket_path,
+            )?;
             println!("Starting Rustica Agent");
             println!("Access Fingerprint: {}", config.pubkey.fingerprint().hash);
             println!(
                 "SSH_AUTH_SOCK={}; export SSH_AUTH_SOCK;",
                 config.socket_path
             );
-
-            let (_sds, shutdown_receiver) = channel(1);
-            Agent::run_with_termination_channel(
-                config.handler,
-                config.socket_path,
-                Some(shutdown_receiver),
-            )
-            .await;
+            println!("Control socket: {}", runner.control_endpoint().display());
+            runner.run(shutdown_receiver).await;
+        }
+        Ok(RusticaAgentAction::Settings(config)) => {
+            let client = ControlClient::new(config.endpoint);
+            let value = match config.operation {
+                SettingsOperation::Get(setting) => client.get(setting).await?,
+                SettingsOperation::Set(setting, value) => client.set(setting, value).await?,
+                SettingsOperation::ToggleDisableCertificate => {
+                    SettingValue::Bool(client.toggle_disable_certificate().await?)
+                }
+            };
+            match value {
+                SettingValue::Bool(value) => println!("{value}"),
+                SettingValue::Path(value) => {
+                    println!("{}", serde_json::to_string(&value.display().to_string())?)
+                }
+            }
         }
         Ok(RusticaAgentAction::RefreshAttestedX509(mut config)) => {
             match rustica_agent::fetch_new_attested_x509_certificate(
@@ -208,7 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(config::ConfigurationError::NoMode) => (),
-        Err(e) => println!("Error: {:?}", e),
+        Err(e) => return Err(Box::new(e) as Box<dyn std::error::Error>),
     };
 
     Ok(())

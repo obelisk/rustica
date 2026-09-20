@@ -1,7 +1,8 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
-    config::UpdatableConfiguration, piv_key_descriptor_from_yubikey, read_yubikey,
-    CertificateConfig, Handler, PrivateKey, Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
+    config::UpdatableConfiguration, control::RusticaAgentRunner, piv_key_descriptor_from_yubikey,
+    read_yubikey, CertificateConfig, CertificateState, Handler, PrivateKey, Signatory,
+    YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -14,13 +15,13 @@ use sshcerts::yubikey::piv::{SlotId, Yubikey};
 use tokio::{
     runtime::Runtime,
     sync::{
-        mpsc::{channel, Sender},
+        mpsc::{channel, Receiver, Sender},
         Mutex,
     },
 };
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicBool, Arc};
 use std::{convert::TryFrom, slice};
 
 // FFI related imports
@@ -31,6 +32,20 @@ pub struct RusticaAgentInstance {
     runtime: Runtime,
     shutdown_sender: Sender<()>,
     handler: Arc<Handler>,
+}
+
+fn start_listeners(
+    runtime: &Runtime,
+    handler: Arc<Handler>,
+    socket_path: &str,
+    shutdown: Receiver<()>,
+) -> Result<(), crate::control::ControlError> {
+    let runner = {
+        let _guard = runtime.enter();
+        RusticaAgentRunner::bind(handler, socket_path, None)?
+    };
+    runtime.spawn(runner.run(shutdown));
+    Ok(())
 }
 
 /// Builds PIV key descriptors from parallel C arrays (serial/slot/pin per
@@ -248,17 +263,15 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     certificate_options.authority = authority;
 
     let handler = Handler {
-        updatable_configuration: updatable_configuration.into(),
-        cert: None.into(),
-        stale_at: 0.into(),
+        certificate_state: CertificateState::new(updatable_configuration, certificate_options)
+            .into(),
         pubkey: private_key.pubkey.clone(),
-        certificate_options,
         signatory: Signatory::Direct(private_key.into()),
         identities: HashMap::new().into(),
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
-        disable_certificate,
+        disable_certificate: AtomicBool::new(disable_certificate),
         list_primary_certificate_only: false,
         fido_identity: None,
     };
@@ -266,16 +279,11 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
     let handler = Arc::new(handler);
 
-    let runtime_handler = handler.clone();
-    runtime.spawn(async move {
-        Agent::run_with_termination_channel(
-            runtime_handler,
-            socket_path.to_string(),
-            Some(shutdown_receiver),
-        )
-        .await;
-        println!("Rustica Agent has shutdown");
-    });
+    if let Err(error) = start_listeners(&runtime, handler.clone(), &socket_path, shutdown_receiver)
+    {
+        error!("Could not bind Rustica agent listeners: {error}");
+        return std::ptr::null();
+    }
 
     let agent_instance = Box::new(RusticaAgentInstance {
         runtime,
@@ -290,11 +298,14 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
 
 #[no_mangle]
 pub unsafe extern "C" fn shutdown_rustica_agent(rai: *mut RusticaAgentInstance) -> bool {
+    if rai.is_null() {
+        return false;
+    }
     let rustica_agent_instance = Box::from_raw(rai);
     let shutdown_sender = rustica_agent_instance.shutdown_sender.clone();
-    rustica_agent_instance.runtime.spawn(async move {
-        shutdown_sender.send(()).await.unwrap();
-        println!("Sent shutdown message");
+    rustica_agent_instance.runtime.block_on(async move {
+        let _ = shutdown_sender.send(()).await;
+        tokio::task::yield_now().await;
     });
 
     true
@@ -455,17 +466,15 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     };
 
     let handler = Handler {
-        updatable_configuration: Mutex::new(updatable_configuration),
-        cert: None.into(),
-        stale_at: Mutex::new(0),
+        certificate_state: CertificateState::new(updatable_configuration, certificate_options)
+            .into(),
         pubkey,
-        certificate_options,
         signatory: Signatory::Yubikey(signer),
         identities: Mutex::new(HashMap::new()),
         piv_identities,
         notification_function: Some(Box::new(notification_f)),
         certificate_priority,
-        disable_certificate,
+        disable_certificate: AtomicBool::new(disable_certificate),
         list_primary_certificate_only,
         fido_identity,
     };
@@ -483,12 +492,11 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
 
     let handler = Arc::new(handler);
 
-    let runtime_handler = handler.clone();
-    runtime.spawn(async move {
-        Agent::run_with_termination_channel(runtime_handler, socket_path, Some(shutdown_receiver))
-            .await;
-        println!("Rustica Agent has shutdown");
-    });
+    if let Err(error) = start_listeners(&runtime, handler.clone(), &socket_path, shutdown_receiver)
+    {
+        error!("Could not bind Rustica agent listeners: {error}");
+        return std::ptr::null();
+    }
 
     let agent_instance = Box::new(RusticaAgentInstance {
         runtime,
@@ -570,4 +578,124 @@ pub unsafe extern "C" fn ffi_get_certificate(
     };
 
     certificate.into_raw()
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::control::{default_endpoint, ControlClient, Setting, SettingValue};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    unsafe extern "C" fn notification() {}
+
+    fn temp_path() -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("rustica-ffi-{}-{nonce}", std::process::id()))
+    }
+
+    #[test]
+    fn direct_ffi_binds_control_and_ssh_and_resets_on_restart() {
+        let directory = temp_path();
+        fs::create_dir(&directory).unwrap();
+        let config_path = directory.join("config.toml");
+        let replacement = directory.join("replacement.toml");
+        fs::write(&config_path, "version = 2\nservers = []\n").unwrap();
+        fs::write(&replacement, "version = 2\nservers = []\n").unwrap();
+        let socket = directory.join("agent.sock");
+        let key = CString::new(
+            fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../tests/test_ed25519"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let config = CString::new(config_path.to_string_lossy().as_bytes()).unwrap();
+        let socket_c = CString::new(socket.to_string_lossy().as_bytes()).unwrap();
+        let authority = CString::new("").unwrap();
+        let start = || unsafe {
+            start_direct_rustica_agent(
+                key.as_ptr(),
+                config.as_ptr(),
+                socket_c.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                notification,
+                authority.as_ptr(),
+                false,
+                false,
+            )
+        };
+        let instance = start();
+        assert!(!instance.is_null());
+        let control = default_endpoint(&socket);
+        assert!(socket.exists() && control.exists());
+        let runtime = Runtime::new().unwrap();
+        runtime.block_on(async {
+            let client = ControlClient::new(&control);
+            assert_eq!(
+                client.get(Setting::DisableCertificate).await.unwrap(),
+                SettingValue::Bool(false)
+            );
+            assert_eq!(
+                client
+                    .set(Setting::DisableCertificate, SettingValue::Bool(true))
+                    .await
+                    .unwrap(),
+                SettingValue::Bool(true)
+            );
+            assert_eq!(
+                client
+                    .set(Setting::ConfigPath, SettingValue::Path(replacement.clone()))
+                    .await
+                    .unwrap(),
+                SettingValue::Path(replacement.clone())
+            );
+        });
+        assert!(start().is_null());
+        let mut active = std::os::unix::net::UnixStream::connect(&control).unwrap();
+        active
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let request = br#"{"version":1,"op":"get","setting":"disable_certificate"}"#;
+        std::io::Write::write_all(&mut active, &(request.len() as u32).to_be_bytes()).unwrap();
+        std::io::Write::write_all(&mut active, request).unwrap();
+        let mut length = [0; 4];
+        std::io::Read::read_exact(&mut active, &mut length).unwrap();
+        let mut response = vec![0; u32::from_be_bytes(length) as usize];
+        std::io::Read::read_exact(&mut active, &mut response).unwrap();
+        assert!(unsafe { shutdown_rustica_agent(instance as *mut RusticaAgentInstance) });
+        assert_eq!(std::io::Read::read(&mut active, &mut [0]).unwrap(), 0);
+        assert!(!socket.exists() && !control.exists());
+        let restarted = start();
+        assert!(!restarted.is_null());
+        runtime.block_on(async {
+            assert_eq!(
+                ControlClient::new(&control)
+                    .get(Setting::DisableCertificate)
+                    .await
+                    .unwrap(),
+                SettingValue::Bool(false)
+            );
+        });
+        runtime.block_on(async {
+            assert_eq!(
+                ControlClient::new(&control)
+                    .get(Setting::ConfigPath)
+                    .await
+                    .unwrap(),
+                SettingValue::Path(config_path),
+            );
+        });
+        unsafe { drop(Box::from_raw(restarted as *mut RusticaAgentInstance)) };
+        assert!(!socket.exists() && !control.exists());
+        fs::remove_dir_all(directory).unwrap();
+    }
 }

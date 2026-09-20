@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{atomic::AtomicBool, Arc};
 use std::{collections::HashMap, fs};
 
 use rustica_agent::{
-    get_all_piv_keys, Handler, RusticaAgentLibraryError, Signatory, YubikeyPIVKeyDescriptor,
-    YubikeySigner,
+    get_all_piv_keys, CertificateState, Handler, RusticaAgentLibraryError, Signatory,
+    YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 use clap::{Arg, ArgMatches, Command};
@@ -158,17 +158,15 @@ pub async fn configure_multimode(
     key_map.remove(&pubkey.encode().to_vec());
 
     let handler = Handler {
-        updatable_configuration: updatable_configuration.into(),
-        cert: None.into(),
+        certificate_state: CertificateState::new(updatable_configuration, certificate_options)
+            .into(),
         pubkey: pubkey.clone(),
         signatory,
-        stale_at: 0.into(),
-        certificate_options,
         identities: private_keys.into(),
         piv_identities: key_map,
         notification_function: None,
         certificate_priority: matches.is_present("certificate-priority"),
-        disable_certificate: matches.is_present("disable-certificate"),
+        disable_certificate: AtomicBool::new(matches.is_present("disable-certificate")),
         list_primary_certificate_only: false,
         fido_identity: None,
     };
@@ -176,6 +174,7 @@ pub async fn configure_multimode(
     let handler = Arc::new(handler);
     Ok(RusticaAgentAction::Run(RunConfig {
         socket_path,
+        control_socket_path: matches.value_of("control-socket").map(Into::into),
         pubkey,
         handler,
     }))

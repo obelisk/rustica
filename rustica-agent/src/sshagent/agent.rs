@@ -13,7 +13,7 @@ use super::error::HandleResult;
 pub struct Agent;
 
 impl Agent {
-    async fn handle_client<T: SshAgentHandler>(
+    pub(crate) async fn handle_client<T: SshAgentHandler>(
         handler: Arc<T>,
         mut stream: UnixStream,
     ) -> HandleResult<()> {
