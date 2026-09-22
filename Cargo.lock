@@ -4685,7 +4685,7 @@ dependencies = [
 
 [[package]]
 name = "rustica"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "asn1",
  "async-trait",
@@ -4719,7 +4719,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "async-trait",
  "base64 0.13.1",
@@ -4746,7 +4746,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent-cli"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "clap",
  "env_logger",
@@ -4761,7 +4761,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent-gui"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "base64 0.12.3",
  "eframe",
@@ -5307,9 +5307,9 @@ dependencies = [
 
 [[package]]
 name = "sshcerts"
-version = "0.15.3"
+version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae385b98baab8928fe52039f4f054228c6592e2da062c3e3d4b9381a30a2fc01"
+checksum = "a8b4ee256fe8f54766ca7f2a1778c4a97fe7d850a3f8330b7a68fb793e162abb"
 dependencies = [
  "aes 0.7.5",
  "authenticator",
