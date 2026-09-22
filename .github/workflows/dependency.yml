@@ -14,7 +14,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    - uses: timweri/cargo-oxidate@v0.1.8 # immutable
+    - uses: timweri/cargo-oxidate@v0.2.1 # immutable
       with:
         min-age-days: 14
         exempt-packages: sshcerts
