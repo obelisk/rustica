@@ -741,12 +741,12 @@ pub fn slot_parser(slot: &str) -> Option<SlotId> {
     if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
         let slot_value = slot[1..].parse::<u8>();
         match slot_value {
-            Ok(v) if v <= 20 => Some(SlotId::try_from(0x81_u8 + v).unwrap()),
+            Ok(v) if (1..=20).contains(&v) => SlotId::try_from(0x81_u8 + v).ok(),
             _ => None,
         }
     } else if slot.len() == 4 && slot.starts_with("0x") {
-        let slot_value = hex::decode(&slot[2..]).unwrap()[0];
-        Some(SlotId::try_from(slot_value).unwrap())
+        let slot_value = u8::from_str_radix(&slot[2..], 16).ok()?;
+        SlotId::try_from(slot_value).ok()
     } else {
         None
     }
@@ -1055,6 +1055,42 @@ pub async fn get_allowed_signers(
 mod tests {
     use super::*;
     use sshcerts::ssh::KeyTypeKind;
+
+    #[test]
+    fn slot_validation_rejects_invalid_inputs() {
+        for input in [
+            "0xGG", "0x00", "0x96", "0xff", "R0", "R00", "R21", "R-1", "", "R", "0x", "0x9",
+            "0x9a0", "9a", "Ré", "0xé",
+        ] {
+            assert!(
+                slot_validator(input).is_err(),
+                "accepted invalid slot {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn slot_parser_preserves_valid_mappings() {
+        for (input, expected) in [
+            ("R1", 0x82),
+            ("R20", 0x95),
+            ("0x9a", 0x9a),
+            ("0x9C", 0x9c),
+            ("0x82", 0x82),
+            ("0x95", 0x95),
+            ("0x81", 0x81),
+        ] {
+            assert_eq!(
+                slot_parser(input).map(u8::from),
+                Some(expected),
+                "slot {input:?}"
+            );
+            assert!(
+                slot_validator(input).is_ok(),
+                "rejected valid slot {input:?}"
+            );
+        }
+    }
 
     // Marker blob so we can tell the certificate identity apart from the
     // bare key in listings without a real server.
