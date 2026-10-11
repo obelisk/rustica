@@ -1,7 +1,5 @@
 use super::{LoggingError, RusticaLogger, WrappedLog};
 
-use reqwest;
-
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -44,19 +42,17 @@ impl SplunkLogger {
     /// Implement the new function for the Splunk logger. This converts
     /// the configuration struct into a type that can handle sending
     /// logs directly to a Splunk HEC endpoint.
-    pub fn new(config: Config, handle: Handle) -> Self {
-        // I don't think this can fail with our settings so we do an unwrap
+    pub fn new(config: Config, handle: Handle) -> Result<Self, reqwest::Error> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout.into()))
-            .build()
-            .unwrap();
+            .build()?;
 
-        Self {
+        Ok(Self {
             runtime: handle,
             client,
             token: config.token.clone(),
             url: config.url.clone(),
-        }
+        })
     }
 }
 
@@ -77,7 +73,7 @@ impl RusticaLogger for SplunkLogger {
         let res = self
             .client
             .post(&self.url)
-            .header("Authorization", format!("Splunk {}", &self.token))
+            .header("Authorization", format!("Splunk {}", self.token))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .header("Content-Length", data.len())
             .body(data);
@@ -85,7 +81,7 @@ impl RusticaLogger for SplunkLogger {
         self.runtime.spawn(async move {
             match res.send().await {
                 Ok(_) => (),
-                Err(e) => error!("Could not log to Splunk: {}", e.to_string()),
+                Err(e) => error!("Could not log to Splunk: {e}"),
             };
         });
 
