@@ -26,5 +26,7 @@ jobs:
       run: sudo apt install -y libpcsclite-dev libusb-1.0-0-dev libudev-dev
     - name: Run unit tests
       run: cargo test -p rustica-agent
+    - name: Run Yubikey signer tests
+      run: cargo test -p rustica --features yubikey-support
     - name: Run Integration Tests
       run: ./tests/integration.sh

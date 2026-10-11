@@ -10,7 +10,6 @@ use sshcerts::{ssh::CertType, Certificate, PublicKey};
 use async_trait::async_trait;
 
 use serde::Deserialize;
-use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
 use rcgen::{Certificate as X509Certificate, CertificateParams, DnType, IsCa, RemoteKeyPair};
@@ -204,28 +203,56 @@ pub fn parse_option_slot<'de, D>(deserializer: D) -> Result<Option<SlotId>, D::E
 where
     D: serde::Deserializer<'de>,
 {
-    let slot = match String::deserialize(deserializer) {
-        Ok(s) => s,
-        _ => return Ok(None),
+    let Some(slot) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
     };
 
-    // If first character is R, then we need to parse the nice
-    // notation
-    if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
-        let slot_value = slot[1..].parse::<u8>();
-        match slot_value {
-            Ok(v) if v <= 20 => Ok(Some(SlotId::try_from(0x81_u8 + v).unwrap())),
-            _ => Err(serde::de::Error::custom("Invalid Slot")),
+    let slot_value = if (slot.len() == 2 || slot.len() == 3) && slot.starts_with('R') {
+        let value = slot[1..].parse::<u8>().map_err(serde::de::Error::custom)?;
+        if !(1..=20).contains(&value) {
+            return Err(serde::de::Error::custom("Invalid Slot"));
         }
+        0x81_u8 + value
     } else if slot.len() == 4 && slot.starts_with("0x") {
-        let slot_value = hex::decode(&slot[2..]).unwrap()[0];
-        Ok(Some(SlotId::try_from(slot_value).unwrap()))
+        u8::from_str_radix(&slot[2..], 16).map_err(serde::de::Error::custom)?
     } else {
-        Err(serde::de::Error::custom("Invalid Slot"))
-    }
+        return Err(serde::de::Error::custom("Invalid Slot"));
+    };
+    SlotId::try_from(slot_value)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
 }
 
 pub fn new_yubikey_mutex() -> Arc<Mutex<Yubikey>> {
     let yk = Yubikey::new().unwrap();
     Arc::new(Mutex::new(yk))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slot_deserialization_rejects_invalid_inputs() {
+        for field in [
+            "user_slot",
+            "host_slot",
+            "x509_slot",
+            "client_certificate_authority_slot",
+        ] {
+            for value in ["\"0xGG\"", "\"0x00\"", "\"R0\"", "123"] {
+                let input = format!("{field} = {value}");
+                assert!(toml::from_str::<Config>(&input).is_err(), "{input}");
+            }
+        }
+    }
+
+    #[test]
+    fn slot_deserialization_accepts_valid_and_omitted_slots() {
+        let config: Config = toml::from_str("user_slot = 'R1'\nhost_slot = '0x9c'").unwrap();
+        assert_eq!(config.user_slot.map(u8::from), Some(0x82));
+        assert_eq!(config.host_slot.map(u8::from), Some(0x9c));
+        assert!(config.x509_slot.is_none());
+        assert!(config.client_certificate_authority_slot.is_none());
+    }
 }
