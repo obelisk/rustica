@@ -47,7 +47,6 @@ impl SplunkLogger {
     pub fn new(config: Config, handle: Handle) -> Self {
         // I don't think this can fail with our settings so we do an unwrap
         let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
             .timeout(Duration::from_secs(config.timeout.into()))
             .build()
             .unwrap();
