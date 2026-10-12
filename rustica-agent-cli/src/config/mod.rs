@@ -343,7 +343,7 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             .await;
     }
 
-    if let Some(allowed_signers_config) = matches.subcommand_matches("allowed_signers") {
+    if let Some(allowed_signers_config) = matches.subcommand_matches("allowed-signers") {
         return allowed_signers::configure_allowed_signers(allowed_signers_config).await;
     }
 

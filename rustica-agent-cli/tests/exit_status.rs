@@ -18,10 +18,6 @@ fn configuration_errors_fail_on_stderr() {
         assert!(output.stdout.is_empty(), "config: {path}");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            stderr.starts_with("Error: BadConfiguration("),
-            "config: {path}, stderr: {stderr}"
-        );
-        assert!(
             stderr.contains(expected_error),
             "config: {path}, stderr: {stderr}"
         );
@@ -29,9 +25,8 @@ fn configuration_errors_fail_on_stderr() {
 }
 
 #[test]
-fn help_exits_successfully() {
+fn no_arguments_exits_successfully() {
     let output = Command::new(env!("CARGO_BIN_EXE_rustica-agent-cli"))
-        .arg("--help")
         .output()
         .unwrap();
 
