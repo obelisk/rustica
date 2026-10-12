@@ -107,6 +107,12 @@ impl AuthServer {
             }
         };
 
+        Self::parse_ssh_approval_response(&approval_response)
+    }
+
+    fn parse_ssh_approval_response(
+        approval_response: &HashMap<String, String>,
+    ) -> Result<SshAuthorization, AuthorizationError> {
         // Fi extension keys, strip the "extension." prefix and create a new
         // hashmap with the values
         let extensions: HashMap<String, String> = approval_response
@@ -142,19 +148,27 @@ impl AuthServer {
             None
         };
 
-        let serial = approval_response["serial"]
+        let serial = approval_response
+            .get("serial")
+            .ok_or(AuthorizationError::AuthorizerError)?
             .parse::<u64>()
             .map_err(|_| AuthorizationError::AuthorizerError)?;
-        let valid_before = approval_response["valid_before"]
+        let valid_before = approval_response
+            .get("valid_before")
+            .ok_or(AuthorizationError::AuthorizerError)?
             .parse::<u64>()
             .map_err(|_| AuthorizationError::AuthorizerError)?;
-        let valid_after = approval_response["valid_after"]
+        let valid_after = approval_response
+            .get("valid_after")
+            .ok_or(AuthorizationError::AuthorizerError)?
             .parse::<u64>()
             .map_err(|_| AuthorizationError::AuthorizerError)?;
 
         Ok(SshAuthorization {
             serial,
-            principals: approval_response["principals"]
+            principals: approval_response
+                .get("principals")
+                .ok_or(AuthorizationError::AuthorizerError)?
                 .split(',')
                 .map(String::from)
                 .collect(),
@@ -164,7 +178,10 @@ impl AuthServer {
             extensions,
             force_command,
             force_source_ip,
-            authority: approval_response["authority"].to_string(),
+            authority: approval_response
+                .get("authority")
+                .ok_or(AuthorizationError::AuthorizerError)?
+                .to_string(),
         })
     }
 
@@ -460,5 +477,54 @@ impl AuthServer {
             .collect();
 
         Ok(AllowedSigners { allowed_signers })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approval_response() -> HashMap<String, String> {
+        [
+            ("serial", "42"),
+            ("valid_before", "200"),
+            ("valid_after", "100"),
+            ("principals", "alice,bob"),
+            ("authority", "test-authority"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect()
+    }
+
+    #[test]
+    fn missing_required_ssh_approval_fields_return_error() {
+        let complete_response = approval_response();
+        for field in complete_response.keys() {
+            let mut response = complete_response.clone();
+            response.remove(field);
+            assert!(
+                matches!(
+                    AuthServer::parse_ssh_approval_response(&response),
+                    Err(AuthorizationError::AuthorizerError)
+                ),
+                "missing field: {field}"
+            );
+        }
+    }
+
+    #[test]
+    fn complete_ssh_approval_without_optional_fields_is_accepted() {
+        let authorization = AuthServer::parse_ssh_approval_response(&approval_response()).unwrap();
+
+        assert_eq!(authorization.serial, 42);
+        assert_eq!(authorization.valid_before, 200);
+        assert_eq!(authorization.valid_after, 100);
+        assert_eq!(authorization.principals, ["alice", "bob"]);
+        assert_eq!(authorization.authority, "test-authority");
+        assert_eq!(authorization.hosts, None);
+        assert_eq!(authorization.force_command, None);
+        assert!(!authorization.force_source_ip);
+        assert!(authorization.extensions.is_empty());
     }
 }
