@@ -39,6 +39,14 @@ pub enum ConfigurationError {
     UnableToDetermineKey,
 }
 
+impl std::fmt::Display for ConfigurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for ConfigurationError {}
+
 pub struct RunConfig {
     pub socket_path: String,
     pub pubkey: PublicKey,
