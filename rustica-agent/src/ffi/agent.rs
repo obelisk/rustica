@@ -283,9 +283,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         handler,
     });
 
-    let agent_instance_pointer: *const RusticaAgentInstance = Box::leak(agent_instance);
-
-    agent_instance_pointer
+    Box::into_raw(agent_instance)
 }
 
 #[no_mangle]
@@ -496,9 +494,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         handler,
     });
 
-    let agent_instance_pointer: *const RusticaAgentInstance = Box::leak(agent_instance);
-
-    agent_instance_pointer
+    Box::into_raw(agent_instance)
 }
 
 /// Fetch a string that will configure a git repository for code
@@ -538,7 +534,7 @@ pub unsafe extern "C" fn ffi_get_certificate(
     rai: *mut RusticaAgentInstance,
     fetch_new_cert_if_needed: bool,
 ) -> *const c_char {
-    let rustica_agent_instance = Box::from_raw(rai);
+    let rustica_agent_instance = &*rai;
     let handler = rustica_agent_instance.handler.clone();
 
     let runtime_handle = rustica_agent_instance.runtime.handle();
@@ -550,11 +546,6 @@ pub unsafe extern "C" fn ffi_get_certificate(
             None
         }
     };
-
-    // We need to leak here otherwise we will free the RAI
-    // when we're still using it. Would be nice if Box had Box::into_weak or
-    // something similar
-    Box::leak(rustica_agent_instance);
 
     let certificate = match certificate {
         Some(v) => v,

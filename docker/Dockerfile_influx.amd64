@@ -1,11 +1,13 @@
-FROM ekidd/rust-musl-builder:1.57.0 as builder
+FROM messense/rust-musl-cross:x86_64-musl as builder
 USER root
 RUN apt update && apt upgrade -y && apt install -y git
-RUN rustup component add rustfmt
 RUN mkdir /rustica
+COPY rust-toolchain.toml /tmp/rust-toolchain.toml
 COPY proto /tmp/proto
 COPY rustica /tmp/rustica
 WORKDIR /tmp/rustica
+
+RUN rustup target add x86_64-unknown-linux-musl
 
 RUN cargo build --target=x86_64-unknown-linux-musl --features="influx" --release
 
