@@ -1,6 +1,6 @@
 FROM messense/rust-musl-cross:aarch64-musl as builder
 
-RUN apt-get update && apt install -y protobuf-compiler
+RUN apt-get update && apt install -y protobuf-compiler cmake perl
 
 RUN mkdir /rustica
 COPY rust-toolchain.toml /tmp/rust-toolchain.toml
