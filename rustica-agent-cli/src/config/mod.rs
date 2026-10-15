@@ -39,6 +39,14 @@ pub enum ConfigurationError {
     UnableToDetermineKey,
 }
 
+impl std::fmt::Display for ConfigurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for ConfigurationError {}
+
 pub struct RunConfig {
     pub socket_path: String,
     pub pubkey: PublicKey,
@@ -335,7 +343,7 @@ pub async fn configure() -> Result<RusticaAgentAction, ConfigurationError> {
             .await;
     }
 
-    if let Some(allowed_signers_config) = matches.subcommand_matches("allowed_signers") {
+    if let Some(allowed_signers_config) = matches.subcommand_matches("allowed-signers") {
         return allowed_signers::configure_allowed_signers(allowed_signers_config).await;
     }
 
