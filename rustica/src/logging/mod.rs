@@ -228,10 +228,16 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
 
     #[cfg(feature = "splunk")]
     let splunk_logger = match config.splunk {
-        Some(config) => {
-            println!("Configured logger: splunk");
-            Some(splunk::SplunkLogger::new(config, runtime.handle().clone()))
-        }
+        Some(config) => match splunk::SplunkLogger::new(config, runtime.handle().clone()) {
+            Ok(logger) => {
+                println!("Configured logger: splunk");
+                Some(logger)
+            }
+            Err(e) => {
+                error!("Could not initialize Splunk logger; Splunk logging is disabled: {e}");
+                None
+            }
+        },
         None => None,
     };
 
@@ -266,21 +272,21 @@ pub fn start_logging_thread(config: LoggingConfiguration, log_receiver: Receiver
 
         #[cfg(feature = "influx")]
         if let Some(logger) = &influx_logger {
-            if let Err(_) = logger.send_log(&log) {
+            if logger.send_log(&log).is_err() {
                 error!("Could not send logs to InfluxDB");
             }
         }
 
         #[cfg(feature = "splunk")]
         if let Some(logger) = &splunk_logger {
-            if let Err(_) = logger.send_log(&log) {
+            if logger.send_log(&log).is_err() {
                 error!("Could not send logs to Splunk");
             }
         }
 
         #[cfg(feature = "webhook")]
         if let Some(logger) = &webhook_logger {
-            if let Err(_) = logger.send_log(&log) {
+            if logger.send_log(&log).is_err() {
                 error!("Could not send logs to webhook");
             }
         }

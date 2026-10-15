@@ -192,7 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("Certificate: {:?}", parsed_cert);
                     }
                 },
-                Err(e) => println!("Error: {:?}", e),
+                Err(e) => return Err(e.into()),
             }
         }
         Ok(RusticaAgentAction::GetAllowedSigners(config)) => {
@@ -208,7 +208,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(config::ConfigurationError::NoMode) => (),
-        Err(e) => println!("Error: {:?}", e),
+        Err(e) => return Err(e.into()),
     };
 
     Ok(())
