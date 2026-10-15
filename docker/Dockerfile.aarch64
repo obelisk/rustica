@@ -2,11 +2,13 @@ FROM messense/rust-musl-cross:aarch64-musl as builder
 
 RUN apt-get update && apt install -y protobuf-compiler
 
-RUN rustup component add rustfmt
 RUN mkdir /rustica
+COPY rust-toolchain.toml /tmp/rust-toolchain.toml
 COPY proto /tmp/proto
 COPY rustica /tmp/rustica
 WORKDIR /tmp/rustica
+
+RUN rustup target add aarch64-unknown-linux-musl
 
 RUN cargo build --features="amazon-kms,splunk,webhook" --release
 
