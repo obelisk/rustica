@@ -58,10 +58,10 @@ aws-types = { version = "1.6", optional = true }
 diesel = { version = "2", features = ["sqlite"], optional = true }
 
 # Dependencies for Influx
-influxdb = { version = "0.6", optional = true }
+influxdb = { version = "0.8", optional = true }
 
 # Dependencies for Splunk/Webhook
-reqwest = { version = "0.11", default-features = false, features = [
+reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
 ], optional = true }
 serde_json = { version = "1.0", optional = true }
