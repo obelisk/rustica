@@ -5098,7 +5098,7 @@ dependencies = [
 
 [[package]]
 name = "rustica"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "asn1",
  "async-trait",
@@ -5132,7 +5132,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "async-trait",
  "base64 0.13.1",
@@ -5159,7 +5159,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent-cli"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "clap",
  "env_logger",
@@ -5174,7 +5174,7 @@ dependencies = [
 
 [[package]]
 name = "rustica-agent-gui"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "base64 0.12.3",
  "eframe",
