@@ -1,7 +1,8 @@
 pub use crate::sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 use crate::{
     config::UpdatableConfiguration, piv_key_descriptor_from_yubikey, read_yubikey,
-    CertificateConfig, Handler, PrivateKey, Signatory, YubikeyPIVKeyDescriptor, YubikeySigner,
+    CertificateConfig, Handler, PrivateKey, Signatory, TouchEvent, TouchNotifier,
+    YubikeyPIVKeyDescriptor, YubikeySigner,
 };
 
 pub use crate::rustica::{
@@ -101,6 +102,20 @@ unsafe fn build_piv_identities_from_ffi(
     Some(piv_identities)
 }
 
+/// # Safety
+/// `notification_fn` and `dismiss_fn` must be safe to call from any thread
+/// until the returned notifier is dropped.
+unsafe fn build_touch_notifier(
+    notification_fn: unsafe extern "C" fn() -> (),
+    dismiss_fn: Option<unsafe extern "C" fn() -> ()>,
+) -> TouchNotifier {
+    TouchNotifier::new(move |event| match (event, dismiss_fn) {
+        (TouchEvent::Notify, _) => unsafe { notification_fn() },
+        (TouchEvent::Dismiss, Some(dismiss_fn)) => unsafe { dismiss_fn() },
+        (TouchEvent::Dismiss, None) => {}
+    })
+}
+
 /// Start a new Rustica instance. Does not return unless Rustica exits.
 /// # Safety
 /// `config_path` and `socket_path` must be a null terminated C strings
@@ -154,12 +169,56 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
     piv_key_count: c_int,
     disable_certificate: bool,
 ) -> *const RusticaAgentInstance {
+    start_direct_rustica_agent_with_piv_idents_v2(
+        private_key,
+        config_path,
+        socket_path,
+        pin,
+        device,
+        notification_fn,
+        authority,
+        certificate_priority,
+        piv_serials,
+        piv_slots,
+        piv_pins,
+        piv_key_count,
+        disable_certificate,
+        None,
+    )
+}
+
+/// Start a new Rustica instance. Does not return unless Rustica exits.
+///
+/// `notification_fn` is called each time a request starts waiting for a touch.
+/// `dismiss_fn` may be null. If set, it is called once no request is waiting
+/// for a touch any more: remove every touch notification shown so far. Both
+/// are called in order on a dedicated thread, never concurrently.
+/// `shutdown_rustica_agent` waits for pending calls, so they must not block on
+/// the thread that calls it.
+/// # Safety
+/// `config_path` and `socket_path` must be a null terminated C strings
+/// or behaviour is undefined and will result in a crash.
+/// `notification_fn` and `dismiss_fn` must be safe to call from any thread
+/// until `shutdown_rustica_agent` returns.
+#[no_mangle]
+pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents_v2(
+    private_key: *const c_char,
+    config_path: *const c_char,
+    socket_path: *const c_char,
+    pin: *const c_char,
+    device: *const c_char,
+    notification_fn: unsafe extern "C" fn() -> (),
+    authority: *const c_char,
+    certificate_priority: bool,
+    piv_serials: *const c_long,
+    piv_slots: *const u8,
+    piv_pins: *const c_long,
+    piv_key_count: c_int,
+    disable_certificate: bool,
+    dismiss_fn: Option<unsafe extern "C" fn() -> ()>,
+) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();
     println!("Starting a new Rustica instance!");
-
-    let notification_f = move || {
-        notification_fn();
-    };
 
     let cf = CStr::from_ptr(config_path);
     let config_path = match cf.to_str() {
@@ -256,7 +315,7 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
         signatory: Signatory::Direct(private_key.into()),
         identities: HashMap::new().into(),
         piv_identities,
-        notification_function: Some(Box::new(notification_f)),
+        notification_function: Some(build_touch_notifier(notification_fn, dismiss_fn)),
         certificate_priority,
         disable_certificate,
         list_primary_certificate_only: false,
@@ -372,12 +431,56 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
     fido_private_key: *const c_char,
     disable_certificate: bool,
 ) -> *const RusticaAgentInstance {
+    start_yubikey_rustica_agent_with_piv_idents_v2(
+        yubikey_serial,
+        slot,
+        config_path,
+        socket_path,
+        pin,
+        notification_fn,
+        authority,
+        certificate_priority,
+        piv_serials,
+        piv_slots,
+        piv_pins,
+        piv_key_count,
+        list_primary_certificate_only,
+        fido_private_key,
+        disable_certificate,
+        None,
+    )
+}
+
+/// Same as `start_yubikey_rustica_agent_with_piv_idents`, plus `dismiss_fn`.
+/// See `start_direct_rustica_agent_with_piv_idents_v2` for `notification_fn`
+/// and `dismiss_fn`.
+/// # Safety
+/// Same as `start_yubikey_rustica_agent_with_piv_idents`, and `notification_fn`
+/// and `dismiss_fn` must be safe to call from any thread until
+/// `shutdown_rustica_agent` returns.
+#[no_mangle]
+pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents_v2(
+    yubikey_serial: u32,
+    slot: u8,
+    config_path: *const c_char,
+    socket_path: *const c_char,
+    pin: *const c_char,
+    notification_fn: unsafe extern "C" fn() -> (),
+    authority: *const c_char,
+    certificate_priority: bool,
+    piv_serials: *const c_long,
+    piv_slots: *const u8,
+    piv_pins: *const c_long,
+    piv_key_count: c_int,
+    // If true, advertise only the certificate for the primary key, never the bare key.
+    list_primary_certificate_only: bool,
+    // Optional additional FIDO identity to advertise alongside the primary key; null if unused.
+    fido_private_key: *const c_char,
+    disable_certificate: bool,
+    dismiss_fn: Option<unsafe extern "C" fn() -> ()>,
+) -> *const RusticaAgentInstance {
     let _ = env_logger::try_init();
     println!("Starting a new Rustica instance!");
-
-    let notification_f = move || {
-        notification_fn();
-    };
 
     let authority = CStr::from_ptr(authority);
     let authority = match authority.to_str() {
@@ -461,7 +564,7 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
         signatory: Signatory::Yubikey(signer),
         identities: Mutex::new(HashMap::new()),
         piv_identities,
-        notification_function: Some(Box::new(notification_f)),
+        notification_function: Some(build_touch_notifier(notification_fn, dismiss_fn)),
         certificate_priority,
         disable_certificate,
         list_primary_certificate_only,

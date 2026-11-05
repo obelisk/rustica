@@ -1,6 +1,6 @@
 use super::error::{RefreshError, ServerError};
 use super::{CertificateRequest, RusticaCert, Signatory};
-use crate::{CertificateConfig, MtlsCredentials, RusticaServer};
+use crate::{CertificateConfig, MtlsCredentials, RusticaServer, TouchNotifier};
 use sshcerts::Certificate;
 use tokio::runtime::Handle;
 
@@ -55,7 +55,7 @@ impl RusticaServer {
         &self,
         signatory: &Signatory,
         options: &CertificateConfig,
-        notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
+        notification_function: &Option<TouchNotifier>,
         mtls_csr_renewal_period: u64,
     ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
         let (mut client, challenge) =
@@ -115,7 +115,7 @@ impl RusticaServer {
         signatory: &mut Signatory,
         options: &CertificateConfig,
         handle: &Handle,
-        notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
+        notification_function: &Option<TouchNotifier>,
         mtls_csr_renewal_period: u64,
     ) -> Result<(RusticaCert, Option<MtlsCredentials>), RefreshError> {
         handle.block_on(async {

@@ -3,6 +3,7 @@ extern crate log;
 
 pub mod config;
 pub mod ffi;
+mod notification;
 pub mod rustica;
 pub mod sshagent;
 
@@ -13,6 +14,8 @@ use config::{Options, UpdatableConfiguration, DEFAULT_MTLS_CSR_RENEWAL_PERIOD};
 use sshagent::constraints::Constraint;
 
 pub use config::Config;
+use notification::notify_touch;
+pub use notification::{TouchEvent, TouchNotifier};
 use serde_derive::{Deserialize, Serialize};
 pub use sshagent::{error::Error as AgentError, Agent, Identity, Response, SshAgentHandler};
 
@@ -192,8 +195,9 @@ pub struct Handler {
     pub identities: Mutex<HashMap<Vec<u8>, PrivateKey>>,
     /// Other PIV identities
     pub piv_identities: HashMap<Vec<u8>, YubikeyPIVKeyDescriptor>,
-    /// A function that we will call before calling the signatory
-    pub notification_function: Option<Box<dyn Fn() + Send + Sync>>,
+    /// Notifies the user before a touch-required signing operation, and
+    /// dismisses the notification once no operation is waiting for a touch
+    pub notification_function: Option<TouchNotifier>,
     /// Should we list the certificate or key first when we're asked to list
     /// identities
     pub certificate_priority: bool,
@@ -493,18 +497,9 @@ impl SshAgentHandler for Handler {
                 AgentError::from("Unable to open Yubikey")
             })?;
 
+            // Kept across retries, so a retry re-notifies without a dismiss in between
+            let mut touch = None;
             let signature = with_reset_retry(&mut yk, |yk| {
-                if descriptor.touch_required {
-                    if let Some(f) = &self.notification_function {
-                        println!("Trying to send a notification");
-                        f()
-                    } else {
-                        println!("No notification function set");
-                    }
-                } else {
-                    println!("Skipping notification for no-touch key");
-                }
-
                 match &descriptor.pin {
                     Some(pin) => {
                         verify_yk_pin(yk, descriptor.serial, pin).map_err(CardOpError::Fatal)?
@@ -518,6 +513,12 @@ impl SshAgentHandler for Handler {
                     None => {}
                 }
 
+                match (&self.notification_function, descriptor.touch_required) {
+                    (_, false) => println!("Skipping notification for no-touch key"),
+                    (None, true) => println!("No notification function set"),
+                    (Some(_), true) => println!("Trying to send a notification"),
+                }
+                touch = notify_touch(&self.notification_function, descriptor.touch_required);
                 yk.ssh_cert_signer(&data, &descriptor.slot).map_err(|e| {
                     println!("Signing Error: {e}");
                     classify_yk_error(&e, yk_signing_error(descriptor.pin.is_some()))
@@ -532,11 +533,10 @@ impl SshAgentHandler for Handler {
         {
             let fido = self.fido_identity.as_ref().unwrap();
 
-            if fido.touch_requirement().is_required() {
-                if let Some(f) = &self.notification_function {
-                    f()
-                }
-            }
+            let _touch = notify_touch(
+                &self.notification_function,
+                fido.touch_requirement().is_required(),
+            );
 
             let signature = match fido.sign(&data) {
                 None => return Err(AgentError::from("Signing Error")),
@@ -552,11 +552,10 @@ impl SshAgentHandler for Handler {
                 return Err(AgentError::from("No such key"));
             }
 
-            if privkey.touch_requirement().is_required() {
-                if let Some(f) = &self.notification_function {
-                    f()
-                }
-            }
+            let _touch = notify_touch(
+                &self.notification_function,
+                privkey.touch_requirement().is_required(),
+            );
 
             let signature = match privkey.sign(&data) {
                 None => return Err(AgentError::from("Signing Error")),
@@ -569,6 +568,8 @@ impl SshAgentHandler for Handler {
             let _serial_guard = serial_lock.lock().await;
             let mut yk = signer.yk.lock().await;
 
+            // Kept across retries, so a retry re-notifies without a dismiss in between
+            let mut touch = None;
             let signature = with_reset_retry(&mut yk, |yk| {
                 // Don't sign requests if the requested key does not match the signatory
                 let pubkey = yk.ssh_cert_fetch_pubkey(&signer.slot).map_err(|e| {
@@ -577,16 +578,6 @@ impl SshAgentHandler for Handler {
                 })?;
                 if pubkey.fingerprint() != fingerprint {
                     return Err(CardOpError::Fatal(AgentError::from("No such key")));
-                }
-
-                // Since we are using the Yubikey for a signing operation the only time they
-                // won't have to tap here is if they are using cached keys and this is right after
-                // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be
-                // spurious.
-                if signer.touch_required {
-                    if let Some(f) = &self.notification_function {
-                        f()
-                    }
                 }
 
                 match &signer.pin {
@@ -602,6 +593,11 @@ impl SshAgentHandler for Handler {
                     None => {}
                 }
 
+                // Since we are using the Yubikey for a signing operation the only time they
+                // won't have to tap here is if they are using cached keys and this is right after
+                // a secure Rustica tap. In most cases, we'll need to send this, rarely, it'll be
+                // spurious.
+                touch = notify_touch(&self.notification_function, signer.touch_required);
                 yk.ssh_cert_signer(&data, &signer.slot).map_err(|e| {
                     println!("Signing Error: {e}");
                     classify_yk_error(&e, yk_signing_error(signer.pin.is_some()))
@@ -906,7 +902,7 @@ pub async fn fetch_new_certificate(
     configuration: &mut UpdatableConfiguration,
     signatory: &Signatory,
     options: &CertificateConfig,
-    notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
+    notification_function: &Option<TouchNotifier>,
 ) -> Result<Certificate, RusticaAgentLibraryError> {
     let mtls_csr_renewal_period = configuration
         .get_configuration()
