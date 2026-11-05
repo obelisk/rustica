@@ -102,7 +102,10 @@ unsafe fn build_piv_identities_from_ffi(
     Some(piv_identities)
 }
 
-fn build_touch_notifier(
+/// # Safety
+/// `notification_fn` and `dismiss_fn` must be safe to call from any thread
+/// until the returned notifier is dropped.
+unsafe fn build_touch_notifier(
     notification_fn: unsafe extern "C" fn() -> (),
     dismiss_fn: Option<unsafe extern "C" fn() -> ()>,
 ) -> TouchNotifier {
@@ -195,6 +198,8 @@ pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents(
 /// # Safety
 /// `config_path` and `socket_path` must be a null terminated C strings
 /// or behaviour is undefined and will result in a crash.
+/// `notification_fn` and `dismiss_fn` must be safe to call from any thread
+/// until `shutdown_rustica_agent` returns.
 #[no_mangle]
 pub unsafe extern "C" fn start_direct_rustica_agent_with_piv_idents_v2(
     private_key: *const c_char,
@@ -450,7 +455,9 @@ pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents(
 /// See `start_direct_rustica_agent_with_piv_idents_v2` for `notification_fn`
 /// and `dismiss_fn`.
 /// # Safety
-/// Same as `start_yubikey_rustica_agent_with_piv_idents`.
+/// Same as `start_yubikey_rustica_agent_with_piv_idents`, and `notification_fn`
+/// and `dismiss_fn` must be safe to call from any thread until
+/// `shutdown_rustica_agent` returns.
 #[no_mangle]
 pub unsafe extern "C" fn start_yubikey_rustica_agent_with_piv_idents_v2(
     yubikey_serial: u32,
