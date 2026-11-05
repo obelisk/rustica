@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use clap::{Arg, ArgMatches, Command};
-use rustica_agent::{slot_validator, Handler, Signatory};
+use rustica_agent::{slot_validator, Handler, Signatory, TouchEvent, TouchNotifier};
 
 use notify_rust::Notification;
 
@@ -41,7 +41,11 @@ pub async fn configure_singlemode(
         }
     };
 
-    let notification_f = move || {
+    // The CLI doesn't dismiss: notify-rust can only close notifications on XDG platforms
+    let notifier = TouchNotifier::new(move |event| {
+        if event != TouchEvent::Notify {
+            return;
+        }
         println!("Trying to send a notification");
         if let Err(e) = Notification::new()
             .summary("RusticaAgent")
@@ -50,7 +54,7 @@ pub async fn configure_singlemode(
         {
             error!("Notification system errored: {e}");
         }
-    };
+    });
 
     let handler = Handler {
         updatable_configuration: updatable_configuration.into(),
@@ -61,7 +65,7 @@ pub async fn configure_singlemode(
         certificate_options,
         identities: HashMap::new().into(),
         piv_identities: HashMap::new(),
-        notification_function: Some(Box::new(notification_f)),
+        notification_function: Some(notifier),
         certificate_priority: matches.is_present("certificate-priority"),
         disable_certificate: matches.is_present("disable-certificate"),
         list_primary_certificate_only: false,

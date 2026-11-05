@@ -20,7 +20,7 @@ use sshcerts::ssh::Certificate as SSHCertificate;
 
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
-use crate::{RusticaServer, Signatory};
+use crate::{notify_touch, RusticaServer, Signatory, TouchNotifier};
 
 pub mod rustica_proto {
     tonic::include_proto!("rustica");
@@ -60,7 +60,7 @@ pub async fn get_rustica_client(
 pub async fn complete_rustica_challenge(
     server: &RusticaServer,
     signatory: &Signatory,
-    notification_function: &Option<Box<dyn Fn() + Send + Sync>>,
+    notification_function: &Option<TouchNotifier>,
 ) -> Result<(RusticaClient<tonic::transport::Channel>, Challenge), RefreshError> {
     let ssh_pubkey = match signatory {
         Signatory::Yubikey(signer) => {
@@ -119,19 +119,6 @@ pub async fn complete_rustica_challenge(
         return Err(RefreshError::ServerChallengeNotForClientKey);
     }
 
-    // We need to sign the challenge so let's notify the user they
-    // will need to interact with their device if (if a device is being used)
-    let should_notify = match signatory {
-        Signatory::Yubikey(signer) => signer.touch_required,
-        Signatory::Direct(privkey) => privkey.lock().await.touch_requirement().is_required(),
-    };
-
-    if should_notify {
-        if let Some(f) = notification_function {
-            f();
-        }
-    }
-
     let resigned_certificate = match signatory {
         Signatory::Yubikey(signer) => {
             let serial_lock = crate::yk_serial_lock(signer.serial);
@@ -147,6 +134,7 @@ pub async fn complete_rustica_challenge(
                     None => return Err(RefreshError::SigningError),
                 }
             }
+            let _touch = notify_touch(notification_function, signer.touch_required);
             let signature = yk
                 .ssh_cert_signer(&challenge_certificate.tbs_certificate(), &signer.slot)
                 .map_err(|_| RefreshError::SigningError)?;
@@ -156,6 +144,10 @@ pub async fn complete_rustica_challenge(
         }
         Signatory::Direct(privkey) => {
             let privkey = privkey.lock().await;
+            let _touch = notify_touch(
+                notification_function,
+                privkey.touch_requirement().is_required(),
+            );
             challenge_certificate
                 .sign(privkey.deref())
                 .map_err(|_| RefreshError::SigningError)?
